@@ -56,7 +56,10 @@ class TadoxProxyClimate(ClimateEntity):
     @property
     def hvac_mode(self):
         st = self._source_state()
-        return None if st is None else st.attributes.get("hvac_mode")
+        if st is None:
+            return None
+        return st.attributes.get("hvac_mode") or st.state
+
 
     @property
     def hvac_modes(self):
