@@ -1,0 +1,18 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tado X Proxy Thermostat",
+        "description": "Select the source climate entity and a name for the proxy thermostat.",
+        "data": {
+          "source_entity_id": "Source climate entity",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found.",
+      "not_a_climate_entity": "Please select a climate entity."
+    }
+  }
+}
