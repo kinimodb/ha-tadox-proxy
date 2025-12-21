@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature
 from homeassistant.components.climate.const import (
     ATTR_HVAC_MODE,
     ATTR_TARGET_TEMP_HIGH,
@@ -10,60 +10,53 @@ from homeassistant.components.climate.const import (
 )
 from homeassistant.const import ATTR_TEMPERATURE
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_NAME, CONF_SOURCE_ENTITY_ID
+from .const import DOMAIN, CONF_NAME, CONF_SOURCE_ENTITY_ID
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    """Set up the proxy climate entity."""
-    name = entry.data[CONF_NAME]
+    name = entry.data.get(CONF_NAME, entry.title)
     source_entity_id = entry.data[CONF_SOURCE_ENTITY_ID]
-    async_add_entities([TadoxProxyClimate(hass, name, source_entity_id)])
+    async_add_entities([TadoxProxyClimate(hass, entry.entry_id, name, source_entity_id)])
 
 
 class TadoxProxyClimate(ClimateEntity):
-    """Proxy a source climate entity (forward commands and mirror state)."""
+    """Proxy climate entity that mirrors another climate entity and forwards service calls."""
 
-    def __init__(self, hass: HomeAssistant, name: str, source_entity_id: str) -> None:
+    _attr_has_entity_name = True
+
+    def __init__(self, hass: HomeAssistant, entry_id: str, name: str, source_entity_id: str) -> None:
         self.hass = hass
+        self._entry_id = entry_id
         self._source_entity_id = source_entity_id
-        self._remove_listener = None
-
         self._attr_name = name
-        self._attr_unique_id = f"{source_entity_id}_proxy"
-        self._attr_should_poll = False
+        self._attr_unique_id = f"{entry_id}_climate"
 
-        # WICHTIG: In deiner HA-Version erwartet ClimateEntity dieses Attribut
-        self._attr_temperature_unit = hass.config.units.temperature_unit
+    @property
+    def available(self) -> bool:
+        return self.hass.states.get(self._source_entity_id) is not None
 
     def _source_state(self):
         return self.hass.states.get(self._source_entity_id)
 
     @property
-    def available(self) -> bool:
-        st = self._source_state()
-        return st is not None and st.state not in ("unavailable", "unknown")
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"source_entity_id": self._source_entity_id}
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def temperature_unit(self):
         st = self._source_state()
-        if st is None:
-            return {"source_entity_id": self._source_entity_id}
-        attrs = dict(st.attributes)
-        attrs["source_entity_id"] = self._source_entity_id
-        return attrs
+        return None if st is None else st.attributes.get("temperature_unit")
 
     @property
     def hvac_mode(self):
         st = self._source_state()
-        return None if st is None else st.state
+        return None if st is None else st.attributes.get("hvac_mode")
 
     @property
     def hvac_modes(self):
@@ -71,9 +64,13 @@ class TadoxProxyClimate(ClimateEntity):
         return [] if st is None else st.attributes.get("hvac_modes", [])
 
     @property
-    def supported_features(self) -> int:
+    def supported_features(self) -> ClimateEntityFeature:
         st = self._source_state()
-        return 0 if st is None else int(st.attributes.get("supported_features", 0))
+        raw = 0 if st is None else st.attributes.get("supported_features", 0)
+        try:
+            return ClimateEntityFeature(int(raw))
+        except (TypeError, ValueError):
+            return ClimateEntityFeature(0)
 
     @property
     def current_temperature(self):
@@ -86,30 +83,38 @@ class TadoxProxyClimate(ClimateEntity):
         return None if st is None else st.attributes.get("temperature")
 
     @property
-    def target_temperature_low(self):
-        st = self._source_state()
-        return None if st is None else st.attributes.get(ATTR_TARGET_TEMP_LOW)
-
-    @property
     def target_temperature_high(self):
         st = self._source_state()
         return None if st is None else st.attributes.get(ATTR_TARGET_TEMP_HIGH)
 
     @property
-    def min_temp(self):
+    def target_temperature_low(self):
         st = self._source_state()
-        return None if st is None else st.attributes.get("min_temp")
+        return None if st is None else st.attributes.get(ATTR_TARGET_TEMP_LOW)
 
-    @property
-    def max_temp(self):
-        st = self._source_state()
-        return None if st is None else st.attributes.get("max_temp")
-
-    @property
-    def current_humidity(self):
-        st = self._source_state()
-        return None if st is None else st.attributes.get("current_humidity")
+    async def async_set_hvac_mode(self, hvac_mode: str) -> None:
+        await self.hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {
+                "entity_id": self._source_entity_id,
+                ATTR_HVAC_MODE: hvac_mode,
+            },
+            blocking=True,
+        )
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Forward target temperature to the source entity."""
         service_data: dict[str, Any] = {"entity_id": self._source_entity_id}
+        if ATTR_TEMPERATURE in kwargs:
+            service_data[ATTR_TEMPERATURE] = kwargs[ATTR_TEMPERATURE]
+        if ATTR_TARGET_TEMP_HIGH in kwargs:
+            service_data[ATTR_TARGET_TEMP_HIGH] = kwargs[ATTR_TARGET_TEMP_HIGH]
+        if ATTR_TARGET_TEMP_LOW in kwargs:
+            service_data[ATTR_TARGET_TEMP_LOW] = kwargs[ATTR_TARGET_TEMP_LOW]
+
+        await self.hass.services.async_call(
+            "climate",
+            "set_temperature",
+            service_data,
+            blocking=True,
+        )
