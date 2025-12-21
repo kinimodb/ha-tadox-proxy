@@ -49,9 +49,9 @@ class TadoxProxyClimate(ClimateEntity):
         return {"source_entity_id": self._source_entity_id}
 
     @property
-    def temperature_unit(self):
-        st = self._source_state()
-        return None if st is None else st.attributes.get("temperature_unit")
+    def temperature_unit(self) -> str:
+        return self.hass.config.units.temperature_unit
+
 
     @property
     def hvac_mode(self):
