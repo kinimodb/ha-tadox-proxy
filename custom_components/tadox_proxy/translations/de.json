@@ -3,16 +3,39 @@
     "step": {
       "user": {
         "title": "Tado X Proxy Thermostat",
-        "description": "Wähle die Quell-Climate-Entity und einen Namen für das Proxy-Thermostat.",
+        "description": "Wähle die Quell-Climate-Entity, einen externen Temperatursensor und einen Namen für das Proxy-Thermostat.",
         "data": {
           "source_entity_id": "Quell-Climate-Entity",
+          "external_temperature_entity_id": "Externer Temperatursensor",
           "name": "Name"
         }
       }
     },
     "error": {
       "entity_not_found": "Entität nicht gefunden.",
-      "not_a_climate_entity": "Bitte eine Climate-Entität auswählen."
+      "not_a_climate_entity": "Bitte eine Climate-Entität auswählen.",
+      "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
+      "temp_not_a_sensor": "Bitte eine Sensor-Entität als externen Temperatursensor auswählen.",
+      "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Proxy-Optionen",
+        "description": "Wähle die externen Sensoren, die für dieses Proxy-Thermostat verwendet werden sollen.",
+        "data": {
+          "external_temperature_entity_id": "Externer Temperatursensor",
+          "external_humidity_entity_id": "Externer Luftfeuchtigkeitssensor",
+          "window_sensor_entity_id": "Fenstersensor",
+          "presence_sensor_entity_id": "Präsenzsensor"
+        }
+      }
+    },
+    "error": {
+      "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
+      "temp_not_a_sensor": "Bitte eine Sensor-Entität als externen Temperatursensor auswählen.",
+      "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
     }
   }
 }
