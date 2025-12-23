@@ -16,12 +16,13 @@ from homeassistant.const import (
     STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
-    CONF_NAME,
+    DOMAIN,
     CONF_SOURCE_ENTITY_ID,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
     CONF_EXTERNAL_HUMIDITY_ENTITY_ID,
@@ -33,9 +34,8 @@ from .const import (
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    name = entry.data.get(CONF_NAME, entry.title)
     source_entity_id = entry.data[CONF_SOURCE_ENTITY_ID]
-    async_add_entities([TadoxProxyClimate(hass, entry, name, source_entity_id)])
+    async_add_entities([TadoxProxyClimate(hass, entry, source_entity_id)])
 
 
 class TadoxProxyClimate(ClimateEntity):
@@ -51,16 +51,28 @@ class TadoxProxyClimate(ClimateEntity):
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        name: str,
         source_entity_id: str,
     ) -> None:
         self.hass = hass
         self._entry = entry
         self._source_entity_id = source_entity_id
-        self._attr_name = name
-        self._attr_unique_id = f"{entry.entry_id}_climate"
 
+        # Device name comes from device_info.name (entry.title)
+        # Entity name becomes "<Device Name> Thermostat" in UI
+        self._attr_name = "Thermostat"
+
+        self._attr_unique_id = f"{entry.entry_id}_climate"
         self._unsub_state_listener = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Expose a dedicated device for this proxy config entry."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=self._entry.title,
+            manufacturer="tado°",
+            model="Tado X Proxy Thermostat",
+        )
 
     def _source_state(self):
         return self.hass.states.get(self._source_entity_id)
@@ -90,13 +102,4 @@ class TadoxProxyClimate(ClimateEntity):
         if not entity_id:
             return None
         st = self.hass.states.get(entity_id)
-        if st is None or st.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            return None
-
-        try:
-            value = float(st.state)
-        except (TypeError, ValueError):
-            return None
-
-        sensor_unit = st.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
-        hass_unit = self.hass.config._
+        if st is None or st.state in (STATE_UNKNOWN, STATE_UN
