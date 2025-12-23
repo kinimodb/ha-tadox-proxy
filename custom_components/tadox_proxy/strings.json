@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tado X Proxy Thermostat",
+        "description": "Select the source climate entity, an external temperature sensor, and a name for the proxy thermostat.",
+        "data": {
+          "source_entity_id": "Source climate entity",
+          "external_temperature_entity_id": "External temperature sensor",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found.",
+      "not_a_climate_entity": "Please select a climate entity.",
+      "temp_entity_not_found": "External temperature sensor not found.",
+      "temp_not_a_sensor": "Please select a sensor entity as the external temperature sensor.",
+      "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Proxy options",
+        "description": "Select the external sensors that should be used for this proxy thermostat.",
+        "data": {
+          "external_temperature_entity_id": "External temperature sensor",
+          "external_humidity_entity_id": "External humidity sensor",
+          "window_sensor_entity_id": "Window sensor",
+          "presence_sensor_entity_id": "Presence sensor"
+        }
+      }
+    },
+    "error": {
+      "temp_entity_not_found": "External temperature sensor not found.",
+      "temp_not_a_sensor": "Please select a sensor entity as the external temperature sensor.",
+      "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
+    }
+  }
+}
