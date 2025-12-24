@@ -24,7 +24,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, CONF_SOURCE_ENTITY_ID
 from .regulation import PidRegulator, RegulationConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +59,7 @@ async def async_setup_entry(
     source_entity_id = _pick_first(
         entry.data,
         [
+            CONF_SOURCE_ENTITY_ID,
             "source_entity_id",
             "source",
             "source_climate",
@@ -79,10 +80,10 @@ async def async_setup_entry(
     # Options / data: external temperature sensor and control interval
     sensor_entity_id = _pick_first(
         entry.options,
-        ["temperature_sensor", "temp_sensor", "sensor_entity_id", "external_sensor"],
+        [CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, "temperature_sensor", "temp_sensor", "sensor_entity_id", "external_sensor"],
     ) or _pick_first(
         entry.data,
-        ["temperature_sensor", "temp_sensor", "sensor_entity_id", "external_sensor"],
+        [CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, "temperature_sensor", "temp_sensor", "sensor_entity_id", "external_sensor"],
     )
 
     interval_s = _pick_first(entry.options, ["control_interval_s", "interval_s", "interval"]) or DEFAULT_INTERVAL_S
