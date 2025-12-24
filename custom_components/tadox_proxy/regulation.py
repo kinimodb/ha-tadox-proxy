@@ -11,7 +11,9 @@ Design goals (from project concept):
 - Minimum on/off times to avoid short cycling.
 - Command rate-limit to protect cloud APIs and reduce actuator movements.
 
-All timings are expressed in seconds, using time.monotonic()-style timestamps.
+Important nuance:
+- We MUST be able to stop heating promptly. Therefore the rate-limit is bypassed
+  for target decreases (i.e. when we want to reduce the commanded setpoint).
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from typing import Optional
 
 
 _LOGGER = logging.getLogger(__name__)
+
+RATE_LIMIT_DECREASE_EPS_C = 0.05  # allow immediate decreases beyond this epsilon
 
 
 def _clamp(value: float, vmin: float, vmax: float) -> float:
@@ -172,16 +176,8 @@ class PidRegulator:
         window_open: bool = False,
         force_off: bool = False,
     ) -> RegulationDecision:
-        """Compute next target temperature for the underlying climate.
+        """Compute next target temperature for the underlying climate."""
 
-        - user_setpoint_c: desired room temperature (set on proxy)
-        - measured_temp_c: current room temperature (external sensor preferred)
-        - now_ts_s: monotonic timestamp
-        - window_open: if true, force output towards "off"/hold (conservative)
-        - force_off: if true, force output to minimum target (frost safe)
-        """
-
-        # Basic validation: keep the system predictable even with bad sensor values.
         if not _is_finite(user_setpoint_c) or not _is_finite(measured_temp_c):
             fallback = self._st.last_target_c
             if fallback is None:
@@ -207,9 +203,8 @@ class PidRegulator:
         error_c = user_setpoint_c - measured_temp_c
 
         # Determine dt
-        dt_s: float
         if st.last_ts_s is None or st.last_temp_c is None:
-            dt_s = cfg.min_command_interval_s  # conservative first step
+            dt_s = cfg.min_command_interval_s
         else:
             dt_s = max(1.0, now_ts_s - st.last_ts_s)
 
@@ -232,7 +227,7 @@ class PidRegulator:
 
         dtemp_dt_smooth = st.dtemp_dt_c_per_s_ema if st.has_dtemp_ema else dtemp_dt
 
-        # Forced modes (e.g., window open / user off)
+        # Forced modes
         if force_off:
             target = cfg.min_target_c
             st.last_target_c = target
@@ -254,7 +249,6 @@ class PidRegulator:
             )
 
         if window_open:
-            # Conservative: do not chase. Hold close-ish to setpoint, clamp, and decay integral.
             st.integral_term_c *= 0.90
             target = _clamp(user_setpoint_c, cfg.min_target_c, cfg.max_target_c)
             st.last_target_c = target
@@ -275,9 +269,8 @@ class PidRegulator:
                 dtemp_dt_c_per_s=dtemp_dt_smooth,
             )
 
-        # Deadband logic: tolerate small fluctuations
+        # Deadband
         if abs(error_c) <= cfg.deadband_c:
-            # Gentle integral decay to prevent "memory" from pushing after reaching setpoint.
             st.integral_term_c *= 0.92
             p_c = 0.0
             d_c = 0.0
@@ -286,22 +279,17 @@ class PidRegulator:
             deadband_active = True
         else:
             deadband_active = False
-
             p_c = tuning.kp * error_c
 
-            # Integral update with clamp (anti-windup rail). Integral is already "term" in °C.
             st.integral_term_c += (tuning.ki * error_c * dt_s)
             st.integral_term_c = _clamp(st.integral_term_c, cfg.integral_term_min_c, cfg.integral_term_max_c)
 
-            # Derivative on measurement (avoid derivative kick): d = -kd * dT/dt
             d_c = -tuning.kd * dtemp_dt_smooth
 
             output = p_c + st.integral_term_c + d_c
             output = _clamp(output, -cfg.max_delta_c, cfg.max_delta_c)
             reason = "pid"
 
-            # Trend-based overshoot protection: if we're heating (output>0) and temp is rising,
-            # and projection would overshoot soon, brake output towards 0.
             if output > 0.0 and dtemp_dt_smooth > 0.0:
                 projected = measured_temp_c + dtemp_dt_smooth * cfg.overshoot_lookahead_s
                 if projected >= user_setpoint_c + cfg.overshoot_margin_c:
@@ -309,33 +297,48 @@ class PidRegulator:
                     output *= (1.0 - brake)
                     reason = "pid_overshoot_brake"
 
-        # Heating-state latch and minimum on/off times (anti short-cycling)
+        # Min on/off latch
         output, latch_reason = self._apply_min_on_off(user_setpoint_c, output, now_ts_s)
         if latch_reason:
             reason = latch_reason
 
-        # Compute target as setpoint + delta, then clamp to safe absolute limits
+        # Desired target
         target = user_setpoint_c + output
         target = _clamp(target, cfg.min_target_c, cfg.max_target_c)
 
-        # Rate limit sending new commands
+        desired_target = target
+        desired_output = output
+
+        # Rate limit (but allow immediate decreases)
         rate_limited = False
         if st.last_sent_ts_s is not None and st.last_target_c is not None:
             if (now_ts_s - st.last_sent_ts_s) < cfg.min_command_interval_s:
-                # Hold last target (do not change actuator), but still update internal state
-                target = st.last_target_c
-                output = target - user_setpoint_c
-                rate_limited = True
-                reason = f"rate_limited({int(cfg.min_command_interval_s)}s)"
+                if desired_target < (st.last_target_c - RATE_LIMIT_DECREASE_EPS_C):
+                    # allow prompt "stop heating" / decrease
+                    reason = "rate_limit_bypass_decrease"
+                else:
+                    # hold last target, but keep it within +/- max_delta relative to current setpoint
+                    hold = st.last_target_c
+                    max_hold = _clamp(user_setpoint_c + cfg.max_delta_c, cfg.min_target_c, cfg.max_target_c)
+                    min_hold = _clamp(user_setpoint_c - cfg.max_delta_c, cfg.min_target_c, cfg.max_target_c)
+                    target = _clamp(hold, min_hold, max_hold)
+                    output = target - user_setpoint_c
+                    rate_limited = True
+                    reason = f"rate_limited({int(cfg.min_command_interval_s)}s)"
+            else:
+                # outside interval -> accept desired
+                target = desired_target
+                output = desired_output
+        else:
+            # first command -> accept desired
+            target = desired_target
+            output = desired_output
 
-        # Persist computed values
+        # Persist
         st.last_output_delta_c = output
         st.last_target_c = target
-
-        # Update time/temp tracking
         self._update_time_and_temp(measured_temp_c, now_ts_s)
 
-        # If not rate-limited, consider this a "sent" command.
         if not rate_limited:
             st.last_sent_ts_s = now_ts_s
 
@@ -364,20 +367,15 @@ class PidRegulator:
             st.heating_state_change_ts_s = now_ts_s
             _LOGGER.debug("Heating state -> %s (%s)", heating_on, reason)
 
-    def _apply_min_on_off(self, user_setpoint_c: float, output_delta_c: float, now_ts_s: float) -> tuple[float, Optional[str]]:
-        """Apply heating latch and min on/off constraints.
-
-        We interpret "heating on" as output_delta >= heat_on_threshold.
-        We interpret "heating off" as output_delta <= heat_off_threshold.
-        """
+    def _apply_min_on_off(
+        self, user_setpoint_c: float, output_delta_c: float, now_ts_s: float
+    ) -> tuple[float, Optional[str]]:
         cfg = self._cfg
         st = self._st
 
-        # Initialize state change timestamp if missing
         if st.heating_state_change_ts_s is None:
             st.heating_state_change_ts_s = now_ts_s
 
-        # Determine desired state from output (with hysteresis thresholds)
         desired_on = st.heating_on
         if st.heating_on:
             if output_delta_c <= cfg.heat_off_threshold_delta_c:
@@ -386,21 +384,16 @@ class PidRegulator:
             if output_delta_c >= cfg.heat_on_threshold_delta_c:
                 desired_on = True
 
-        # Enforce min on/off times
         elapsed = now_ts_s - (st.heating_state_change_ts_s or now_ts_s)
 
         if st.heating_on:
-            # Currently on: if we want to turn off too early, keep a small heat output
             if not desired_on and elapsed < cfg.min_on_s:
-                # Keep at least off-threshold + tiny epsilon
                 hold = cfg.heat_off_threshold_delta_c
                 return max(output_delta_c, hold), "min_on_hold"
         else:
-            # Currently off: if we want to turn on too early, keep output at 0
             if desired_on and elapsed < cfg.min_off_s:
                 return min(output_delta_c, 0.0), "min_off_hold"
 
-        # If allowed to change, apply desired state change and return output
         if desired_on != st.heating_on:
             self._set_heating_state(desired_on, now_ts_s, reason="threshold_cross")
 
