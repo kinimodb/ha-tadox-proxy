@@ -1,8 +1,11 @@
 """Climate platform for tadox_proxy.
 
-Fixes: platform must expose async_setup_entry for config-entry based setup.
-Without it, Home Assistant cannot create entities and will mark existing ones as
-"no longer provided".
+Goals (current milestone):
+- Provide exactly one proxy ClimateEntity per config entry.
+- Use external temperature sensor as primary measurement (fallback to source climate).
+- Send computed target temperature to the source climate via climate.set_temperature.
+- Expose all relevant temperatures as readable attributes.
+- Auto-clean stale entity_registry entries from earlier iterations (prevents "entity no longer provided").
 """
 
 from __future__ import annotations
@@ -10,7 +13,7 @@ from __future__ import annotations
 from datetime import timedelta
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -20,23 +23,21 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
-from .const import DOMAIN, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, CONF_SOURCE_ENTITY_ID
+from .const import (
+    DOMAIN,
+    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_SOURCE_ENTITY_ID,
+)
 from .regulation import PidRegulator, RegulationConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_S = 300  # 5 minutes
-
-
-def _pick_first(d: dict[str, Any], keys: list[str]) -> Optional[Any]:
-    for k in keys:
-        if k in d and d[k] not in (None, ""):
-            return d[k]
-    return None
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -48,6 +49,19 @@ def _as_float(value: Any) -> Optional[float]:
         return None
 
 
+def _get_attr_float(state_obj, keys: list[str]) -> Optional[float]:
+    """Try multiple attribute names and return the first numeric value."""
+    if state_obj is None:
+        return None
+    attrs = state_obj.attributes or {}
+    for k in keys:
+        if k in attrs:
+            v = _as_float(attrs.get(k))
+            if v is not None:
+                return v
+    return None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -55,41 +69,44 @@ async def async_setup_entry(
 ) -> None:
     """Set up tadox_proxy climate platform from a config entry."""
 
-    # Be tolerant to key naming while we iterate on config flow.
-    source_entity_id = _pick_first(
-        entry.data,
-        [
-            CONF_SOURCE_ENTITY_ID,
-            "source_entity_id",
-            "source",
-            "source_climate",
-            "source_climate_entity_id",
-            "tado_entity_id",
-            "entity_id",
-        ],
-    )
-
+    source_entity_id = entry.data.get(CONF_SOURCE_ENTITY_ID)
     if not source_entity_id:
         _LOGGER.error(
-            "tadox_proxy entry %s has no source_entity_id in entry.data keys=%s",
+            "tadox_proxy entry %s missing %s in entry.data (keys=%s)",
             entry.entry_id,
+            CONF_SOURCE_ENTITY_ID,
             list(entry.data.keys()),
         )
         return
 
-    # Options / data: external temperature sensor and control interval
-    sensor_entity_id = _pick_first(
-        entry.options,
-        [CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, "temperature_sensor", "temp_sensor", "sensor_entity_id", "external_sensor"],
-    ) or _pick_first(
-        entry.data,
-        [CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, "temperature_sensor", "temp_sensor", "sensor_entity_id", "external_sensor"],
+    # External temperature sensor: prefer options; fallback to entry.data
+    sensor_entity_id = entry.options.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID) or entry.data.get(
+        CONF_EXTERNAL_TEMPERATURE_ENTITY_ID
     )
 
-    interval_s = _pick_first(entry.options, ["control_interval_s", "interval_s", "interval"]) or DEFAULT_INTERVAL_S
-    interval_s = int(_as_float(interval_s) or DEFAULT_INTERVAL_S)
+    interval_s = int(_as_float(entry.options.get("control_interval_s")) or DEFAULT_INTERVAL_S)
+    interval_s = max(30, interval_s)
 
-    name = entry.title or "TadoX Proxy Thermostat"
+    # ---- Auto cleanup: remove stale entity_registry entries for this config entry ----
+    # This prevents "Thermostat not available / entity no longer provided" leftovers.
+    expected_unique_id = entry.unique_id or entry.entry_id
+    ent_reg = er.async_get(hass)
+    for entity_id, reg_entry in list(ent_reg.entities.items()):
+        if (
+            reg_entry.config_entry_id == entry.entry_id
+            and reg_entry.domain == "climate"
+            and reg_entry.platform == DOMAIN
+            and reg_entry.unique_id != expected_unique_id
+        ):
+            _LOGGER.info(
+                "Removing stale entity_registry entry %s (old unique_id=%s, expected=%s)",
+                entity_id,
+                reg_entry.unique_id,
+                expected_unique_id,
+            )
+            ent_reg.async_remove(entity_id)
+
+    name = entry.title or "Tado X Proxy"
 
     entity = TadoxProxyClimate(
         hass=hass,
@@ -99,7 +116,6 @@ async def async_setup_entry(
         sensor_entity_id=str(sensor_entity_id) if sensor_entity_id else None,
         interval_s=interval_s,
     )
-
     async_add_entities([entity])
 
 
@@ -123,24 +139,27 @@ class TadoxProxyClimate(ClimateEntity):
     ) -> None:
         self.hass = hass
         self._entry = entry
+
         self._attr_name = name
-        # Use a stable unique_id tied to the entry, to avoid entity orphaning on code changes.
+        # Keep stable: ConfigFlow sets entry.unique_id = source_entity_id (duplicate protection)
         self._attr_unique_id = entry.unique_id or entry.entry_id
 
         self._source_entity_id = source_entity_id
         self._sensor_entity_id = sensor_entity_id
-        self._interval = timedelta(seconds=max(30, interval_s))
+        self._interval = timedelta(seconds=interval_s)
 
         self._regulator = PidRegulator(RegulationConfig())
 
-        # State
+        # Core state
         self._attr_hvac_mode = HVACMode.HEAT
         self._attr_target_temperature = 21.0
         self._attr_current_temperature = None
         self._attr_available = True
 
         self._unsub_timer = None
-        self._last_decision: dict[str, Any] = {}
+
+        # Diagnostics snapshot (rendered as attributes)
+        self._diag: dict[str, Any] = {}
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -153,17 +172,19 @@ class TadoxProxyClimate(ClimateEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
+        # Keep it readable and include all temperatures the user cares about.
         return {
+            # Wiring
             "source_entity_id": self._source_entity_id,
-            "sensor_entity_id": self._sensor_entity_id,
+            "external_temperature_entity_id": self._sensor_entity_id,
             "control_interval_s": int(self._interval.total_seconds()),
-            **self._last_decision,
+            # Diagnostics
+            **self._diag,
         }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
-        # Start periodic regulation loop
         @callback
         def _tick(_now) -> None:
             self.hass.async_create_task(self._async_regulation_cycle(trigger="timer"))
@@ -190,97 +211,34 @@ class TadoxProxyClimate(ClimateEntity):
         await self._async_regulation_cycle(trigger="set_hvac_mode")
         self.async_write_ha_state()
 
-    def _read_current_temperature(self) -> Optional[float]:
-        """Prefer external sensor if configured; fallback to source climate attribute."""
-        # External sensor
-        if self._sensor_entity_id:
-            st = self.hass.states.get(self._sensor_entity_id)
-            if st:
-                val = _as_float(st.state)
-                if val is not None:
-                    return val
+    def _read_external_temperature(self) -> Optional[float]:
+        """Read external temperature sensor state (if configured)."""
+        if not self._sensor_entity_id:
+            return None
+        st = self.hass.states.get(self._sensor_entity_id)
+        if not st:
+            return None
+        return _as_float(st.state)
 
-        # Fallback: read source climate current_temperature attribute
+    def _read_room_temperature(self) -> Tuple[Optional[float], str]:
+        """Return (temperature, source). Prefer external sensor; fallback to source climate current_temperature."""
+        ext = self._read_external_temperature()
+        if ext is not None:
+            return ext, "external_sensor"
+
         src = self.hass.states.get(self._source_entity_id)
-        if src:
-            val = _as_float(src.attributes.get("current_temperature"))
-            if val is not None:
-                return val
+        src_temp = _get_attr_float(src, ["current_temperature"])
+        if src_temp is not None:
+            return src_temp, "source_climate"
 
-        return None
+        return None, "unavailable"
 
     async def _async_regulation_cycle(self, *, trigger: str) -> None:
-        """Compute and apply new target to source thermostat."""
+        """Compute and apply new target temperature to the source thermostat."""
         src_state = self.hass.states.get(self._source_entity_id)
+
+        # Source availability
         if src_state is None or src_state.state in ("unavailable", "unknown"):
             self._attr_available = False
-            self._last_decision = {"last_trigger": trigger, "reason": "source_unavailable"}
-            _LOGGER.warning("Source climate %s unavailable; proxy not regulating", self._source_entity_id)
-            self.async_write_ha_state()
-            return
-
-        self._attr_available = True
-        measured = self._read_current_temperature()
-        self._attr_current_temperature = measured
-
-        if measured is None:
-            self._last_decision = {"last_trigger": trigger, "reason": "no_measurement"}
-            _LOGGER.warning(
-                "No usable temperature measurement (sensor=%s, source=%s); skipping regulation",
-                self._sensor_entity_id,
-                self._source_entity_id,
-            )
-            self.async_write_ha_state()
-            return
-
-        # Decide target
-        if self._attr_hvac_mode == HVACMode.OFF:
-            target = 5.0  # frost-safe target
-            decision = {
-                "last_trigger": trigger,
-                "reason": "proxy_hvac_off",
-                "target_c": target,
-            }
-        else:
-            now = time.monotonic()
-            result = self._regulator.step(
-                user_setpoint_c=float(self._attr_target_temperature or 21.0),
-                measured_temp_c=float(measured),
-                now_ts_s=now,
-            )
-            target = float(result.target_c)
-            decision = {
-                "last_trigger": trigger,
-                "reason": result.reason,
-                "target_c": target,
-                "output_delta_c": float(result.output_delta_c),
-                "error_c": float(result.error_c),
-                "p_c": float(result.p_c),
-                "i_c": float(result.i_c),
-                "d_c": float(result.d_c),
-                "rate_limited": bool(result.rate_limited),
-                "deadband_active": bool(result.deadband_active),
-                "heating_on": bool(result.heating_on),
-                "dtemp_dt_c_per_s": float(result.dtemp_dt_c_per_s),
-            }
-
-        self._last_decision = decision
-
-        # Apply to source thermostat
-        _LOGGER.debug(
-            "tadox_proxy cycle (%s): measured=%.2f setpoint=%.2f -> target=%.2f (%s)",
-            trigger,
-            measured,
-            float(self._attr_target_temperature or 0.0),
-            target,
-            decision.get("reason"),
-        )
-
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {"entity_id": self._source_entity_id, "temperature": target},
-            blocking=True,
-        )
-
-        self.async_write_ha_state()
+            self._diag = {
+                "regula
