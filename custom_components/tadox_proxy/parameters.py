@@ -2,7 +2,7 @@
 
 Goal:
 - Provide ONE single source of truth for all tuning knobs and shared constants.
-- Other modules (regulation.py, climate.py, etc.) should *import* from here instead
+- Other modules (regulation.py, climate.py, etc.) should import from here instead
   of defining their own defaults.
 
 During the test phase, we tune values here. Later, OptionsFlow can override these
@@ -30,6 +30,43 @@ WILL_HEAT_EPS_C: float = 0.05
 # Rate-limit nuance: even if we rate-limit updates, we allow prompt DECREASES
 # (to stop heating) if we are decreasing by more than this epsilon.
 RATE_LIMIT_DECREASE_EPS_C: float = 0.05
+
+
+# ---------------------------------------------------------------------------
+# Tado X actuator mapping (Tado-specific "make it actually heat" strategy)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TadoXMappingConfig:
+    """Tado X specific mapping strategy.
+
+    Context:
+    - We regulate based on ROOM temperature (external sensor preferred).
+    - The Tado TRV decides whether to open based on its INTERNAL temperature
+      (often higher than room temperature).
+    - Therefore, a "heating request" must typically command a setpoint ABOVE the
+      internal temperature by a margin, otherwise Tado may not open even if the room
+      is too cold.
+
+    This config defines margins used when mapping a computed target to an actuator
+    command temperature.
+    """
+
+    enabled: bool = True
+
+    # If heating is requested, ensure command_target >= (tado_internal + open_margin_c).
+    open_margin_c: float = 0.30
+
+    # If heating is NOT requested, optionally ensure command_target <= (tado_internal - close_margin_c)
+    # to help the valve close quickly. Keep small to avoid needless deep setbacks.
+    close_margin_c: float = 0.10
+
+    enforce_open_on_request: bool = True
+    enforce_close_on_no_request: bool = False
+
+    # Additional safety clamp for "open" mapping (never exceed this even if internal is high).
+    # Keep aligned with RegulationConfig.max_target_c unless you have a reason to lower it.
+    max_open_target_c: float = 25.0
 
 
 # ---------------------------------------------------------------------------
@@ -62,9 +99,14 @@ class RegulationConfig:
       target_c = clamp(proxy_setpoint_c + output_delta_c, min_target_c, max_target_c)
 
     where output_delta_c is PID output (P + I + D) plus additional protective logic.
+
+    Note:
+    - Tado X mapping (relative to internal TRV temperature) is defined by `tadox_mapping`
+      but applied in the HA glue layer (climate.py) for now.
     """
 
     tuning: PidTuning = PidTuning()
+    tadox_mapping: TadoXMappingConfig = TadoXMappingConfig()
 
     # If abs(error) <= deadband_c, output is driven to ~0 (with mild integral decay).
     deadband_c: float = 0.10
