@@ -7,6 +7,9 @@ Current focus: a single, reliable Proxy ClimateEntity that:
 - exposes all relevant temperatures and regulation diagnostics as readable attributes
 
 This file is defensive by design to minimize setup failures.
+
+Single source of truth for defaults:
+- custom_components/tadox_proxy/parameters.py
 """
 
 from __future__ import annotations
@@ -26,13 +29,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import DOMAIN, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, CONF_SOURCE_ENTITY_ID
-from .regulation import PidRegulator, RegulationConfig
+from .parameters import (
+    DEFAULT_CONTROL_INTERVAL_S,
+    FROST_PROTECT_C,
+    WILL_HEAT_EPS_C,
+    RegulationConfig,
+)
+from .regulation import PidRegulator
 
 _LOGGER = logging.getLogger(__name__)
-
-DEFAULT_INTERVAL_S = 300  # 5 min
-FROST_PROTECT_C = 5.0
-WILL_HEAT_EPS_C = 0.05
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -78,7 +83,7 @@ async def async_setup_entry(
         or entry.data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
     )
 
-    interval_s = int(_as_float(entry.options.get("control_interval_s")) or DEFAULT_INTERVAL_S)
+    interval_s = int(_as_float(entry.options.get("control_interval_s")) or DEFAULT_CONTROL_INTERVAL_S)
     interval_s = max(30, interval_s)
 
     # Auto-clean stale climate entities from previous iterations (prevents "no longer provided")
@@ -146,6 +151,7 @@ class TadoxProxyClimate(ClimateEntity):
         self._interval = timedelta(seconds=interval_s)
         self._unsub_timer = None
 
+        # Regulation engine (defaults from parameters.py)
         self._regulator = PidRegulator(RegulationConfig())
 
         # Core state
