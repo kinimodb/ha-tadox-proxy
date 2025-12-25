@@ -1,14 +1,12 @@
 """Climate platform for tadox_proxy.
 
-Current focus: a single, reliable Proxy ClimateEntity that:
-- uses an external temperature sensor as room measurement (fallback to source climate)
-- runs a local PID-based regulation loop
-- writes the computed target temperature to the source climate via climate.set_temperature
-- exposes all relevant temperatures and regulation diagnostics as readable attributes
+Single proxy ClimateEntity per config entry:
+- reads room temperature (external sensor preferred; fallback to source climate)
+- runs local PID regulation (regulation.py)
+- commands the source climate via climate.set_temperature
+- exposes clear diagnostics + all relevant temperatures
 
-This file is defensive by design to minimize setup failures.
-
-Single source of truth for defaults:
+Defaults and tuning knobs are sourced from:
 - custom_components/tadox_proxy/parameters.py
 """
 
@@ -60,6 +58,10 @@ def _get_attr_float(state_obj, keys: list[str]) -> Optional[float]:
         if v is not None:
             return v
     return None
+
+
+def _clamp(value: float, vmin: float, vmax: float) -> float:
+    return max(vmin, min(vmax, value))
 
 
 async def async_setup_entry(
@@ -180,9 +182,9 @@ class TadoxProxyClimate(ClimateEntity):
             "source_entity_id": self._source_entity_id,
             "external_temperature_entity_id": self._external_temp_entity_id,
             "control_interval_s": int(self._interval.total_seconds()),
-            # Last command
+            # Last command (post-mapping)
             "tado_command_target_c": self._last_command_target_c,
-            # Diagnostics snapshot (human-readable)
+            # Diagnostics snapshot
             **self._diag,
         }
 
@@ -242,6 +244,52 @@ class TadoxProxyClimate(ClimateEntity):
 
         return None, "unavailable"
 
+    def _apply_tadox_mapping(
+        self,
+        *,
+        target_c: float,
+        heating_request: bool,
+        rate_limited: bool,
+        tado_internal_temp_c: Optional[float],
+    ) -> tuple[float, Optional[str]]:
+        """Apply Tado X mapping on top of computed target.
+
+        We regulate based on room temperature, but the TRV opens/closes based on its internal temp.
+        Mapping enforces margins relative to tado_internal_temp_c to make "heat request" actually open.
+        """
+        cfg = self._regulator.config
+        map_cfg = cfg.tadox_mapping
+
+        if not map_cfg.enabled or tado_internal_temp_c is None:
+            return target_c, None
+
+        mapped = target_c
+        reason: Optional[str] = None
+
+        # Clamp basis always to regulator absolute limits
+        mapped = _clamp(mapped, cfg.min_target_c, cfg.max_target_c)
+
+        if heating_request and map_cfg.enforce_open_on_request:
+            # Avoid bypassing regulator rate-limit for increases; otherwise we could spam.
+            if rate_limited:
+                return mapped, "mapping_skipped_rate_limited"
+
+            min_open = float(tado_internal_temp_c) + float(map_cfg.open_margin_c)
+            max_allowed = min(float(map_cfg.max_open_target_c), float(cfg.max_target_c))
+            if mapped < min_open:
+                mapped = _clamp(min_open, cfg.min_target_c, max_allowed)
+                reason = "enforce_open_margin"
+        elif (not heating_request) and map_cfg.enforce_close_on_no_request:
+            # For decreases, we allow even during rate limiting (safe + helps stop heating).
+            max_close = float(tado_internal_temp_c) - float(map_cfg.close_margin_c)
+            if mapped > max_close:
+                mapped = _clamp(max_close, cfg.min_target_c, cfg.max_target_c)
+                reason = "enforce_close_margin"
+
+        # Final safety clamp
+        mapped = _clamp(mapped, cfg.min_target_c, cfg.max_target_c)
+        return mapped, reason
+
     async def _async_regulation_cycle(self, *, trigger: str) -> None:
         src_state = self.hass.states.get(self._source_entity_id)
         if src_state is None or src_state.state in ("unavailable", "unknown"):
@@ -257,7 +305,6 @@ class TadoxProxyClimate(ClimateEntity):
         self._attr_available = True
 
         external_temp_c = self._read_external_temperature()
-
         room_temp_c, room_temp_source = self._read_room_temperature()
         self._attr_current_temperature = room_temp_c  # measurement used for regulation
 
@@ -281,8 +328,11 @@ class TadoxProxyClimate(ClimateEntity):
         proxy_setpoint_c = float(self._attr_target_temperature or 21.0)
 
         if self._attr_hvac_mode == HVACMode.OFF:
-            target_c = FROST_PROTECT_C
+            base_target_c = FROST_PROTECT_C
             reason = "proxy_off"
+            rate_limited = False
+            deadband_active = False
+            heating_request = False
             pid_diag: dict[str, Any] = {}
         else:
             now = time.monotonic()
@@ -291,8 +341,15 @@ class TadoxProxyClimate(ClimateEntity):
                 measured_temp_c=float(room_temp_c),
                 now_ts_s=now,
             )
-            target_c = float(result.target_c)
+            base_target_c = float(result.target_c)
             reason = str(result.reason)
+            rate_limited = bool(result.rate_limited)
+            deadband_active = bool(result.deadband_active)
+
+            # A simple, robust definition:
+            # "heating request" is whatever the regulator's latch currently says.
+            # This respects min_on/min_off behavior and avoids flapping around deadband.
+            heating_request = bool(result.heating_on)
 
             pid_diag = {
                 "pid_error_c": float(result.error_c),
@@ -300,20 +357,34 @@ class TadoxProxyClimate(ClimateEntity):
                 "pid_p_term_c": float(result.p_c),
                 "pid_i_term_c": float(result.i_c),
                 "pid_d_term_c": float(result.d_c),
-                "pid_deadband_active": bool(result.deadband_active),
-                "pid_rate_limited": bool(result.rate_limited),
+                "pid_deadband_active": deadband_active,
+                "pid_rate_limited": rate_limited,
                 "pid_heating_latched_on": bool(result.heating_on),
                 "temperature_trend_c_per_s": float(result.dtemp_dt_c_per_s),
             }
 
+        # Apply Tado-X mapping AFTER regulator step (actuator strategy layer)
+        mapped_target_c, mapping_reason = self._apply_tadox_mapping(
+            target_c=base_target_c,
+            heating_request=heating_request,
+            rate_limited=rate_limited,
+            tado_internal_temp_c=tado_internal_temp_c,
+        )
+
+        # Derived boolean: will Tado likely open given internal temp?
         tado_will_heat = None
         if tado_internal_temp_c is not None:
-            tado_will_heat = target_c > (float(tado_internal_temp_c) + WILL_HEAT_EPS_C)
+            tado_will_heat = mapped_target_c > (float(tado_internal_temp_c) + WILL_HEAT_EPS_C)
 
+        # Diagnostics
         self._diag = {
             "regulation_trigger": trigger,
             "regulation_status": "ok",
             "regulation_reason": reason,
+            # Core decision flags (simple)
+            "heating_request": heating_request,
+            "tado_mapping_enabled": bool(self._regulator.config.tadox_mapping.enabled),
+            "tado_mapping_reason": mapping_reason,
             # Temperatures (explicit)
             "proxy_setpoint_c": proxy_setpoint_c,
             "room_temperature_c": float(room_temp_c),
@@ -322,15 +393,19 @@ class TadoxProxyClimate(ClimateEntity):
             "tado_internal_temperature_c": tado_internal_temp_c,
             "tado_current_setpoint_c": tado_current_setpoint_c,
             "tado_will_heat": tado_will_heat,
+            # Command targets (before/after mapping)
+            "tado_target_pre_mapping_c": float(base_target_c),
+            "tado_target_post_mapping_c": float(mapped_target_c),
             **pid_diag,
         }
 
+        # Apply to source thermostat (post-mapping)
         await self.hass.services.async_call(
             "climate",
             "set_temperature",
-            {"entity_id": self._source_entity_id, "temperature": target_c},
+            {"entity_id": self._source_entity_id, "temperature": float(mapped_target_c)},
             blocking=True,
         )
-        self._last_command_target_c = target_c
+        self._last_command_target_c = float(mapped_target_c)
 
         self.async_write_ha_state()
