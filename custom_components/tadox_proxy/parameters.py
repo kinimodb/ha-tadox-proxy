@@ -18,7 +18,7 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 
 # How often the proxy runs a regulation cycle (timer in climate.py).
-DEFAULT_CONTROL_INTERVAL_S: int = 300  # 5 min
+DEFAULT_CONTROL_INTERVAL_S: int = 60  # 1 min
 
 # When proxy HVAC mode is OFF, we command a frost-safe setpoint to the source.
 FROST_PROTECT_C: float = 5.0
@@ -87,7 +87,7 @@ class PidTuning:
     """
 
     kp: float = 1.20
-    ki: float = 0.010
+    ki: float = 0.007
     kd: float = 8.0
 
 
@@ -109,10 +109,10 @@ class RegulationConfig:
     tadox_mapping: TadoXMappingConfig = TadoXMappingConfig()
 
     # If abs(error) <= deadband_c, output is driven to ~0 (with mild integral decay).
-    deadband_c: float = 0.10
+    deadband_c: float = 0.20
 
     # Output is a delta added to the user setpoint (°C). Clamp prevents insane values.
-    max_delta_c: float = 5.0
+    max_delta_c: float = 3.0
 
     # Absolute actuator (target) limits sent to underlying climate.
     min_target_c: float = 5.0
