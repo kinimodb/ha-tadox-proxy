@@ -289,4 +289,79 @@ class PidRegulator:
             output = desired_output
 
         # Persist computed values
-        st.last_output_delta_c = o_
+        st.last_output_delta_c = output
+        st.last_target_c = target
+
+        # Update time/temp tracking
+        self._update_time_and_temp(measured_temp_c, now_ts_s)
+
+        # If not rate-limited, consider this a "sent" command.
+        if not rate_limited:
+            st.last_sent_ts_s = now_ts_s
+
+        return RegulationDecision(
+            target_c=target,
+            output_delta_c=output,
+            p_c=p_c,
+            i_c=st.integral_term_c,
+            d_c=d_c,
+            error_c=error_c,
+            reason=reason,
+            rate_limited=rate_limited,
+            deadband_active=deadband_active,
+            heating_on=st.heating_on,
+            dtemp_dt_c_per_s=dtemp_dt_smooth,
+        )
+
+    def _update_time_and_temp(self, measured_temp_c: float, now_ts_s: float) -> None:
+        self._st.last_temp_c = measured_temp_c
+        self._st.last_ts_s = now_ts_s
+
+    def _set_heating_state(self, heating_on: bool, now_ts_s: float, *, reason: str) -> None:
+        st = self._st
+        if st.heating_on != heating_on:
+            st.heating_on = heating_on
+            st.heating_state_change_ts_s = now_ts_s
+            _LOGGER.debug("Heating state -> %s (%s)", heating_on, reason)
+
+    def _apply_min_on_off(self, user_setpoint_c: float, output_delta_c: float, now_ts_s: float) -> tuple[float, Optional[str]]:
+        """Apply heating latch and min on/off constraints.
+
+        We interpret "heating on" as output_delta >= heat_on_threshold.
+        We interpret "heating off" as output_delta <= heat_off_threshold.
+        """
+        cfg = self._cfg
+        st = self._st
+
+        # Initialize state change timestamp if missing
+        if st.heating_state_change_ts_s is None:
+            st.heating_state_change_ts_s = now_ts_s
+
+        # Determine desired state from output (with hysteresis thresholds)
+        desired_on = st.heating_on
+        if st.heating_on:
+            if output_delta_c <= cfg.heat_off_threshold_delta_c:
+                desired_on = False
+        else:
+            if output_delta_c >= cfg.heat_on_threshold_delta_c:
+                desired_on = True
+
+        # Enforce min on/off times
+        elapsed = now_ts_s - (st.heating_state_change_ts_s or now_ts_s)
+
+        if st.heating_on:
+            # Currently on: if we want to turn off too early, keep a small heat output
+            if not desired_on and elapsed < cfg.min_on_s:
+                # Keep at least off-threshold
+                hold = cfg.heat_off_threshold_delta_c
+                return max(output_delta_c, hold), "min_on_hold"
+        else:
+            # Currently off: if we want to turn on too early, keep output at 0
+            if desired_on and elapsed < cfg.min_off_s:
+                return min(output_delta_c, 0.0), "min_off_hold"
+
+        # If allowed to change, apply desired state change and return output
+        if desired_on != st.heating_on:
+            self._set_heating_state(desired_on, now_ts_s, reason="threshold_cross")
+
+        return output_delta_c, None
