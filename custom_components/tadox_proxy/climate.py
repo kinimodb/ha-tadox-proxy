@@ -346,10 +346,9 @@ class TadoxProxyClimate(ClimateEntity):
             rate_limited = bool(result.rate_limited)
             deadband_active = bool(result.deadband_active)
 
-            # A simple, robust definition:
-            # "heating request" is whatever the regulator's latch currently says.
-            # This respects min_on/min_off behavior and avoids flapping around deadband.
-            heating_request = bool(result.heating_on)
+            # Robust definition: request heat only if the room is meaningfully below setpoint.
+            # This matches user expectations and avoids latch artifacts.
+            heating_request = (result.error_c > self._regulator.config.deadband_c)
 
             pid_diag = {
                 "pid_error_c": float(result.error_c),
