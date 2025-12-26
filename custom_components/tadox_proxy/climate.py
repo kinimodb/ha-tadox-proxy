@@ -49,6 +49,7 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     
     # Create the entity
+    # We pass the full config entry to access ID and Title for Device Info
     entity = TadoXProxyClimate(
         coordinator=coordinator,
         unique_id=f"{entry.entry_id}",
@@ -77,7 +78,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         super().__init__(coordinator)
         self._attr_unique_id = unique_id
         self._config_entry = config_entry
-        self._attr_name = None # Use translation key
+        self._attr_name = None # Use translation key from HA
         
         # Configuration & Parameters
         self._config = RegulationConfig()
@@ -101,6 +102,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information for the proxy."""
+        # This connects the entity to the device in the registry
         return DeviceInfo(
             identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._config_entry.title,
@@ -243,7 +245,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         _LOGGER.debug(f"Sending {target_c}°C to {source_entity}")
         
         try:
-            # FIX: Use correct keywords domain, service (lowercase)
+            # FIX: Correct async_call syntax. domain and service must be lowercase arguments.
             await self.hass.services.async_call(
                 domain="climate",
                 service="set_temperature",
