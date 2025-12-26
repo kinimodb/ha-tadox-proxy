@@ -336,6 +336,10 @@ class TadoxProxyClimate(ClimateEntity):
             pid_diag: dict[str, Any] = {}
         else:
             now = time.monotonic()
+            # User actions (and startup) should not feel blocked by the command rate limit.
+            # Prime the rate-limit timestamp so the next command is allowed immediately.
+            if trigger in ("set_temperature", "set_hvac_mode", "startup"):
+                self._regulator.state.last_sent_ts_s = now - float(self._regulator.config.min_command_interval_s)
             result = self._regulator.step(
                 user_setpoint_c=proxy_setpoint_c,
                 measured_temp_c=float(room_temp_c),
