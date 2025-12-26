@@ -80,7 +80,7 @@ class PidTuning:
     # Increased from 1.2 to 3.0 to overcome Tado internal heat offset without 'mapping'.
     # Example: Room 19, Target 20 -> Error 1. Output +3 -> Send 23.
     # If Tado internal is 22, it sees +1 diff and opens.
-    kp: float = 3.0
+    kp: float = 7.0
     
     # Low integral to avoid windup during long heat-up phases.
     ki: float = 0.005
