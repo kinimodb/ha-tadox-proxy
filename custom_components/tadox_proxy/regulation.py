@@ -32,7 +32,7 @@ class RegulationResult:
     new_state: RegulationState
     debug_info: dict
 
-class PIDRegulator:
+class PidRegulator:
     """Stateless PID calculator (state is passed in/out)."""
 
     def __init__(self, config: RegulationConfig):
