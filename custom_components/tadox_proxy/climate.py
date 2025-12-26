@@ -373,7 +373,21 @@ class TadoxProxyClimate(ClimateEntity):
             rate_limited=rate_limited,
             tado_internal_temp_c=tado_internal_temp_c,
         )
+        
+        # Quantize to the source entity's supported step size (avoid repeated commands due to rounding).
+        # Many TRVs only support discrete setpoints (often 0.1°C). If the source exposes a step, use it.
+        temp_step = _get_attr_float(
+            src_state, ["target_temp_step", "target_temperature_step", "temperature_step"]
+        ) or 0.1
+        try:
+            temp_step = max(0.01, float(temp_step))
+        except (TypeError, ValueError):
+            temp_step = 0.1
 
+        mapped_target_c = round(float(mapped_target_c) / temp_step) * temp_step
+        # Keep a stable decimal representation for state attributes and comparisons.
+        mapped_target_c = round(float(mapped_target_c), 2)
+        
         # Derived boolean: will Tado likely open given internal temp?
         tado_will_heat = None
         if tado_internal_temp_c is not None:
@@ -403,12 +417,27 @@ class TadoxProxyClimate(ClimateEntity):
         }
 
         # Apply to source thermostat (post-mapping)
-        await self.hass.services.async_call(
-            "climate",
-            "set_temperature",
-            {"entity_id": self._source_entity_id, "temperature": float(mapped_target_c)},
-            blocking=True,
-        )
-        self._last_command_target_c = float(mapped_target_c)
+        # Optimization: avoid spamming set_temperature when the source is already at the desired setpoint.
+        # Compare against the source's current setpoint within half a step.
+        command_eps_c = max(0.05, temp_step / 2.0)
+        command_sent = True
+        command_skip_reason: Optional[str] = None
+
+        if tado_current_setpoint_c is not None and abs(float(tado_current_setpoint_c) - float(mapped_target_c)) < command_eps_c:
+            command_sent = False
+            command_skip_reason = "already_at_target"
+
+        if command_sent:
+            await self.hass.services.async_call(
+                "climate",
+                "set_temperature",
+                {"entity_id": self._source_entity_id, "temperature": float(mapped_target_c)},
+                blocking=True,
+            )
+            self._last_command_target_c = float(mapped_target_c)
+
+        # Expose send/skip info as part of the diagnostics snapshot
+        self._diag["tado_command_sent"] = command_sent
+        self._diag["tado_command_skip_reason"] = command_skip_reason
 
         self.async_write_ha_state()
