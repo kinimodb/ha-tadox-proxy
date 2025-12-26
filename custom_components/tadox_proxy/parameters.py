@@ -1,9 +1,6 @@
-"""Central parameter defaults for tadox_proxy.
-
-Cleanup v0.3: Removed Tado Mapping logic.
-"""
+"""Central parameter defaults for tadox_proxy."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
 # Proxy / integration behavior defaults
@@ -19,7 +16,7 @@ RATE_LIMIT_DECREASE_EPS_C: float = 0.05
 # PID tuning + regulation safety rails
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
+@dataclass
 class PidTuning:
     """PID tuning parameters."""
     # Aggressive P to overcome Tado internal heat offset
@@ -30,11 +27,12 @@ class PidTuning:
     kd: float = 600.0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class RegulationConfig:
     """Regulation parameters and safety rails."""
 
-    tuning: PidTuning = PidTuning()
+    # Use default_factory to allow mutable defaults
+    tuning: PidTuning = field(default_factory=PidTuning)
 
     # Soft Deadband: PID keeps calculating I-term, but we don't send updates 
     # if error is small, unless I-term drift requires it.
