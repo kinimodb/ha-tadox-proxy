@@ -25,6 +25,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN
 from .parameters import (
@@ -44,13 +45,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Tado X Proxy climate entity."""
+    # Retrieve the coordinator created in __init__.py
     coordinator = hass.data[DOMAIN][entry.entry_id]
     
     # Create the entity
     entity = TadoXProxyClimate(
         coordinator=coordinator,
-        unique_id=f"{entry.entry_id}_climate",
-        config_entry_title=entry.title,
+        unique_id=f"{entry.entry_id}",
+        config_entry=entry,
     )
     
     async_add_entities([entity])
@@ -70,11 +72,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_translation_key = "tadox_proxy"
 
-    def __init__(self, coordinator, unique_id: str, config_entry_title: str):
+    def __init__(self, coordinator, unique_id: str, config_entry: ConfigEntry):
         """Initialize the proxy thermostat."""
         super().__init__(coordinator)
         self._attr_unique_id = unique_id
-        self._attr_name = None 
+        self._config_entry = config_entry
+        self._attr_name = None # Use translation key
         
         # Configuration & Parameters
         self._config = RegulationConfig()
@@ -85,7 +88,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         
         # PID Regulator & State Memory
         self._regulator = PidRegulator(self._config)
-        self._pid_state = RegulationState() # The "memory" of the PID (I-term)
+        self._pid_state = RegulationState() 
         
         # Operational Timestamps
         self._last_regulation_ts = 0.0
@@ -94,6 +97,16 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Diagnostics buffer
         self._last_regulation_result = None
         self._last_regulation_reason = "startup"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information for the proxy."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
+            name=self._config_entry.title,
+            manufacturer="Tado X Proxy",
+            model="PID Regulator",
+        )
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added."""
@@ -153,7 +166,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         
         if room_temp is None or tado_internal is None:
             self._last_regulation_reason = "waiting_for_sensors"
-            # Still write state to show we are alive
             self.async_write_ha_state()
             return
 
@@ -164,13 +176,11 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_regulation_ts = now
 
         # 2. Determine Effective Target
-        # If OFF, we target frost protection
         effective_setpoint = self._target_temp
         if self._hvac_mode == HVACMode.OFF:
             effective_setpoint = FROST_PROTECT_C
 
         # 3. PID Computation
-        # We pass the CURRENT state and get a NEW state back.
         reg_result = self._regulator.compute(
             setpoint_c=effective_setpoint,
             current_temp_c=room_temp,
@@ -178,43 +188,32 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             state=self._pid_state
         )
         
-        # Update our memory with the new state (I-term, D-filter)
         self._pid_state = reg_result.new_state
         self._last_regulation_result = reg_result
 
         # 4. Calculate Command for Tado
-        # command = setpoint + PID_output
         raw_command_target = effective_setpoint + reg_result.output_delta_c
         
-        # Clamp to device limits
         final_command_target = max(
             self._config.min_target_c, 
             min(self._config.max_target_c, raw_command_target)
         )
         
-        # Rounding (Tado X might like 0.1 steps)
         final_command_target = round(final_command_target, 1)
 
-        # 5. Rate Limiting & Optimization
-        # Decide if we should actually send this command to the device.
+        # 5. Rate Limiting
         should_send = False
         reason = "noop"
 
-        # Current Tado state
         current_tado_setpoint = self.coordinator.data.get("tado_setpoint", 0.0)
         
-        # Delta check
         diff = abs(final_command_target - current_tado_setpoint)
-        
-        # Time check
         time_since_last_send = now - self._last_command_sent_ts
         is_rate_limited = time_since_last_send < self._config.min_command_interval_s
 
         if diff < 0.1:
             reason = "already_at_target"
         elif is_rate_limited:
-            # EXCEPTION: If we need to turn OFF heating quickly (temperature rose),
-            # allow bypassing rate limit if the drop is significant.
             is_decrease = (final_command_target < current_tado_setpoint - RATE_LIMIT_DECREASE_EPS_C)
             if is_decrease:
                 should_send = True
@@ -244,13 +243,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         _LOGGER.debug(f"Sending {target_c}°C to {source_entity}")
         
         try:
+            # FIX: Use correct keywords domain, service (lowercase)
             await self.hass.services.async_call(
-                DOMAIN="climate",
-                SERVICE="set_temperature",
+                domain="climate",
+                service="set_temperature",
                 service_data={
                     "entity_id": source_entity,
                     "temperature": target_c,
-                    "hvac_mode": HVACMode.HEAT, # Force HEAT mode on Tado so it accepts temp
+                    "hvac_mode": HVACMode.HEAT,
                 },
                 blocking=True
             )
@@ -274,11 +274,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     @property
     def hvac_action(self) -> HVACAction:
-        """Calculate logical action (heating vs idle)."""
         if self._hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
         
-        # If Tado internal logic thinks it's heating, we report heating.
         tado_internal = self.coordinator.data.get("tado_internal_temp")
         tado_setpoint = self.coordinator.data.get("tado_setpoint")
         
