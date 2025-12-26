@@ -18,6 +18,7 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 
 # How often the proxy runs a regulation cycle (timer in climate.py).
+# This calculates the PID internal state.
 DEFAULT_CONTROL_INTERVAL_S: int = 60  # 1 min
 
 # When proxy HVAC mode is OFF, we command a frost-safe setpoint to the source.
@@ -42,30 +43,24 @@ class TadoXMappingConfig:
 
     Context:
     - We regulate based on ROOM temperature (external sensor preferred).
-    - The Tado TRV decides whether to open based on its INTERNAL temperature
-      (often higher than room temperature).
-    - Therefore, a "heating request" must typically command a setpoint ABOVE the
-      internal temperature by a margin, otherwise Tado may not open even if the room
-      is too cold.
-
-    This config defines margins used when mapping a computed target to an actuator
-    command temperature.
+    - The Tado TRV decides whether to open based on its INTERNAL temperature.
+    
+    CHANGE (v0.2): Disabled by default to prevent 'sawtooth' oscillations.
+    We now rely on a stronger PID (higher Kp) to overcome the internal offset naturally.
     """
 
-    enabled: bool = True
+    enabled: bool = False
 
     # If heating is requested, ensure command_target >= (tado_internal + open_margin_c).
     open_margin_c: float = 0.30
 
     # If heating is NOT requested, optionally ensure command_target <= (tado_internal - close_margin_c)
-    # to help the valve close quickly. Keep small to avoid needless deep setbacks.
     close_margin_c: float = 0.10
 
     enforce_open_on_request: bool = True
     enforce_close_on_no_request: bool = False
 
-    # Additional safety clamp for "open" mapping (never exceed this even if internal is high).
-    # Keep aligned with RegulationConfig.max_target_c unless you have a reason to lower it.
+    # Additional safety clamp for "open" mapping.
     max_open_target_c: float = 25.0
 
 
@@ -77,58 +72,51 @@ class TadoXMappingConfig:
 class PidTuning:
     """PID tuning parameters.
 
-    Units (important for understanding):
+    Units:
       - error is in °C
       - P/I/D terms are expressed as °C offsets (delta on top of proxy setpoint)
-      - kp is dimensionless:          P = kp * error          -> °C
-      - ki is 1/second:               I += ki * error * dt    -> °C
-      - kd is seconds:                D = -kd * dT/dt         -> °C
-        (we use derivative on measurement to avoid derivative kick)
     """
 
-    kp: float = 1.20
-    ki: float = 0.007
-    kd: float = 8.0
+    # Increased from 1.2 to 3.0 to overcome Tado internal heat offset without 'mapping'.
+    # Example: Room 19, Target 20 -> Error 1. Output +3 -> Send 23.
+    # If Tado internal is 22, it sees +1 diff and opens.
+    kp: float = 3.0
+    
+    # Low integral to avoid windup during long heat-up phases.
+    ki: float = 0.005
+    
+    # Increased massively from 8.0 to 600.0 to strictly brake when temp rises.
+    # 600s = 10 minutes time constant.
+    kd: float = 600.0
 
 
 @dataclass(frozen=True)
 class RegulationConfig:
-    """Regulation parameters and safety rails (defaults).
-
-    The regulator computes:
-      target_c = clamp(proxy_setpoint_c + output_delta_c, min_target_c, max_target_c)
-
-    where output_delta_c is PID output (P + I + D) plus additional protective logic.
-
-    Note:
-    - Tado X mapping (relative to internal TRV temperature) is defined by `tadox_mapping`
-      but applied in the HA glue layer (climate.py) for now.
-    """
+    """Regulation parameters and safety rails (defaults)."""
 
     tuning: PidTuning = PidTuning()
     tadox_mapping: TadoXMappingConfig = TadoXMappingConfig()
 
-    # If abs(error) <= deadband_c, output is driven to ~0 (with mild integral decay).
+    # If abs(error) <= deadband_c, output is driven to ~0.
     deadband_c: float = 0.20
 
-    # Output is a delta added to the user setpoint (°C). Clamp prevents insane values.
-    max_delta_c: float = 3.0
+    # Output is a delta added to the user setpoint (°C).
+    # Increased max_delta to allow Kp=3.0 to work effectively (max boost 4°C).
+    max_delta_c: float = 4.0
 
     # Absolute actuator (target) limits sent to underlying climate.
     min_target_c: float = 5.0
     max_target_c: float = 25.0
 
     # Rate limit: do not send new targets more often than this (seconds).
-    # (Decreases may bypass this; see RATE_LIMIT_DECREASE_EPS_C.)
-    min_command_interval_s: float = 180.0  # 3 min
+    # Increased to 5 min to save Tado battery.
+    min_command_interval_s: float = 300.0
 
-    # Anti short-cycling: once heating is considered "on", keep it for min_on_s, and
-    # once "off", keep it for min_off_s (seconds).
+    # Anti short-cycling settings
     min_on_s: float = 300.0   # 5 min
     min_off_s: float = 300.0  # 5 min
 
-    # Heating state thresholds on the PID output (delta above setpoint).
-    # Use hysteresis to avoid chatter.
+    # Heating state thresholds on the PID output
     heat_on_threshold_delta_c: float = 0.20
     heat_off_threshold_delta_c: float = 0.05
 
@@ -136,12 +124,10 @@ class RegulationConfig:
     integral_term_min_c: float = -2.0
     integral_term_max_c: float = 2.0
 
-    # Derivative smoothing (EMA). 0 disables smoothing.
-    # alpha in [0..1], where 1 means "no smoothing" (use newest derivative).
-    derivative_ema_alpha: float = 0.35
+    # Derivative smoothing (EMA). 0.1-0.2 is good for slow sensors.
+    derivative_ema_alpha: float = 0.20
 
-    # Trend-based overshoot protection: if temperature is rising and projected to
-    # overshoot within lookahead_s, brake output towards 0.
-    overshoot_lookahead_s: float = 240.0
-    overshoot_margin_c: float = 0.05
-    overshoot_brake_strength: float = 0.75  # 0..1 (fraction of output reduced)
+    # Trend-based overshoot protection
+    overshoot_lookahead_s: float = 300.0
+    overshoot_margin_c: float = 0.10
+    overshoot_brake_strength: float = 0.80
