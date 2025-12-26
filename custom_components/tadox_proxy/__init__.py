@@ -9,7 +9,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN
+from .const import DOMAIN, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,12 +23,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     # 2. Define the data update method
-    # This function gathers all necessary data (room temp, valve state) 
-    # so climate.py can just read it without doing IO itself.
     async def async_update_data():
         """Fetch data from entities (Source & External Sensor)."""
         source_entity_id = entry.data.get("source_entity_id")
-        external_sensor_id = entry.data.get("external_temperature_entity_id")
+        
+        # Priority: Options (Dynamic) > Data (Initial Config)
+        external_sensor_id = entry.options.get(
+            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+            entry.data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
+        )
         
         data = {
             "room_temp": None,
@@ -50,7 +53,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             state = hass.states.get(source_entity_id)
             if state:
                 # Try to get internal temperature attribute (device dependent)
-                # Tado often exposes 'current_temperature' attribute
                 if state.attributes.get("current_temperature") is not None:
                      try:
                         data["tado_internal_temp"] = float(state.attributes["current_temperature"])
@@ -76,19 +78,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     # 4. Attach the config entry to the coordinator
-    # This is critical because climate.py reads config from coordinator.config_entry
     coordinator.config_entry = entry
 
-    # 5. Perform initial refresh (so data is ready immediately)
+    # 5. Perform initial refresh
     await coordinator.async_config_entry_first_refresh()
 
-    # 6. Store coordinator in hass.data (THIS FIXES YOUR KEYERROR)
+    # 6. Store coordinator
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # 7. Load the platforms (climate.py)
+    # 7. Load the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # 8. Register Update Listener (Reload on Options Change)
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
+
     return True
+
+async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload entry when options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
