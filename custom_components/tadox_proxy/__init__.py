@@ -1,29 +1,98 @@
+"""The Tado X Proxy integration."""
 from __future__ import annotations
 
+import logging
+from datetime import timedelta
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 
+_LOGGER = logging.getLogger(__name__)
+
+# List the platforms that you want to support.
 PLATFORMS: list[Platform] = [Platform.CLIMATE]
 
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up via YAML (not used in this MVP)."""
-    return True
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up from a config entry."""
+    """Set up Tado X Proxy from a config entry."""
+    
+    # 1. Ensure DOMAIN dict exists in hass.data
     hass.data.setdefault(DOMAIN, {})
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    return True
 
+    # 2. Define the data update method
+    # This function gathers all necessary data (room temp, valve state) 
+    # so climate.py can just read it without doing IO itself.
+    async def async_update_data():
+        """Fetch data from entities (Source & External Sensor)."""
+        source_entity_id = entry.data.get("source_entity_id")
+        external_sensor_id = entry.data.get("external_temperature_entity_id")
+        
+        data = {
+            "room_temp": None,
+            "tado_internal_temp": None,
+            "tado_setpoint": None
+        }
+        
+        # Get Room Temp from External Sensor
+        if external_sensor_id:
+            state = hass.states.get(external_sensor_id)
+            if state and state.state not in ("unknown", "unavailable"):
+                try:
+                    data["room_temp"] = float(state.state)
+                except (ValueError, TypeError):
+                    pass
+
+        # Get Tado Internal Temp & Setpoint from Source Entity
+        if source_entity_id:
+            state = hass.states.get(source_entity_id)
+            if state:
+                # Try to get internal temperature attribute (device dependent)
+                # Tado often exposes 'current_temperature' attribute
+                if state.attributes.get("current_temperature") is not None:
+                     try:
+                        data["tado_internal_temp"] = float(state.attributes["current_temperature"])
+                     except (ValueError, TypeError):
+                        pass
+                
+                # Get current Setpoint
+                if state.attributes.get("temperature") is not None:
+                    try:
+                        data["tado_setpoint"] = float(state.attributes["temperature"])
+                    except (ValueError, TypeError):
+                        pass
+        
+        return data
+
+    # 3. Create the Coordinator
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        name=f"{DOMAIN}_{entry.title}",
+        update_method=async_update_data,
+        update_interval=timedelta(seconds=60), # Poll every 60s as backup
+    )
+
+    # 4. Attach the config entry to the coordinator
+    # This is critical because climate.py reads config from coordinator.config_entry
+    coordinator.config_entry = entry
+
+    # 5. Perform initial refresh (so data is ready immediately)
+    await coordinator.async_config_entry_first_refresh()
+
+    # 6. Store coordinator in hass.data (THIS FIXES YOUR KEYERROR)
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    # 7. Load the platforms (climate.py)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok and DOMAIN in hass.data:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        hass.data[DOMAIN].pop(entry.entry_id)
+
     return unload_ok
