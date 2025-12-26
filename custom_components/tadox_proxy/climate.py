@@ -34,6 +34,7 @@ from .parameters import (
     RATE_LIMIT_DECREASE_EPS_C,
     WILL_HEAT_EPS_C,
     RegulationConfig,
+    PidTuning,
 )
 from .regulation import PidRegulator, RegulationState
 
@@ -82,6 +83,18 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         
         # Configuration & Parameters
         self._config = RegulationConfig()
+        
+        # Apply Tuning from Options Flow (if configured)
+        if config_entry.options:
+            opts = config_entry.options
+            # Use defaults from current config if not in options
+            kp = opts.get("kp", self._config.tuning.kp)
+            ki = opts.get("ki", self._config.tuning.ki)
+            kd = opts.get("kd", self._config.tuning.kd)
+            
+            _LOGGER.debug(f"Loading custom PID parameters: Kp={kp}, Ki={ki}, Kd={kd}")
+            self._config.tuning = PidTuning(kp=kp, ki=ki, kd=kd)
+
         
         # Internal State
         self._hvac_mode = HVACMode.HEAT
@@ -291,10 +304,16 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Diagnostic attributes."""
+        # Current tuning params (for debug visibility)
+        tuning = self._config.tuning
+        
         attrs = {
             "control_interval_s": DEFAULT_CONTROL_INTERVAL_S,
             "regulation_reason": self._last_regulation_reason,
             "tado_internal_temperature_c": self.coordinator.data.get("tado_internal_temp"),
+            "pid_kp": tuning.kp,
+            "pid_ki": tuning.ki,
+            "pid_kd": tuning.kd,
             "pid_p_term_c": 0,
             "pid_i_term_c": 0,
             "pid_d_term_c": 0,
