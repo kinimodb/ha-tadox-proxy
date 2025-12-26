@@ -120,7 +120,7 @@ class RegulationConfig:
 
     # Rate limit: do not send new targets more often than this (seconds).
     # (Decreases may bypass this; see RATE_LIMIT_DECREASE_EPS_C.)
-    min_command_interval_s: float = 300.0  # 5 min
+    min_command_interval_s: float = 180.0  # 3 min
 
     # Anti short-cycling: once heating is considered "on", keep it for min_on_s, and
     # once "off", keep it for min_off_s (seconds).
