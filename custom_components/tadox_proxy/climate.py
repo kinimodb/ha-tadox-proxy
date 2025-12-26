@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import time
+import datetime
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -13,12 +14,14 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -34,6 +37,23 @@ from .parameters import (
 from .regulation import PidRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the Tado X Proxy climate entity."""
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    
+    # Create the entity
+    entity = TadoXProxyClimate(
+        coordinator=coordinator,
+        unique_id=f"{entry.entry_id}_climate",
+        config_entry_title=entry.title,
+    )
+    
+    async_add_entities([entity])
 
 
 class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
@@ -54,7 +74,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Initialize the proxy thermostat."""
         super().__init__(coordinator)
         self._attr_unique_id = unique_id
-        self._attr_name = None  # Use device name
+        self._attr_name = None 
         
         # Configuration & Parameters
         self._config = RegulationConfig()
@@ -62,7 +82,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Internal State
         self._hvac_mode = HVACMode.HEAT
         self._target_temp = 20.0
-        self._is_heating_active = False # Latch for short-cycling protection
         
         # PID Regulator & State Memory
         self._regulator = PidRegulator(self._config)
@@ -71,8 +90,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Operational Timestamps
         self._last_regulation_ts = 0.0
         self._last_command_sent_ts = 0.0
-        self._last_heating_start_ts = 0.0
-        self._last_heating_stop_ts = 0.0
 
         # Diagnostics buffer
         self._last_regulation_result = None
@@ -87,24 +104,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if last_state:
             self._hvac_mode = last_state.state if last_state.state in self._attr_hvac_modes else HVACMode.HEAT
             if last_state.attributes.get(ATTR_TEMPERATURE):
-                self._target_temp = float(last_state.attributes[ATTR_TEMPERATURE])
+                try:
+                    self._target_temp = float(last_state.attributes[ATTR_TEMPERATURE])
+                except (ValueError, TypeError):
+                    self._target_temp = 20.0
 
         # Start the regulation timer
-        self.async_on_remove(
-            async_track_time_interval(
-                self.hass,
-                self._async_timer_tick,
-                datetime.timedelta(seconds=DEFAULT_CONTROL_INTERVAL_S)
-                if "datetime" in locals() else 
-                # Fallback if datetime not imported, though usually HA does.
-                # Actually let's just use int seconds in check, helper needs timedelta object
-                # We will import datetime inside.
-                None
-            )
-        )
-        
-        # Re-import datetime here to be safe or add to top imports
-        import datetime
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -123,6 +128,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if hvac_mode not in self._attr_hvac_modes:
             return
         self._hvac_mode = hvac_mode
+        self.async_write_ha_state() # Update UI immediately
         await self._async_regulation_cycle(trigger="hvac_mode_change")
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -130,6 +136,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if (temp := kwargs.get(ATTR_TEMPERATURE)) is None:
             return
         self._target_temp = float(temp)
+        self.async_write_ha_state() # Update UI immediately
         await self._async_regulation_cycle(trigger="set_temperature")
 
     # -----------------------------------------------------------------------
@@ -146,6 +153,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         
         if room_temp is None or tado_internal is None:
             self._last_regulation_reason = "waiting_for_sensors"
+            # Still write state to show we are alive
+            self.async_write_ha_state()
             return
 
         # Time delta calculation
@@ -270,8 +279,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return HVACAction.OFF
         
         # If Tado internal logic thinks it's heating, we report heating.
-        # We can also derive this from PID output if we want.
-        # Simple heuristic: If command > tado_internal + epsilon -> Heating
         tado_internal = self.coordinator.data.get("tado_internal_temp")
         tado_setpoint = self.coordinator.data.get("tado_setpoint")
         
