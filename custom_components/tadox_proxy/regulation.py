@@ -1,367 +1,132 @@
-"""Regulation core for tadox_proxy.
-
-This module is Home Assistant framework-agnostic: it contains no entity code and no
-coordinator code. It only computes the actuator target temperature that should be
-sent to the underlying (real) climate entity.
-
-Single source of truth for tuning defaults:
-- See custom_components/tadox_proxy/parameters.py (RegulationConfig, PidTuning, etc.)
-
-Design goals:
-- Full PID (P/I/D) to reduce overshoot via derivative term and trend-based braking.
-- Anti-windup to avoid integral runaway when output saturates.
-- Deadband to avoid micro-adjustments and actuator wear.
-- Minimum on/off times to avoid short cycling.
-- Command rate-limit to protect cloud APIs and reduce actuator movements.
-- Important nuance: stopping heating must be prompt. Therefore rate-limit is bypassed
-  for sufficiently large target decreases (see RATE_LIMIT_DECREASE_EPS_C).
 """
-
+PID Regulation Logic for Tado X Proxy.
+"""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-import math
+from dataclasses import dataclass
 from typing import Optional
 
-from .parameters import RegulationConfig, RATE_LIMIT_DECREASE_EPS_C
+from .parameters import RegulationConfig
 
 _LOGGER = logging.getLogger(__name__)
 
-
-def _clamp(value: float, vmin: float, vmax: float) -> float:
-    return max(vmin, min(vmax, value))
-
-
-def _is_finite(x: float) -> bool:
-    return not (math.isnan(x) or math.isinf(x))
-
+@dataclass
+class RegulationState:
+    """State of the PID loop passed between cycles."""
+    last_error_c: float = 0.0
+    integral_term_c: float = 0.0
+    # For smoothing derivative
+    last_input_c: Optional[float] = None
+    derivative_ema_c_per_s: float = 0.0
 
 @dataclass
-class PidState:
-    """Mutable controller state (persist per device)."""
-
-    # Integral term already multiplied by ki (i.e., in °C units).
-    integral_term_c: float = 0.0
-
-    # Last measurement/time
-    last_temp_c: Optional[float] = None
-    last_ts_s: Optional[float] = None
-
-    # Smoothed derivative on measurement (temp per second)
-    dtemp_dt_c_per_s_ema: float = 0.0
-    has_dtemp_ema: bool = False
-
-    # Last computed (raw) output delta and last target
-    last_output_delta_c: float = 0.0
-    last_target_c: Optional[float] = None
-
-    # Last time we *allowed* a new command (rate limit)
-    last_sent_ts_s: Optional[float] = None
-
-    # Heating-state latch for min on/off enforcement
-    heating_on: bool = False
-    heating_state_change_ts_s: Optional[float] = None
-
-
-@dataclass(frozen=True)
-class RegulationDecision:
-    """Result of a regulation step."""
-
-    target_c: float
+class RegulationResult:
+    """Result of a regulation cycle."""
     output_delta_c: float
-    p_c: float
-    i_c: float
-    d_c: float
+    p_term_c: float
+    i_term_c: float
+    d_term_c: float
     error_c: float
-    reason: str
-    rate_limited: bool
     deadband_active: bool
-    heating_on: bool
-    dtemp_dt_c_per_s: float
+    new_state: RegulationState
+    debug_info: dict
 
+class PIDRegulator:
+    """Stateless PID calculator (state is passed in/out)."""
 
-class PidRegulator:
-    """PID regulator that returns an actuator target temperature."""
+    def __init__(self, config: RegulationConfig):
+        self.config = config
 
-    def __init__(self, config: RegulationConfig, state: Optional[PidState] = None) -> None:
-        self._cfg = config
-        self._st = state if state is not None else PidState()
-
-    @property
-    def state(self) -> PidState:
-        return self._st
-
-    @property
-    def config(self) -> RegulationConfig:
-        return self._cfg
-
-    def reset(self) -> None:
-        self._st.integral_term_c = 0.0
-        self._st.last_temp_c = None
-        self._st.last_ts_s = None
-        self._st.dtemp_dt_c_per_s_ema = 0.0
-        self._st.has_dtemp_ema = False
-        self._st.last_output_delta_c = 0.0
-        self._st.last_target_c = None
-        self._st.last_sent_ts_s = None
-        self._st.heating_on = False
-        self._st.heating_state_change_ts_s = None
-
-    def step(
+    def compute(
         self,
-        *,
-        user_setpoint_c: float,
-        measured_temp_c: float,
-        now_ts_s: float,
-        window_open: bool = False,
-        force_off: bool = False,
-    ) -> RegulationDecision:
-        """Compute next target temperature for the underlying climate.
-
-        - user_setpoint_c: desired room temperature (set on proxy)
-        - measured_temp_c: current room temperature (external sensor preferred)
-        - now_ts_s: monotonic timestamp
-        - window_open: if true, force output towards "off"/hold (conservative)
-        - force_off: if true, force output to minimum target (frost safe)
+        setpoint_c: float,
+        current_temp_c: float,
+        time_delta_s: float,
+        state: RegulationState,
+    ) -> RegulationResult:
         """
+        Calculate PID output.
+        
+        CRITICAL CHANGE v0.3: 
+        Removed 'Hard Deadband'. The PID now calculates CONTINUOUSLY even if 
+        the error is small. This allows the I-term to maintain a holding value 
+        (equilibrium) to keep the valve slightly open, preventing the 
+        'pendulum effect' (sawtooth) caused by shutting off completely at target.
+        """
+        
+        # 1. Calculate Error
+        error = setpoint_c - current_temp_c
 
-        # Basic validation: keep the system predictable even with bad sensor values.
-        if not _is_finite(user_setpoint_c) or not _is_finite(measured_temp_c):
-            fallback = self._st.last_target_c
-            if fallback is None:
-                fallback = _clamp(user_setpoint_c, self._cfg.min_target_c, self._cfg.max_target_c)
-            return RegulationDecision(
-                target_c=fallback,
-                output_delta_c=0.0,
-                p_c=0.0,
-                i_c=self._st.integral_term_c,
-                d_c=0.0,
-                error_c=0.0,
-                reason="invalid_input_fallback",
-                rate_limited=True,
-                deadband_active=False,
-                heating_on=self._st.heating_on,
-                dtemp_dt_c_per_s=self._st.dtemp_dt_c_per_s_ema if self._st.has_dtemp_ema else 0.0,
-            )
+        # 2. Proportional Term
+        # Immediate reaction to error.
+        p_term = self.config.tuning.kp * error
 
-        cfg = self._cfg
-        st = self._st
-        tuning = cfg.tuning
+        # 3. Integral Term
+        # Accumulates error over time to overcome static offsets (heat loss, valve offset).
+        # We accumulate even inside the 'deadband' zone to find equilibrium.
+        new_integral = state.integral_term_c + (error * self.config.tuning.ki * time_delta_s)
+        
+        # Anti-Windup: Clamp the I-term absolute value
+        new_integral = max(
+            self.config.integral_term_min_c,
+            min(self.config.integral_term_max_c, new_integral)
+        )
+        i_term = new_integral
 
-        error_c = user_setpoint_c - measured_temp_c
+        # 4. Derivative Term (on Measurement, not Error, to avoid setpoint kick)
+        # d(Error)/dt = d(Setpoint - Input)/dt = - d(Input)/dt (assuming constant setpoint)
+        d_term = 0.0
+        new_derivative_ema = state.derivative_ema_c_per_s
 
-        # Determine dt
-        if st.last_ts_s is None or st.last_temp_c is None:
-            dt_s = cfg.min_command_interval_s  # conservative first step
-        else:
-            dt_s = max(1.0, now_ts_s - st.last_ts_s)
+        if time_delta_s > 0 and state.last_input_c is not None:
+            # Raw slope: -(current - last) / dt
+            input_slope = (current_temp_c - state.last_input_c) / time_delta_s
+            
+            # Apply EMA Filter to slope
+            alpha = self.config.derivative_ema_alpha
+            new_derivative_ema = (alpha * input_slope) + ((1.0 - alpha) * state.derivative_ema_c_per_s)
+            
+            # D-Term tries to oppose the movement (braking)
+            # D = - Kd * slope
+            d_term = -1.0 * self.config.tuning.kd * new_derivative_ema
 
-        # Derivative on measurement
-        dtemp_dt = 0.0
-        if st.last_ts_s is not None and st.last_temp_c is not None:
-            dtemp_dt = (measured_temp_c - st.last_temp_c) / dt_s
+        # 5. Total Output
+        # Base PID output
+        raw_output = p_term + i_term + d_term
 
-        # EMA smoothing for derivative
-        alpha = _clamp(cfg.derivative_ema_alpha, 0.0, 1.0)
-        if alpha <= 0.0:
-            st.dtemp_dt_c_per_s_ema = dtemp_dt
-            st.has_dtemp_ema = True
-        else:
-            if not st.has_dtemp_ema:
-                st.dtemp_dt_c_per_s_ema = dtemp_dt
-                st.has_dtemp_ema = True
-            else:
-                st.dtemp_dt_c_per_s_ema = alpha * dtemp_dt + (1.0 - alpha) * st.dtemp_dt_c_per_s_ema
+        # 6. Deadband Logic (Soft Mode)
+        # We report if we are inside deadband, but we DO NOT force output to 0.
+        # This allows the logic to "hold" the temperature.
+        in_deadband = abs(error) < self.config.deadband_c
 
-        dtemp_dt_smooth = st.dtemp_dt_c_per_s_ema if st.has_dtemp_ema else dtemp_dt
-
-        # Forced modes (e.g., window open / user off)
-        if force_off:
-            target = cfg.min_target_c
-            st.last_target_c = target
-            st.last_output_delta_c = 0.0
-            self._update_time_and_temp(measured_temp_c, now_ts_s)
-            self._set_heating_state(False, now_ts_s, reason="force_off")
-            return RegulationDecision(
-                target_c=target,
-                output_delta_c=0.0,
-                p_c=0.0,
-                i_c=st.integral_term_c,
-                d_c=0.0,
-                error_c=error_c,
-                reason="force_off",
-                rate_limited=False,
-                deadband_active=False,
-                heating_on=st.heating_on,
-                dtemp_dt_c_per_s=dtemp_dt_smooth,
-            )
-
-        if window_open:
-            # Conservative: do not chase. Hold close-ish to setpoint, clamp, and decay integral.
-            st.integral_term_c *= 0.90
-            target = _clamp(user_setpoint_c, cfg.min_target_c, cfg.max_target_c)
-            st.last_target_c = target
-            st.last_output_delta_c = 0.0
-            self._update_time_and_temp(measured_temp_c, now_ts_s)
-            self._set_heating_state(False, now_ts_s, reason="window_open")
-            return RegulationDecision(
-                target_c=target,
-                output_delta_c=0.0,
-                p_c=0.0,
-                i_c=st.integral_term_c,
-                d_c=0.0,
-                error_c=error_c,
-                reason="window_open_hold",
-                rate_limited=False,
-                deadband_active=True,
-                heating_on=st.heating_on,
-                dtemp_dt_c_per_s=dtemp_dt_smooth,
-            )
-
-        # Deadband logic: tolerate small fluctuations
-        if abs(error_c) <= cfg.deadband_c:
-            # Gentle integral decay to prevent "memory" from pushing after reaching setpoint.
-            st.integral_term_c *= 0.92
-            p_c = 0.0
-            d_c = 0.0
-            output = 0.0
-            reason = "deadband"
-            deadband_active = True
-        else:
-            deadband_active = False
-
-            p_c = tuning.kp * error_c
-
-            # Integral update with clamp (anti-windup rail). Integral is already "term" in °C.
-            st.integral_term_c += (tuning.ki * error_c * dt_s)
-            st.integral_term_c = _clamp(st.integral_term_c, cfg.integral_term_min_c, cfg.integral_term_max_c)
-
-            # Derivative on measurement (avoid derivative kick): d = -kd * dT/dt
-            d_c = -tuning.kd * dtemp_dt_smooth
-
-            output = p_c + st.integral_term_c + d_c
-            output = _clamp(output, -cfg.max_delta_c, cfg.max_delta_c)
-            reason = "pid"
-
-            # Trend-based overshoot protection: if we're heating (output>0) and temp is rising,
-            # and projection would overshoot soon, brake output towards 0.
-            if output > 0.0 and dtemp_dt_smooth > 0.0:
-                projected = measured_temp_c + dtemp_dt_smooth * cfg.overshoot_lookahead_s
-                if projected >= user_setpoint_c + cfg.overshoot_margin_c:
-                    brake = _clamp(cfg.overshoot_brake_strength, 0.0, 1.0)
-                    output *= (1.0 - brake)
-                    reason = "pid_overshoot_brake"
-
-        # Heating-state latch and minimum on/off times (anti short-cycling)
-        output, latch_reason = self._apply_min_on_off(user_setpoint_c, output, now_ts_s)
-        if latch_reason:
-            reason = latch_reason
-
-        # Compute target as setpoint + delta, then clamp to safe absolute limits
-        target = user_setpoint_c + output
-        target = _clamp(target, cfg.min_target_c, cfg.max_target_c)
-
-        desired_target = target
-        desired_output = output
-
-        # Rate limit (but allow immediate decreases)
-        rate_limited = False
-        if st.last_sent_ts_s is not None and st.last_target_c is not None:
-            if (now_ts_s - st.last_sent_ts_s) < cfg.min_command_interval_s:
-                if desired_target < (st.last_target_c - RATE_LIMIT_DECREASE_EPS_C):
-                    # allow prompt "stop heating" / decrease
-                    reason = "rate_limit_bypass_decrease"
-                else:
-                    # hold last target, but keep it within +/- max_delta relative to current setpoint
-                    hold = st.last_target_c
-                    max_hold = _clamp(user_setpoint_c + cfg.max_delta_c, cfg.min_target_c, cfg.max_target_c)
-                    min_hold = _clamp(user_setpoint_c - cfg.max_delta_c, cfg.min_target_c, cfg.max_target_c)
-                    target = _clamp(hold, min_hold, max_hold)
-                    output = target - user_setpoint_c
-                    rate_limited = True
-                    reason = f"rate_limited({int(cfg.min_command_interval_s)}s)"
-            else:
-                target = desired_target
-                output = desired_output
-        else:
-            target = desired_target
-            output = desired_output
-
-        # Persist computed values
-        st.last_output_delta_c = output
-        st.last_target_c = target
-
-        # Update time/temp tracking
-        self._update_time_and_temp(measured_temp_c, now_ts_s)
-
-        # If not rate-limited, consider this a "sent" command.
-        if not rate_limited:
-            st.last_sent_ts_s = now_ts_s
-
-        return RegulationDecision(
-            target_c=target,
-            output_delta_c=output,
-            p_c=p_c,
-            i_c=st.integral_term_c,
-            d_c=d_c,
-            error_c=error_c,
-            reason=reason,
-            rate_limited=rate_limited,
-            deadband_active=deadband_active,
-            heating_on=st.heating_on,
-            dtemp_dt_c_per_s=dtemp_dt_smooth,
+        # 7. Safety Clamping
+        # Limit the authority of the proxy (e.g., +/- 4°C on top of setpoint)
+        final_output = max(
+            -self.config.max_delta_c,
+            min(self.config.max_delta_c, raw_output)
         )
 
-    def _update_time_and_temp(self, measured_temp_c: float, now_ts_s: float) -> None:
-        self._st.last_temp_c = measured_temp_c
-        self._st.last_ts_s = now_ts_s
+        # Update State
+        new_state = RegulationState(
+            last_error_c=error,
+            integral_term_c=new_integral,
+            last_input_c=current_temp_c,
+            derivative_ema_c_per_s=new_derivative_ema
+        )
 
-    def _set_heating_state(self, heating_on: bool, now_ts_s: float, *, reason: str) -> None:
-        st = self._st
-        if st.heating_on != heating_on:
-            st.heating_on = heating_on
-            st.heating_state_change_ts_s = now_ts_s
-            _LOGGER.debug("Heating state -> %s (%s)", heating_on, reason)
-
-    def _apply_min_on_off(self, user_setpoint_c: float, output_delta_c: float, now_ts_s: float) -> tuple[float, Optional[str]]:
-        """Apply heating latch and min on/off constraints.
-
-        We interpret "heating on" as output_delta >= heat_on_threshold.
-        We interpret "heating off" as output_delta <= heat_off_threshold.
-        """
-        cfg = self._cfg
-        st = self._st
-
-        # Initialize state change timestamp if missing
-        if st.heating_state_change_ts_s is None:
-            st.heating_state_change_ts_s = now_ts_s
-
-        # Determine desired state from output (with hysteresis thresholds)
-        desired_on = st.heating_on
-        if st.heating_on:
-            if output_delta_c <= cfg.heat_off_threshold_delta_c:
-                desired_on = False
-        else:
-            if output_delta_c >= cfg.heat_on_threshold_delta_c:
-                desired_on = True
-
-        # Enforce min on/off times
-        elapsed = now_ts_s - (st.heating_state_change_ts_s or now_ts_s)
-
-        if st.heating_on:
-            # Currently on: if we want to turn off too early, keep a small heat output
-            if not desired_on and elapsed < cfg.min_on_s:
-                # Keep at least off-threshold
-                hold = cfg.heat_off_threshold_delta_c
-                return max(output_delta_c, hold), "min_on_hold"
-        else:
-            # Currently off: if we want to turn on too early, keep output at 0
-            if desired_on and elapsed < cfg.min_off_s:
-                return min(output_delta_c, 0.0), "min_off_hold"
-
-        # If allowed to change, apply desired state change and return output
-        if desired_on != st.heating_on:
-            self._set_heating_state(desired_on, now_ts_s, reason="threshold_cross")
-
-        return output_delta_c, None
+        return RegulationResult(
+            output_delta_c=final_output,
+            p_term_c=p_term,
+            i_term_c=i_term,
+            d_term_c=d_term,
+            error_c=error,
+            deadband_active=in_deadband, # Status info only, logic proceeds
+            new_state=new_state,
+            debug_info={
+                "raw_p": p_term,
+                "raw_i": new_integral,
+                "raw_d": d_term,
+                "raw_sum": raw_output
+            }
+        )
