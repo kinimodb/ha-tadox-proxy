@@ -46,7 +46,7 @@ class RegulationConfig:
     max_target_c: float = 25.0
 
     # Rate limit (5 min to save battery)
-    min_command_interval_s: float = 300.0
+    min_command_interval_s: float = 180.0
 
     # Anti short-cycling
     min_on_s: float = 300.0
