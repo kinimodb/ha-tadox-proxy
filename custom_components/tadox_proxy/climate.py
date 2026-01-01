@@ -48,13 +48,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Tado X Proxy climate entity."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-
     entity = TadoXProxyClimate(
         coordinator=coordinator,
         unique_id=f"{entry.entry_id}",
         config_entry=entry,
     )
-
     async_add_entities([entity])
 
 
@@ -77,34 +75,36 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         super().__init__(coordinator)
         self._attr_unique_id = unique_id
         self._config_entry = config_entry
-        self._attr_name = None  # Use translation key from HA
+        self._attr_name = None  # Use translation
 
         # Configuration & Parameters
         self._config = RegulationConfig()
 
-        # Apply Tuning from Options Flow (if configured)
+        # Apply tuning from Options Flow (if configured)
         if config_entry.options:
             opts = config_entry.options
             kp = opts.get("kp", self._config.tuning.kp)
             ki = opts.get("ki", self._config.tuning.ki)
             kd = opts.get("kd", self._config.tuning.kd)
-
-            _LOGGER.debug(f"Loading custom control parameters: Kp={kp}, Ki={ki}, Kd={kd}")
+            _LOGGER.debug("Loading custom control parameters: Kp=%s Ki=%s Kd=%s", kp, ki, kd)
             self._config.tuning = PidTuning(kp=kp, ki=ki, kd=kd)
 
         # Internal State
         self._hvac_mode = HVACMode.HEAT
         self._target_temp = 20.0
 
-        # Hybrid Regulator & State Memory (new default in this branch)
-        # Map existing Options Flow values (kp/ki/kd) onto hybrid config.
-        # Note: kd is currently unused by the hybrid strategy.
+        # Hybrid regulator (default in this branch)
+        # We keep the existing options keys (kp/ki/kd) for now, but interpret them as:
+        # - kp: proportional gain
+        # - ki: small comfort integrator (NOT the long-term bias learner)
+        # - kd: currently unused by the hybrid controller (reserved for future)
         self._hybrid_config = HybridConfig(
             min_target_c=self._config.min_target_c,
             max_target_c=self._config.max_target_c,
-            kp=self._config.tuning.kp,
-            ki_small=self._config.tuning.ki,
             coast_target_c=FROST_PROTECT_C,
+            kp=self._config.tuning.kp,
+            # IMPORTANT: Start conservatively; long-term offset is learned via bias estimator.
+            ki_small=min(self._config.tuning.ki, 0.001),
         )
         self._regulator = HybridRegulator(self._hybrid_config)
         self._hybrid_state = HybridState()
@@ -161,7 +161,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self.hass.async_create_task(self._async_regulation_cycle(trigger="timer"))
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode (heat/off)."""
+        """Set new target hvac mode."""
+        if hvac_mode not in self._attr_hvac_modes:
+            return
         self._hvac_mode = hvac_mode
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="hvac_mode_change")
@@ -171,7 +173,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if (temp := kwargs.get(ATTR_TEMPERATURE)) is None:
             return
         self._target_temp = float(temp)
-        self.async_write_ha_state()  # Update UI immediately
+        self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="set_temperature")
 
     # -----------------------------------------------------------------------
@@ -214,12 +216,11 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._hybrid_state = reg_result.new_state
         self._last_regulation_result = reg_result
 
-        # 4. Calculate Command for Tado (absolute target from regulator)
+        # 4. Calculate Command for Tado (absolute target)
         final_command_target = max(
             self._config.min_target_c,
             min(self._config.max_target_c, reg_result.target_c),
         )
-
         final_command_target = round(final_command_target, 1)
 
         # 5. Rate Limiting
@@ -240,7 +241,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 should_send = True
                 reason = "urgent_decrease"
             else:
-                should_send = False
                 reason = f"rate_limited({int(self._config.min_command_interval_s - time_since_last_send)}s)"
         else:
             should_send = True
@@ -262,7 +262,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if not source_entity:
             return
 
-        _LOGGER.debug(f"Sending {target_c}°C to {source_entity}")
+        _LOGGER.debug("Sending %s°C to %s", target_c, source_entity)
 
         try:
             await self.hass.services.async_call(
@@ -276,7 +276,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 blocking=True,
             )
         except Exception as e:
-            _LOGGER.error(f"Failed to send command to Tado: {e}")
+            _LOGGER.error("Failed to send command to Tado: %s", e)
 
     # -----------------------------------------------------------------------
     # Properties for UI
@@ -315,18 +315,19 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         attrs = {
             "control_interval_s": DEFAULT_CONTROL_INTERVAL_S,
             "regulation_reason": self._last_regulation_reason,
-            "regulator": "hybrid",
             "tado_internal_temperature_c": self.coordinator.data.get("tado_internal_temp"),
+            "regulator": "hybrid",
 
-            # Legacy tuning keys (Options Flow currently uses kp/ki/kd)
+            # Backwards-compatible exposure of existing option keys
             "pid_kp": tuning.kp,
             "pid_ki": tuning.ki,
             "pid_kd": tuning.kd,
 
-            # Hybrid diagnostics
+            # Effective hybrid config
             "hybrid_kp": self._hybrid_config.kp,
             "hybrid_ki_small": self._hybrid_config.ki_small,
-            "hybrid_bias_tau_s": self._hybrid_config.bias_tau_s,
+
+            # Hybrid state (persisted)
             "hybrid_mode": self._hybrid_state.mode.value,
             "hybrid_bias_c": round(self._hybrid_state.bias_c, 3),
             "hybrid_i_small_c": round(self._hybrid_state.i_small_c, 3),
@@ -337,13 +338,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             res = self._last_regulation_result
             attrs.update({
                 "hybrid_target_c": res.target_c,
-                "hybrid_mode": res.mode.value,
-                "hybrid_mode_reason": res.debug_info.get("mode_reason"),
                 "hybrid_error_c": res.error_c,
                 "hybrid_p_term_c": res.p_term_c,
-                "hybrid_i_small_c": res.i_small_c,
-                "hybrid_bias_c": res.bias_c,
-                "hybrid_dTdt_ema_c_per_min": round(res.dTdt_ema_c_per_s * 60.0, 5),
+                "hybrid_mode_reason": res.debug_info.get("mode_reason"),
                 "hybrid_predicted_temp_c": res.predicted_temp_c,
             })
 
