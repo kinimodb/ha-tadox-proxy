@@ -399,6 +399,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 "hybrid_p_term_c": res.p_term_c,
                 "hybrid_mode_reason": res.debug_info.get("mode_reason"),
                 "hybrid_predicted_temp_c": res.predicted_temp_c,
+                "hybrid_window_open_triggered": bool(res.debug_info.get("window_open_triggered")),
+                "hybrid_window_open_remaining_s": round(float(res.debug_info.get("window_open_remaining_s", 0.0)), 1),
+                "hybrid_window_open_active": float(res.debug_info.get("window_open_remaining_s", 0.0)) > 0.0,
             })
 
         return attrs
