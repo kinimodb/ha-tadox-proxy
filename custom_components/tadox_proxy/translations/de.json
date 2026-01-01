@@ -29,6 +29,8 @@
           "external_humidity_entity_id": "Externer Luftfeuchtigkeitssensor",
           "window_open_enabled": "Fensterfunktion aktivieren",
           "window_sensor_entity_id": "Fenstersensor",
+          "window_open_delay_min": "Verzögerung bis Abschalten bei offen (min)",
+          "window_close_delay_min": "Verzögerung bis Wiederanlauf nach Schließen (min)",
           "presence_sensor_entity_id": "Präsenzsensor"
         }
       }
