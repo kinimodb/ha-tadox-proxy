@@ -14,6 +14,8 @@ from .const import (
     CONF_EXTERNAL_HUMIDITY_ENTITY_ID,
     CONF_WINDOW_OPEN_ENABLED,
     CONF_WINDOW_SENSOR_ENTITY_ID,
+    CONF_WINDOW_OPEN_DELAY_MIN,
+    CONF_WINDOW_CLOSE_DELAY_MIN,
 )
 from .parameters import RegulationConfig
 
@@ -132,7 +134,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
 
         options_schema = vol.Schema(
             {
-                # 1. Legacy tuning keys (mapped to hybrid kp / ki_small)
+                # 1) Legacy tuning keys (mapped to hybrid kp / ki_small)
                 vol.Required("kp", default=get_val("kp", defaults.kp)): vol.All(
                     vol.Coerce(float), vol.Range(min=0.0, max=100.0)
                 ),
@@ -143,7 +145,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     vol.Coerce(float), vol.Range(min=0.0, max=2000.0)
                 ),
 
-                # 2. Sensor configuration
+                # 2) Sensor configuration
                 vol.Required(
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, default=current_ext_temp
                 ): selector.EntitySelector(
@@ -156,7 +158,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
                 ),
 
-                # 3. Window handling (sensor-based)
+                # 3) Window handling (sensor-based)
                 vol.Optional(
                     CONF_WINDOW_OPEN_ENABLED,
                     default=get_val(CONF_WINDOW_OPEN_ENABLED, False),
@@ -166,6 +168,22 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     default=get_val(CONF_WINDOW_SENSOR_ENTITY_ID, None),
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="binary_sensor")
+                ),
+                vol.Optional(
+                    CONF_WINDOW_OPEN_DELAY_MIN,
+                    default=get_val(CONF_WINDOW_OPEN_DELAY_MIN, 0),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=60, step=1, unit_of_measurement="min", mode="box"
+                    )
+                ),
+                vol.Optional(
+                    CONF_WINDOW_CLOSE_DELAY_MIN,
+                    default=get_val(CONF_WINDOW_CLOSE_DELAY_MIN, 0),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=60, step=1, unit_of_measurement="min", mode="box"
+                    )
                 ),
             }
         )
