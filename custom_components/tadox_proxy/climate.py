@@ -23,7 +23,11 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -149,23 +153,30 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._window_open_enabled: bool = bool(opts.get(CONF_WINDOW_OPEN_ENABLED, False))
         self._window_sensor_entity_id: str | None = opts.get(CONF_WINDOW_SENSOR_ENTITY_ID)
 
+        # Still stored as minutes in options for now; we accept float minutes.
         self._window_open_delay_s: float = float(opts.get(CONF_WINDOW_OPEN_DELAY_MIN, 0) or 0) * 60.0
         self._window_close_delay_s: float = float(opts.get(CONF_WINDOW_CLOSE_DELAY_MIN, 0) or 0) * 60.0
 
-        self._window_open_active: bool = False  # raw sensor state
-        self._window_open_triggered: bool = False  # last transition open->on (latched until closed)
+        # Raw sensor state
+        self._window_open_active: bool = False
+        self._window_open_triggered: bool = False  # latched while open
 
-        self._window_open_since_monotonic_s: float | None = None
-        self._window_close_since_monotonic_s: float | None = None
+        # Deadlines (monotonic)
+        self._window_open_deadline_mono: float | None = None
+        self._window_close_deadline_mono: float | None = None
 
-        # Window forcing diagnostics (computed each cycle)
+        # Timers (cancel functions)
+        self._unsub_window_sensor = None
+        self._unsub_window_open_timer = None
+        self._unsub_window_close_timer = None
+        self._unsub_window_tick = None
+
+        # Window forcing diagnostics (computed)
         self._window_forced: bool = False
         self._window_open_pending: bool = False
         self._window_open_delay_remaining_s: float = 0.0
         self._window_close_hold_remaining_s: float = 0.0
         self._window_forced_reason: str | None = None
-
-        self._unsub_window_sensor = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -204,11 +215,16 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         await self._async_regulation_cycle(trigger="startup")
 
     async def async_will_remove_from_hass(self) -> None:
-        if self._unsub_window_sensor:
-            try:
-                self._unsub_window_sensor()
-            finally:
-                self._unsub_window_sensor = None
+        for unsub in (self._unsub_window_sensor, self._unsub_window_open_timer, self._unsub_window_close_timer, self._unsub_window_tick):
+            if unsub:
+                try:
+                    unsub()
+                except Exception:
+                    pass
+        self._unsub_window_sensor = None
+        self._unsub_window_open_timer = None
+        self._unsub_window_close_timer = None
+        self._unsub_window_tick = None
         await super().async_will_remove_from_hass()
 
     def _async_setup_window_sensor(self) -> None:
@@ -219,10 +235,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             finally:
                 self._unsub_window_sensor = None
 
+        self._cancel_window_timers()
+        self._stop_window_tick()
+
         self._window_open_triggered = False
         self._window_open_active = False
-        self._window_open_since_monotonic_s = None
-        self._window_close_since_monotonic_s = None
+        self._window_open_deadline_mono = None
+        self._window_close_deadline_mono = None
 
         if not self._window_open_enabled or not self._window_sensor_entity_id:
             return
@@ -230,30 +249,39 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         st = self.hass.states.get(self._window_sensor_entity_id)
         if st is not None:
             self._window_open_active = (st.state == "on")
-            if self._window_open_active:
-                # Start open-delay timing at startup if already open
-                self._window_open_since_monotonic_s = time.monotonic()
-                self._window_open_triggered = True
+
+        now_m = time.monotonic()
+        if self._window_open_active:
+            self._window_open_triggered = True
+            self._window_open_deadline_mono = now_m + max(0.0, self._window_open_delay_s)
+            self._window_close_deadline_mono = None
+            self._schedule_window_open_timer()
+            self._start_window_tick()
 
         @callback
         def _handle_window_change(event) -> None:
             new_state = event.data.get("new_state")
             is_open = new_state is not None and new_state.state == "on"
+            now_m2 = time.monotonic()
 
-            now_m = time.monotonic()
+            self._window_open_active = is_open
 
             if is_open:
-                if not self._window_open_active:
-                    self._window_open_triggered = True
-                self._window_open_active = True
-                self._window_open_since_monotonic_s = now_m
-                self._window_close_since_monotonic_s = None
+                self._window_open_triggered = True
+                self._window_open_deadline_mono = now_m2 + max(0.0, self._window_open_delay_s)
+                self._window_close_deadline_mono = None
+                self._cancel_close_timer()
+                self._schedule_window_open_timer()
+                self._start_window_tick()
             else:
-                self._window_open_active = False
                 self._window_open_triggered = False
-                self._window_close_since_monotonic_s = now_m
-                self._window_open_since_monotonic_s = None
+                self._window_close_deadline_mono = now_m2 + max(0.0, self._window_close_delay_s)
+                self._window_open_deadline_mono = None
+                self._cancel_open_timer()
+                self._schedule_window_close_timer()
+                self._start_window_tick()
 
+            # Immediate cycle on sensor change (pending state becomes visible instantly)
             self.hass.async_create_task(self._async_regulation_cycle(trigger="window_sensor"))
             self.async_write_ha_state()
 
@@ -263,6 +291,96 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             _handle_window_change,
         )
 
+    def _cancel_window_timers(self) -> None:
+        self._cancel_open_timer()
+        self._cancel_close_timer()
+
+    def _cancel_open_timer(self) -> None:
+        if self._unsub_window_open_timer:
+            try:
+                self._unsub_window_open_timer()
+            finally:
+                self._unsub_window_open_timer = None
+
+    def _cancel_close_timer(self) -> None:
+        if self._unsub_window_close_timer:
+            try:
+                self._unsub_window_close_timer()
+            finally:
+                self._unsub_window_close_timer = None
+
+    def _schedule_window_open_timer(self) -> None:
+        """Schedule a one-shot callback when open-delay expires (forces immediate cycle)."""
+        self._cancel_open_timer()
+        if not self._window_open_enabled or not self._window_sensor_entity_id:
+            return
+        if not self._window_open_active:
+            return
+        if self._window_open_deadline_mono is None:
+            return
+
+        now_m = time.monotonic()
+        delay = max(0.0, self._window_open_deadline_mono - now_m)
+
+        @callback
+        def _fire(_now) -> None:
+            # Open-delay expired: force a cycle immediately (do not wait for control interval)
+            self._unsub_window_open_timer = None
+            self.hass.async_create_task(self._async_regulation_cycle(trigger="window_open_delay_expired"))
+            self.async_write_ha_state()
+
+        self._unsub_window_open_timer = async_call_later(self.hass, delay, _fire)
+
+    def _schedule_window_close_timer(self) -> None:
+        """Schedule a one-shot callback when close-hold expires (resumes immediate cycle)."""
+        self._cancel_close_timer()
+        if not self._window_open_enabled or not self._window_sensor_entity_id:
+            return
+        if self._window_open_active:
+            return
+        if self._window_close_deadline_mono is None:
+            return
+
+        now_m = time.monotonic()
+        delay = max(0.0, self._window_close_deadline_mono - now_m)
+
+        @callback
+        def _fire(_now) -> None:
+            # Close-hold expired: resume normal control immediately
+            self._unsub_window_close_timer = None
+            self.hass.async_create_task(self._async_regulation_cycle(trigger="window_close_hold_expired"))
+            self.async_write_ha_state()
+
+        self._unsub_window_close_timer = async_call_later(self.hass, delay, _fire)
+
+    def _start_window_tick(self) -> None:
+        """Start 1s tick updates while pending/hold is active (telemetry only)."""
+        if self._unsub_window_tick:
+            return
+
+        @callback
+        def _tick(_now_dt: datetime.datetime) -> None:
+            self._update_window_diagnostics()
+            # Only update HA state; do NOT trigger regulation here
+            self.async_write_ha_state()
+
+            # Stop ticking if no remaining timers
+            if self._window_open_delay_remaining_s <= 0.0 and self._window_close_hold_remaining_s <= 0.0:
+                self._stop_window_tick()
+
+        self._unsub_window_tick = async_track_time_interval(
+            self.hass,
+            _tick,
+            datetime.timedelta(seconds=1),
+        )
+
+    def _stop_window_tick(self) -> None:
+        if self._unsub_window_tick:
+            try:
+                self._unsub_window_tick()
+            finally:
+                self._unsub_window_tick = None
+
     def _compute_window_forcing(self) -> tuple[bool, str | None, bool, float, float]:
         """Return (forced, reason, pending, open_remaining_s, close_remaining_s)."""
         if not self._window_open_enabled or not self._window_sensor_entity_id:
@@ -270,30 +388,44 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         now_m = time.monotonic()
 
-        # 1) Sensor is OPEN -> wait for open-delay, then force frost/valve close
+        # OPEN path
         if self._window_open_active:
             delay_s = max(0.0, self._window_open_delay_s)
+
+            # immediate forcing
             if delay_s <= 0.0:
                 return True, "window_open_forced", False, 0.0, 0.0
 
-            if self._window_open_since_monotonic_s is None:
-                self._window_open_since_monotonic_s = now_m
+            if self._window_open_deadline_mono is None:
+                self._window_open_deadline_mono = now_m + delay_s
+                self._schedule_window_open_timer()
 
-            elapsed = now_m - self._window_open_since_monotonic_s
-            if elapsed >= delay_s:
+            rem = max(0.0, self._window_open_deadline_mono - now_m)
+            if rem <= 0.0:
                 return True, "window_open_forced", False, 0.0, 0.0
+            return False, "window_open_pending", True, rem, 0.0
 
-            return False, "window_open_pending", True, (delay_s - elapsed), 0.0
-
-        # 2) Sensor is CLOSED -> keep forcing for close-hold time
+        # CLOSED path (hold)
         hold_s = max(0.0, self._window_close_delay_s)
-        if hold_s > 0.0 and self._window_close_since_monotonic_s is not None:
-            elapsed = now_m - self._window_close_since_monotonic_s
-            if elapsed < hold_s:
-                return True, "window_close_hold", False, 0.0, (hold_s - elapsed)
-            self._window_close_since_monotonic_s = None
+        if hold_s <= 0.0:
+            return False, None, False, 0.0, 0.0
 
-        return False, None, False, 0.0, 0.0
+        if self._window_close_deadline_mono is None:
+            return False, None, False, 0.0, 0.0
+
+        rem = max(0.0, self._window_close_deadline_mono - now_m)
+        if rem <= 0.0:
+            return False, None, False, 0.0, 0.0
+
+        return True, "window_close_hold", False, 0.0, rem
+
+    def _update_window_diagnostics(self) -> None:
+        window_forced, window_reason, window_pending, open_rem_s, close_rem_s = self._compute_window_forcing()
+        self._window_forced = window_forced
+        self._window_forced_reason = window_reason
+        self._window_open_pending = window_pending
+        self._window_open_delay_remaining_s = open_rem_s
+        self._window_close_hold_remaining_s = close_rem_s
 
     @callback
     def _async_regulation_timer_callback(self, now: datetime.datetime) -> None:
@@ -333,14 +465,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if self._hvac_mode == HVACMode.OFF:
             effective_setpoint = FROST_PROTECT_C
 
-        window_forced, window_reason, window_pending, open_rem_s, close_rem_s = self._compute_window_forcing()
-
-        # store diagnostics
-        self._window_forced = window_forced
-        self._window_forced_reason = window_reason
-        self._window_open_pending = window_pending
-        self._window_open_delay_remaining_s = open_rem_s
-        self._window_close_hold_remaining_s = close_rem_s
+        # Always refresh window diagnostics each cycle
+        self._update_window_diagnostics()
+        window_forced = self._window_forced
+        window_reason = self._window_forced_reason
 
         reg_result = self._regulator.compute_target(
             setpoint_c=effective_setpoint,
@@ -493,7 +621,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         tuning = self._config.tuning
 
-        # For compatibility: expose a single "remaining" value (max of pending/hold)
+        # Remaining (max of pending/hold)
         remaining_any_s = max(self._window_open_delay_remaining_s, self._window_close_hold_remaining_s)
 
         attrs: dict[str, Any] = {
@@ -509,8 +637,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "window_open": self._window_open_active,
 
             # Window delays + forcing diagnostics
-            "window_open_delay_min": round(self._window_open_delay_s / 60.0, 1),
-            "window_close_delay_min": round(self._window_close_delay_s / 60.0, 1),
+            "window_open_delay_min": round(self._window_open_delay_s / 60.0, 3),
+            "window_close_delay_min": round(self._window_close_delay_s / 60.0, 3),
             "window_forced": self._window_forced,
             "window_open_pending": self._window_open_pending,
             "window_open_delay_remaining_s": round(self._window_open_delay_remaining_s, 1),
@@ -527,7 +655,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "hybrid_command_step_up_limit_c": self._last_command_step_up_limit_c,
             "hybrid_command_diff_c": self._last_command_diff_c,
 
-            # Backwards-compatible legacy tuning keys
+            # Legacy tuning keys
             "pid_kp": tuning.kp,
             "pid_ki": tuning.ki,
             "pid_kd": tuning.kd,
@@ -542,7 +670,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "hybrid_i_small_c": round(self._hybrid_state.i_small_c, 3),
             "hybrid_dTdt_ema_c_per_min": round(self._hybrid_state.dTdt_ema_c_per_s * 60.0, 5),
 
-            # Compatibility keys (keep existing names)
+            # Compatibility keys
             "hybrid_window_open_triggered": self._window_open_triggered,
             "hybrid_window_open_remaining_s": round(remaining_any_s, 1),
             "hybrid_window_open_active": self._window_forced,
@@ -563,4 +691,4 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         return attrs
 
 
-# Commit: feat: add configurable window open/close delays
+# Commit: fix: decouple window forcing from control interval
