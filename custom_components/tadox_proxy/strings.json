@@ -29,6 +29,8 @@
           "external_humidity_entity_id": "External humidity sensor",
           "window_open_enabled": "Enable window handling",
           "window_sensor_entity_id": "Window sensor",
+          "window_open_delay_min": "Delay before valve closes (min)",
+          "window_close_delay_min": "Delay after close before resuming (min)",
           "presence_sensor_entity_id": "Presence sensor"
         }
       }
