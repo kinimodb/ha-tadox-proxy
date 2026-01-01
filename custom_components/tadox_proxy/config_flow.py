@@ -12,12 +12,12 @@ from .const import (
     CONF_NAME,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
     CONF_EXTERNAL_HUMIDITY_ENTITY_ID,
+    CONF_WINDOW_OPEN_ENABLED,
     CONF_WINDOW_SENSOR_ENTITY_ID,
-    CONF_PRESENCE_SENSOR_ENTITY_ID,
 )
 from .parameters import RegulationConfig
 
-# Helper to validate temperature sensors
+
 def _is_temperature_sensor_state(state) -> bool:
     """Best-effort validation for a temperature sensor entity state."""
     if state is None:
@@ -86,13 +86,13 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
-    """Per-entry options (gear icon) for PID tuning & sensors."""
+    """Per-entry options (gear icon) for tuning & sensors."""
 
     async def async_step_init(self, user_input=None):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate external sensor if changed
+            # Validate external temperature sensor if changed
             ext_temp_entity_id = user_input.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
             if ext_temp_entity_id:
                 temp_state = self.hass.states.get(ext_temp_entity_id)
@@ -100,44 +100,73 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     errors["base"] = "temp_entity_not_found"
                 elif not _is_temperature_sensor_state(temp_state):
                     errors["base"] = "temp_not_temperature"
-            
+
+            # Validate window configuration (sensor-based)
+            window_enabled = bool(user_input.get(CONF_WINDOW_OPEN_ENABLED, False))
+            window_sensor = user_input.get(CONF_WINDOW_SENSOR_ENTITY_ID)
+
+            if window_enabled:
+                if not window_sensor:
+                    errors["base"] = "window_sensor_required"
+                else:
+                    ws_state = self.hass.states.get(window_sensor)
+                    if ws_state is None or not window_sensor.startswith("binary_sensor."):
+                        errors["base"] = "window_sensor_required"
+
             if not errors:
                 return self.async_create_entry(title="", data=user_input)
 
-        # Load current values (from options or fallback to defaults/data)
+        # Load current values
         current_options = self.config_entry.options
         current_data = self.config_entry.data
-        defaults = RegulationConfig().tuning # Load defaults from parameters.py
+        defaults = RegulationConfig().tuning
 
-        # Helper to get value: Option > Data > Default
         def get_val(key, default):
             return current_options.get(key, default)
 
-        # Entity fallback
+        # External temp fallback: Option > Data
         current_ext_temp = current_options.get(
-            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, 
-            current_data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
+            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+            current_data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID),
         )
 
         options_schema = vol.Schema(
             {
-                # 1. PID Tuning Section
-                vol.Required("kp", default=get_val("kp", defaults.kp)): 
-                    vol.All(vol.Coerce(float), vol.Range(min=0.0, max=100.0)),
-                vol.Required("ki", default=get_val("ki", defaults.ki)): 
-                    vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
-                vol.Required("kd", default=get_val("kd", defaults.kd)): 
-                    vol.All(vol.Coerce(float), vol.Range(min=0.0, max=2000.0)),
+                # 1. Legacy tuning keys (mapped to hybrid kp / ki_small)
+                vol.Required("kp", default=get_val("kp", defaults.kp)): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=100.0)
+                ),
+                vol.Required("ki", default=get_val("ki", defaults.ki)): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=1.0)
+                ),
+                vol.Required("kd", default=get_val("kd", defaults.kd)): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.0, max=2000.0)
+                ),
 
-                # 2. Sensor Configuration
-                vol.Required(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, default=current_ext_temp): 
-                    selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-                    ),
-                vol.Optional(CONF_EXTERNAL_HUMIDITY_ENTITY_ID, default=get_val(CONF_EXTERNAL_HUMIDITY_ENTITY_ID, None)): 
-                    selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
-                    ),
+                # 2. Sensor configuration
+                vol.Required(
+                    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, default=current_ext_temp
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Optional(
+                    CONF_EXTERNAL_HUMIDITY_ENTITY_ID,
+                    default=get_val(CONF_EXTERNAL_HUMIDITY_ENTITY_ID, None),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
+                ),
+
+                # 3. Window handling (sensor-based)
+                vol.Optional(
+                    CONF_WINDOW_OPEN_ENABLED,
+                    default=get_val(CONF_WINDOW_OPEN_ENABLED, False),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_WINDOW_SENSOR_ENTITY_ID,
+                    default=get_val(CONF_WINDOW_SENSOR_ENTITY_ID, None),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
+                ),
             }
         )
 
