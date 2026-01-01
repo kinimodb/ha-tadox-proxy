@@ -1,13 +1,13 @@
 """
 Hybrid regulation logic (bias estimator + state machine) for Tado X Proxy.
 
-This module is intentionally NOT wired into the runtime yet.
-It is safe to add without changing existing behavior.
+This module is used by the hybrid-control branch.
 
 Concept:
 - Bias estimator: slow long-term offset learning to compensate sensor/actuator bias.
 - Fast comfort response: proportional term (+ optional small I).
 - State machine: BOOST / HOLD / COAST to handle non-linear heating dynamics and load changes.
+- Window-open latch: force COAST when temperature drops very quickly.
 - Command hygiene (rate/step limits) is handled where commands are sent (typically climate entity).
 """
 
@@ -61,6 +61,14 @@ class HybridConfig:
     predict_horizon_s: float = 900.0               # 15 minutes
     overshoot_guard_c: float = 0.2
 
+    # --- Window-open / rapid-loss handling ---
+    # If the room temperature drops very quickly, it is often due to an open window/door.
+    # In that case we close the valve (COAST) for a limited time to avoid wasting energy
+    # and to prevent overshoot once the window is closed.
+    window_open_enabled: bool = True
+    window_open_drop_threshold_c_per_min: float = -0.2  # very fast drop => assume window open
+    window_open_hold_minutes: float = 15.0
+
     # --- State thresholds ---
     hold_deadband_c: float = 0.1
 
@@ -91,6 +99,9 @@ class HybridState:
 
     # Mode timing
     mode_entered_monotonic_s: float = field(default_factory=time.monotonic)
+
+    # Window-open latch (monotonic deadline). While active, the controller forces COAST.
+    window_open_until_monotonic_s: float = 0.0
 
 
 @dataclass
@@ -154,6 +165,7 @@ class HybridRegulator:
                 dTdt_ema_c_per_s=dTdt_ema,
                 last_room_temp_c=room_temp_c,
                 mode_entered_monotonic_s=state.mode_entered_monotonic_s,
+                window_open_until_monotonic_s=state.window_open_until_monotonic_s,
             )
             return HybridResult(
                 target_c=self._clamp_absolute_target(setpoint_c, cfg.coast_target_c),
@@ -168,20 +180,46 @@ class HybridRegulator:
                 debug_info={"reason": "heating_disabled"},
             )
 
+        # Window-open detection / latch (forces COAST)
+        now_mono = time.monotonic()
+        window_open_until = state.window_open_until_monotonic_s
+        window_open_triggered = False
+
+        if cfg.window_open_enabled:
+            # Keep COAST during the hold period
+            if now_mono < window_open_until:
+                mode: HybridMode | None = HybridMode.COAST
+                mode_reason: str | None = "window_open_active"
+            else:
+                # Detect a very fast temperature drop
+                window_thr = cfg.window_open_drop_threshold_c_per_min / 60.0  # °C/s
+                if state.last_room_temp_c is not None and dt > 0 and dTdt_ema <= window_thr:
+                    window_open_until = now_mono + (cfg.window_open_hold_minutes * 60.0)
+                    window_open_triggered = True
+                    mode = HybridMode.COAST
+                    mode_reason = "window_open_detected"
+                else:
+                    mode = None  # decide via normal state machine
+                    mode_reason = None
+        else:
+            mode = None
+            mode_reason = None
+
         # Predict temperature at horizon (for overshoot guard)
         predicted = None
         if cfg.predict_horizon_s > 0:
             predicted = room_temp_c + dTdt_ema * cfg.predict_horizon_s
 
         # Decide mode transitions
-        mode, mode_reason = self._decide_mode(
-            setpoint_c=setpoint_c,
-            room_temp_c=room_temp_c,
-            error_c=e,
-            dTdt_ema_c_per_s=dTdt_ema,
-            predicted_temp_c=predicted,
-            state=state,
-        )
+        if mode is None:
+            mode, mode_reason = self._decide_mode(
+                setpoint_c=setpoint_c,
+                room_temp_c=room_temp_c,
+                error_c=e,
+                dTdt_ema_c_per_s=dTdt_ema,
+                predicted_temp_c=predicted,
+                state=state,
+            )
 
         # Build target according to mode
         bias_c = state.bias_c
@@ -228,7 +266,7 @@ class HybridRegulator:
 
         # Build new state
         if mode != state.mode:
-            mode_entered = time.monotonic()
+            mode_entered = now_mono
         else:
             mode_entered = state.mode_entered_monotonic_s
 
@@ -239,6 +277,7 @@ class HybridRegulator:
             dTdt_ema_c_per_s=dTdt_ema,
             last_room_temp_c=room_temp_c,
             mode_entered_monotonic_s=mode_entered,
+            window_open_until_monotonic_s=window_open_until,
         )
 
         return HybridResult(
@@ -255,6 +294,9 @@ class HybridRegulator:
                 "mode_reason": mode_reason,
                 "base": base,
                 "raw_target": raw_target,
+                "window_open_triggered": window_open_triggered,
+                "window_open_until_monotonic_s": window_open_until,
+                "window_open_remaining_s": max(0.0, window_open_until - now_mono) if cfg.window_open_enabled else 0.0,
             },
         )
 
@@ -277,17 +319,25 @@ class HybridRegulator:
             return bias_c
         if abs(dTdt_c_per_min) > cfg.bias_trend_max_c_per_min:
             return bias_c
-        if cfg.bias_tau_s <= 0:
-            return bias_c
 
-        # Bias update: bias += (e / tau) * dt
-        updated = bias_c + (error_c / cfg.bias_tau_s) * dt_s
+        # First-order low-pass on bias with a rate limiter
+        alpha = 0.0
+        if cfg.bias_tau_s > 0 and dt_s > 0:
+            alpha = min(1.0, dt_s / cfg.bias_tau_s)
 
-        # Rate limit per hour
-        max_step = cfg.bias_rate_limit_c_per_h * (dt_s / 3600.0)
-        updated = bias_c + max(-max_step, min(max_step, updated - bias_c))
+        desired_bias = bias_c + (alpha * error_c)
 
-        return max(cfg.bias_min_c, min(cfg.bias_max_c, updated))
+        # Clamp absolute range
+        desired_bias = max(cfg.bias_min_c, min(cfg.bias_max_c, desired_bias))
+
+        # Rate limit (per hour)
+        max_step = (cfg.bias_rate_limit_c_per_h / 3600.0) * dt_s
+        if desired_bias > bias_c + max_step:
+            desired_bias = bias_c + max_step
+        elif desired_bias < bias_c - max_step:
+            desired_bias = bias_c - max_step
+
+        return desired_bias
 
     def _decide_mode(
         self,
