@@ -41,6 +41,17 @@ from .hybrid_regulation import HybridConfig, HybridRegulator, HybridState
 _LOGGER = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Command hygiene (send path)
+# ---------------------------------------------------------------------------
+# Prevent micro-updates from flapping the actuator/cloud.
+MIN_SEND_DELTA_C: float = 0.2
+
+# Limit upward setpoint jumps to avoid large "spikes" that can create overshoot.
+# Decreases are not step-limited (we want "close valve" behavior to remain immediate).
+MAX_STEP_UP_C: float = 0.5
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -116,6 +127,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Diagnostics buffer
         self._last_regulation_result = None
         self._last_regulation_reason = "startup"
+
+        # Command hygiene diagnostics
+        self._last_current_tado_setpoint_c: float | None = None
+        self._last_desired_target_c: float | None = None
+        self._last_command_target_c: float | None = None
+        self._last_command_step_limited: bool = False
+        self._last_command_diff_c: float | None = None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -216,39 +234,69 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._hybrid_state = reg_result.new_state
         self._last_regulation_result = reg_result
 
-        # 4. Calculate Command for Tado (absolute target)
-        final_command_target = max(
+        # 4. Calculate desired actuator target for Tado (absolute)
+        desired_target_c = max(
             self._config.min_target_c,
             min(self._config.max_target_c, reg_result.target_c),
         )
-        final_command_target = round(final_command_target, 1)
+        desired_target_c = round(desired_target_c, 1)
 
-        # 5. Rate Limiting
+        # 5. Command hygiene: step-limit only upward moves
+        current_tado_setpoint = self.coordinator.data.get("tado_setpoint")
+        command_target_c = desired_target_c
+        step_limited = False
+
+        if current_tado_setpoint is not None:
+            # Step-limit upward jumps; decreases remain immediate.
+            if desired_target_c > (current_tado_setpoint + 0.05):
+                stepped = min(desired_target_c, current_tado_setpoint + MAX_STEP_UP_C)
+                step_limited = (stepped != desired_target_c)
+                command_target_c = stepped
+
+            command_target_c = round(command_target_c, 1)
+
+        # Diagnostics snapshot (exposed via extra_state_attributes)
+        self._last_current_tado_setpoint_c = current_tado_setpoint
+        self._last_desired_target_c = desired_target_c
+        self._last_command_target_c = command_target_c
+        self._last_command_step_limited = step_limited
+        self._last_command_diff_c = (
+            abs(command_target_c - current_tado_setpoint)
+            if current_tado_setpoint is not None
+            else None
+        )
+
+        # 6. Rate limiting + min delta guard
         should_send = False
         reason = "noop"
 
-        current_tado_setpoint = self.coordinator.data.get("tado_setpoint", 0.0)
-
-        diff = abs(final_command_target - current_tado_setpoint)
-        time_since_last_send = now - self._last_command_sent_ts
-        is_rate_limited = time_since_last_send < self._config.min_command_interval_s
-
-        if diff < 0.1:
-            reason = "already_at_target"
-        elif is_rate_limited:
-            is_decrease = (final_command_target < current_tado_setpoint - RATE_LIMIT_DECREASE_EPS_C)
-            if is_decrease:
-                should_send = True
-                reason = "urgent_decrease"
-            else:
-                reason = f"rate_limited({int(self._config.min_command_interval_s - time_since_last_send)}s)"
-        else:
+        if current_tado_setpoint is None:
             should_send = True
-            reason = "normal_update"
+            reason = "init_unknown_current_setpoint"
+        else:
+            diff = abs(command_target_c - current_tado_setpoint)
+            time_since_last_send = now - self._last_command_sent_ts
+            is_rate_limited = time_since_last_send < self._config.min_command_interval_s
 
-        # 6. Execute Command
+            if diff < MIN_SEND_DELTA_C:
+                reason = f"min_delta_guard({MIN_SEND_DELTA_C}C)"
+            elif is_rate_limited:
+                is_decrease = (command_target_c < current_tado_setpoint - RATE_LIMIT_DECREASE_EPS_C)
+                if is_decrease:
+                    should_send = True
+                    reason = "urgent_decrease"
+                else:
+                    reason = f"rate_limited({int(self._config.min_command_interval_s - time_since_last_send)}s)"
+            else:
+                should_send = True
+                reason = "normal_update"
+
+        if step_limited:
+            reason = f"{reason}|step_up_limited({MAX_STEP_UP_C}C)"
+
+        # 7. Execute Command
         if should_send:
-            await self._async_send_to_tado(final_command_target)
+            await self._async_send_to_tado(command_target_c)
             self._last_command_sent_ts = now
             self._last_regulation_reason = f"sent({reason})"
         else:
@@ -316,7 +364,16 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "control_interval_s": DEFAULT_CONTROL_INTERVAL_S,
             "regulation_reason": self._last_regulation_reason,
             "tado_internal_temperature_c": self.coordinator.data.get("tado_internal_temp"),
+            "tado_setpoint_c": self._last_current_tado_setpoint_c,
             "regulator": "hybrid",
+
+            # Command hygiene (what we want vs what we actually send)
+            "command_min_send_delta_c": MIN_SEND_DELTA_C,
+            "command_max_step_up_c": MAX_STEP_UP_C,
+            "hybrid_desired_target_c": self._last_desired_target_c,
+            "hybrid_command_target_c": self._last_command_target_c,
+            "hybrid_command_step_limited": self._last_command_step_limited,
+            "hybrid_command_diff_c": self._last_command_diff_c,
 
             # Backwards-compatible exposure of existing option keys
             "pid_kp": tuning.kp,
