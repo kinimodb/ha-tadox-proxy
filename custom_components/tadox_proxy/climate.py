@@ -31,6 +31,8 @@ from .const import (
     DOMAIN,
     CONF_WINDOW_OPEN_ENABLED,
     CONF_WINDOW_SENSOR_ENTITY_ID,
+    CONF_WINDOW_OPEN_DELAY_MIN,
+    CONF_WINDOW_CLOSE_DELAY_MIN,
 )
 from .hybrid_regulation import HybridConfig, HybridRegulator, HybridState
 from .parameters import (
@@ -97,6 +99,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         self._config = RegulationConfig()
 
+        # Apply tuning from Options Flow (legacy keys mapped to hybrid)
         if config_entry.options:
             opts = config_entry.options
             kp = opts.get("kp", self._config.tuning.kp)
@@ -108,6 +111,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._hvac_mode: HVACMode = HVACMode.HEAT
         self._target_temp: float = 20.0
 
+        # Hybrid regulator
         self._hybrid_config = HybridConfig(
             min_target_c=self._config.min_target_c,
             max_target_c=self._config.max_target_c,
@@ -116,8 +120,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             ki_small=min(self._config.tuning.ki, 0.001),
         )
 
-        # If a trend-based window-open latch exists in HybridConfig, disable it:
-        # window handling is controlled via binary_sensor + Options Flow.
+        # Trend-based window-open (if present) must be disabled; we use binary_sensor only.
         if hasattr(self._hybrid_config, "window_open_enabled"):
             try:
                 setattr(self._hybrid_config, "window_open_enabled", False)
@@ -133,6 +136,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_regulation_result = None
         self._last_regulation_reason = "startup"
 
+        # Command hygiene diagnostics
         self._last_current_tado_setpoint_c: float | None = None
         self._last_desired_target_c: float | None = None
         self._last_command_target_c: float | None = None
@@ -140,15 +144,27 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_command_step_up_limit_c: float | None = None
         self._last_command_diff_c: float | None = None
 
-        # Window handling (sensor-based)
-        self._window_open_enabled: bool = bool(
-            config_entry.options.get(CONF_WINDOW_OPEN_ENABLED, False)
-        )
-        self._window_sensor_entity_id: str | None = config_entry.options.get(
-            CONF_WINDOW_SENSOR_ENTITY_ID
-        )
-        self._window_open_active: bool = False
-        self._window_open_triggered: bool = False
+        # Window handling (sensor-based + delays)
+        opts = config_entry.options or {}
+        self._window_open_enabled: bool = bool(opts.get(CONF_WINDOW_OPEN_ENABLED, False))
+        self._window_sensor_entity_id: str | None = opts.get(CONF_WINDOW_SENSOR_ENTITY_ID)
+
+        self._window_open_delay_s: float = float(opts.get(CONF_WINDOW_OPEN_DELAY_MIN, 0) or 0) * 60.0
+        self._window_close_delay_s: float = float(opts.get(CONF_WINDOW_CLOSE_DELAY_MIN, 0) or 0) * 60.0
+
+        self._window_open_active: bool = False  # raw sensor state
+        self._window_open_triggered: bool = False  # last transition open->on (latched until closed)
+
+        self._window_open_since_monotonic_s: float | None = None
+        self._window_close_since_monotonic_s: float | None = None
+
+        # Window forcing diagnostics (computed each cycle)
+        self._window_forced: bool = False
+        self._window_open_pending: bool = False
+        self._window_open_delay_remaining_s: float = 0.0
+        self._window_close_hold_remaining_s: float = 0.0
+        self._window_forced_reason: str | None = None
+
         self._unsub_window_sensor = None
 
     @property
@@ -163,6 +179,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
+        # Restore state
         last_state = await self.async_get_last_state()
         if last_state:
             self._hvac_mode = (
@@ -195,6 +212,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         await super().async_will_remove_from_hass()
 
     def _async_setup_window_sensor(self) -> None:
+        """Subscribe to window sensor changes (binary_sensor)."""
         if self._unsub_window_sensor:
             try:
                 self._unsub_window_sensor()
@@ -203,6 +221,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         self._window_open_triggered = False
         self._window_open_active = False
+        self._window_open_since_monotonic_s = None
+        self._window_close_since_monotonic_s = None
 
         if not self._window_open_enabled or not self._window_sensor_entity_id:
             return
@@ -210,16 +230,30 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         st = self.hass.states.get(self._window_sensor_entity_id)
         if st is not None:
             self._window_open_active = (st.state == "on")
+            if self._window_open_active:
+                # Start open-delay timing at startup if already open
+                self._window_open_since_monotonic_s = time.monotonic()
+                self._window_open_triggered = True
 
         @callback
         def _handle_window_change(event) -> None:
             new_state = event.data.get("new_state")
             is_open = new_state is not None and new_state.state == "on"
 
-            if is_open and not self._window_open_active:
-                self._window_open_triggered = True
+            now_m = time.monotonic()
 
-            self._window_open_active = is_open
+            if is_open:
+                if not self._window_open_active:
+                    self._window_open_triggered = True
+                self._window_open_active = True
+                self._window_open_since_monotonic_s = now_m
+                self._window_close_since_monotonic_s = None
+            else:
+                self._window_open_active = False
+                self._window_open_triggered = False
+                self._window_close_since_monotonic_s = now_m
+                self._window_open_since_monotonic_s = None
+
             self.hass.async_create_task(self._async_regulation_cycle(trigger="window_sensor"))
             self.async_write_ha_state()
 
@@ -228,6 +262,38 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             [self._window_sensor_entity_id],
             _handle_window_change,
         )
+
+    def _compute_window_forcing(self) -> tuple[bool, str | None, bool, float, float]:
+        """Return (forced, reason, pending, open_remaining_s, close_remaining_s)."""
+        if not self._window_open_enabled or not self._window_sensor_entity_id:
+            return False, None, False, 0.0, 0.0
+
+        now_m = time.monotonic()
+
+        # 1) Sensor is OPEN -> wait for open-delay, then force frost/valve close
+        if self._window_open_active:
+            delay_s = max(0.0, self._window_open_delay_s)
+            if delay_s <= 0.0:
+                return True, "window_open_forced", False, 0.0, 0.0
+
+            if self._window_open_since_monotonic_s is None:
+                self._window_open_since_monotonic_s = now_m
+
+            elapsed = now_m - self._window_open_since_monotonic_s
+            if elapsed >= delay_s:
+                return True, "window_open_forced", False, 0.0, 0.0
+
+            return False, "window_open_pending", True, (delay_s - elapsed), 0.0
+
+        # 2) Sensor is CLOSED -> keep forcing for close-hold time
+        hold_s = max(0.0, self._window_close_delay_s)
+        if hold_s > 0.0 and self._window_close_since_monotonic_s is not None:
+            elapsed = now_m - self._window_close_since_monotonic_s
+            if elapsed < hold_s:
+                return True, "window_close_hold", False, 0.0, (hold_s - elapsed)
+            self._window_close_since_monotonic_s = None
+
+        return False, None, False, 0.0, 0.0
 
     @callback
     def _async_regulation_timer_callback(self, now: datetime.datetime) -> None:
@@ -267,9 +333,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if self._hvac_mode == HVACMode.OFF:
             effective_setpoint = FROST_PROTECT_C
 
-        window_forced = bool(
-            self._window_open_enabled and self._window_sensor_entity_id and self._window_open_active
-        )
+        window_forced, window_reason, window_pending, open_rem_s, close_rem_s = self._compute_window_forcing()
+
+        # store diagnostics
+        self._window_forced = window_forced
+        self._window_forced_reason = window_reason
+        self._window_open_pending = window_pending
+        self._window_open_delay_remaining_s = open_rem_s
+        self._window_close_hold_remaining_s = close_rem_s
 
         reg_result = self._regulator.compute_target(
             setpoint_c=effective_setpoint,
@@ -287,6 +358,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             min(self._config.max_target_c, reg_result.target_c),
         )
 
+        # Window forcing => close valve / frost protect (absolute), regardless of regulator output
         if window_forced:
             desired_target_c = FROST_PROTECT_C
 
@@ -298,11 +370,18 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         step_up_limit_c = None
 
         if current_tado_setpoint is not None:
+            # Step-limit upward jumps; decreases remain immediate.
             if desired_target_c > (current_tado_setpoint + 0.05):
                 max_step_up = MAX_STEP_UP_C
-                if getattr(reg_result.mode, "value", None) == "boost":
-                    if current_tado_setpoint < (tado_internal + BOOST_OPEN_MARGIN_C):
-                        max_step_up = max(MAX_STEP_UP_C, BOOST_FAST_STEP_UP_C)
+
+                # Adaptive BOOST: if not yet above internal + margin, allow a bigger step.
+                try:
+                    is_boost = reg_result.mode.value == "boost"
+                except Exception:
+                    is_boost = False
+
+                if is_boost and current_tado_setpoint < (tado_internal + BOOST_OPEN_MARGIN_C):
+                    max_step_up = max(MAX_STEP_UP_C, BOOST_FAST_STEP_UP_C)
 
                 stepped = min(desired_target_c, current_tado_setpoint + max_step_up)
                 step_limited = (stepped != desired_target_c)
@@ -311,6 +390,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
             command_target_c = round(command_target_c, 1)
 
+        # Diagnostics snapshot
         self._last_current_tado_setpoint_c = current_tado_setpoint
         self._last_desired_target_c = desired_target_c
         self._last_command_target_c = command_target_c
@@ -322,6 +402,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             else None
         )
 
+        # Rate limiting + min delta guard
         should_send = False
         reason = "noop"
 
@@ -348,9 +429,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         if step_limited and step_up_limit_c is not None:
             reason = f"{reason}|step_up_limited({step_up_limit_c}C)"
-        if window_forced:
-            reason = f"{reason}|window_open_forced"
+        if window_reason:
+            reason = f"{reason}|{window_reason}"
 
+        # Execute command
         if should_send:
             await self._async_send_to_tado(command_target_c)
             self._last_command_sent_ts = now
@@ -411,6 +493,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         tuning = self._config.tuning
 
+        # For compatibility: expose a single "remaining" value (max of pending/hold)
+        remaining_any_s = max(self._window_open_delay_remaining_s, self._window_close_hold_remaining_s)
+
         attrs: dict[str, Any] = {
             "control_interval_s": DEFAULT_CONTROL_INTERVAL_S,
             "regulation_reason": self._last_regulation_reason,
@@ -418,10 +503,20 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "tado_setpoint_c": self._last_current_tado_setpoint_c,
             "regulator": "hybrid",
 
+            # Window config/state (raw sensor)
             "window_open_enabled": self._window_open_enabled,
             "window_sensor_entity_id": self._window_sensor_entity_id,
             "window_open": self._window_open_active,
 
+            # Window delays + forcing diagnostics
+            "window_open_delay_min": round(self._window_open_delay_s / 60.0, 1),
+            "window_close_delay_min": round(self._window_close_delay_s / 60.0, 1),
+            "window_forced": self._window_forced,
+            "window_open_pending": self._window_open_pending,
+            "window_open_delay_remaining_s": round(self._window_open_delay_remaining_s, 1),
+            "window_close_hold_remaining_s": round(self._window_close_hold_remaining_s, 1),
+
+            # Command hygiene
             "command_min_send_delta_c": MIN_SEND_DELTA_C,
             "command_max_step_up_c": MAX_STEP_UP_C,
             "command_boost_open_margin_c": BOOST_OPEN_MARGIN_C,
@@ -432,37 +527,40 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "hybrid_command_step_up_limit_c": self._last_command_step_up_limit_c,
             "hybrid_command_diff_c": self._last_command_diff_c,
 
+            # Backwards-compatible legacy tuning keys
             "pid_kp": tuning.kp,
             "pid_ki": tuning.ki,
             "pid_kd": tuning.kd,
 
+            # Effective hybrid tuning
             "hybrid_kp": self._hybrid_config.kp,
             "hybrid_ki_small": self._hybrid_config.ki_small,
 
+            # Hybrid state
             "hybrid_mode": self._hybrid_state.mode.value,
             "hybrid_bias_c": round(self._hybrid_state.bias_c, 3),
             "hybrid_i_small_c": round(self._hybrid_state.i_small_c, 3),
             "hybrid_dTdt_ema_c_per_min": round(self._hybrid_state.dTdt_ema_c_per_s * 60.0, 5),
 
+            # Compatibility keys (keep existing names)
             "hybrid_window_open_triggered": self._window_open_triggered,
-            "hybrid_window_open_remaining_s": 0.0,
-            "hybrid_window_open_active": self._window_open_active,
+            "hybrid_window_open_remaining_s": round(remaining_any_s, 1),
+            "hybrid_window_open_active": self._window_forced,
         }
 
         if self._last_regulation_result:
             res = self._last_regulation_result
-            mode_reason = res.debug_info.get("mode_reason")
-            if self._window_open_active and self._window_open_enabled:
-                mode_reason = "window_open_active"
-
             attrs.update(
                 {
                     "hybrid_target_c": res.target_c,
                     "hybrid_error_c": res.error_c,
                     "hybrid_p_term_c": res.p_term_c,
-                    "hybrid_mode_reason": mode_reason,
+                    "hybrid_mode_reason": res.debug_info.get("mode_reason"),
                     "hybrid_predicted_temp_c": res.predicted_temp_c,
                 }
             )
 
         return attrs
+
+
+# Commit: feat: add configurable window open/close delays
