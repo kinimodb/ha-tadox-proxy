@@ -63,6 +63,15 @@ BOOST_OPEN_MARGIN_C: float = 0.5
 BOOST_FAST_STEP_UP_C: float = 2.0
 
 
+
+# Fast recovery: when the controller needs to climb quickly (e.g. after window close or large drop),
+# temporarily relax step-up + rate limiting and schedule faster control cycles.
+FAST_RECOVERY_ROOM_ERROR_C: float = 1.5        # °C room error to enable fast recovery
+FAST_RECOVERY_UP_DELTA_C: float = 3.0          # °C delta between desired target and current setpoint
+FAST_RECOVERY_MAX_STEP_UP_C: float = 2.0       # °C max step-up when fast recovery is active
+FAST_RECOVERY_MIN_INTERVAL_S: float = 20.0     # seconds between commands in fast recovery
+FAST_RECOVERY_MAX_JUMP_DELTA_C: float = 8.0    # if delta is huge from frost, jump once (no stepping)
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -148,6 +157,22 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_command_step_up_limit_c: float | None = None
         self._last_command_diff_c: float | None = None
 
+
+
+        # Last command actually sent to the source thermostat (for debugging / ground truth)
+        self._last_sent_target_c: float | None = None
+        self._last_sent_reason: str | None = None
+        self._last_sent_at_ts: float | None = None
+
+        # Effective command policy (may differ from defaults during fast recovery)
+        self._cmd_effective_min_interval_s: float = self._config.min_command_interval_s
+        self._cmd_effective_max_step_up_c: float = MAX_STEP_UP_C
+        self._cmd_fast_recovery_active: bool = False
+        self._cmd_fast_recovery_reason: str | None = None
+
+        # Fast recovery timer (schedules extra control cycles independent of the base interval)
+        self._unsub_fast_recovery_timer = None
+
         # Window handling (sensor-based + delays)
         opts = config_entry.options or {}
         self._window_open_enabled: bool = bool(opts.get(CONF_WINDOW_OPEN_ENABLED, False))
@@ -177,7 +202,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._window_open_delay_remaining_s: float = 0.0
         self._window_close_hold_remaining_s: float = 0.0
         self._window_forced_reason: str | None = None
-        self._last_window_forced: bool = False
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -216,12 +240,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         await self._async_regulation_cycle(trigger="startup")
 
     async def async_will_remove_from_hass(self) -> None:
-        for unsub in (
-            self._unsub_window_sensor,
-            self._unsub_window_open_timer,
-            self._unsub_window_close_timer,
-            self._unsub_window_tick,
-        ):
+        for unsub in (self._unsub_window_sensor, self._unsub_window_open_timer, self._unsub_window_close_timer, self._unsub_window_tick, self._unsub_fast_recovery_timer):
             if unsub:
                 try:
                     unsub()
@@ -231,6 +250,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._unsub_window_open_timer = None
         self._unsub_window_close_timer = None
         self._unsub_window_tick = None
+        self._unsub_fast_recovery_timer = None
         await super().async_will_remove_from_hass()
 
     def _async_setup_window_sensor(self) -> None:
@@ -243,6 +263,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         self._cancel_window_timers()
         self._stop_window_tick()
+        self._cancel_fast_recovery_timer()
 
         self._window_open_triggered = False
         self._window_open_active = False
@@ -330,6 +351,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         @callback
         def _fire(_now) -> None:
+            # Open-delay expired: force a cycle immediately (do not wait for control interval)
             self._unsub_window_open_timer = None
             self.hass.async_create_task(self._async_regulation_cycle(trigger="window_open_delay_expired"))
             self.async_write_ha_state()
@@ -351,6 +373,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         @callback
         def _fire(_now) -> None:
+            # Close-hold expired: resume normal control immediately
             self._unsub_window_close_timer = None
             self.hass.async_create_task(self._async_regulation_cycle(trigger="window_close_hold_expired"))
             self.async_write_ha_state()
@@ -365,8 +388,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         @callback
         def _tick(_now_dt: datetime.datetime) -> None:
             self._update_window_diagnostics()
+            # Only update HA state; do NOT trigger regulation here
             self.async_write_ha_state()
 
+            # Stop ticking if no remaining timers
             if self._window_open_delay_remaining_s <= 0.0 and self._window_close_hold_remaining_s <= 0.0:
                 self._stop_window_tick()
 
@@ -383,6 +408,32 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             finally:
                 self._unsub_window_tick = None
 
+
+    def _cancel_fast_recovery_timer(self) -> None:
+        """Cancel any scheduled fast-recovery control cycle."""
+        if self._unsub_fast_recovery_timer:
+            try:
+                self._unsub_fast_recovery_timer()
+            finally:
+                self._unsub_fast_recovery_timer = None
+
+    def _schedule_fast_recovery_timer(self, delay_s: float) -> None:
+        """Schedule an extra control cycle sooner than the base control interval."""
+        self._cancel_fast_recovery_timer()
+
+        if delay_s <= 0:
+            self.hass.async_create_task(self._async_regulation_cycle(trigger="fast_recovery_timer"))
+            return
+
+        @callback
+        def _fire(_now) -> None:
+            self._unsub_fast_recovery_timer = None
+            self.hass.async_create_task(self._async_regulation_cycle(trigger="fast_recovery_timer"))
+            self.async_write_ha_state()
+
+        self._unsub_fast_recovery_timer = async_call_later(self.hass, delay_s, _fire)
+
+
     def _compute_window_forcing(self) -> tuple[bool, str | None, bool, float, float]:
         """Return (forced, reason, pending, open_remaining_s, close_remaining_s)."""
         if not self._window_open_enabled or not self._window_sensor_entity_id:
@@ -394,6 +445,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if self._window_open_active:
             delay_s = max(0.0, self._window_open_delay_s)
 
+            # immediate forcing
             if delay_s <= 0.0:
                 return True, "window_open_forced", False, 0.0, 0.0
 
@@ -466,11 +518,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if self._hvac_mode == HVACMode.OFF:
             effective_setpoint = FROST_PROTECT_C
 
+        # Always refresh window diagnostics each cycle
         self._update_window_diagnostics()
         window_forced = self._window_forced
         window_reason = self._window_forced_reason
-
-        resume_from_window = self._last_window_forced and (not window_forced)
 
         reg_result = self._regulator.compute_target(
             setpoint_c=effective_setpoint,
@@ -488,12 +539,56 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             min(self._config.max_target_c, reg_result.target_c),
         )
 
+        # Window forcing => close valve / frost protect (absolute), regardless of regulator output
         if window_forced:
             desired_target_c = FROST_PROTECT_C
 
         desired_target_c = round(desired_target_c, 1)
 
         current_tado_setpoint = self.coordinator.data.get("tado_setpoint")
+
+        # Command policy: derive an effective (possibly temporary) rate limit + step-up limit.
+        # Motivation: when recovering from a large drop (or from frost protection), we must not crawl
+        # in 0.5°C steps every few minutes.
+        room_error_c = float(effective_setpoint - room_temp)
+        delta_up_c = (
+            max(0.0, desired_target_c - float(current_tado_setpoint))
+            if current_tado_setpoint is not None
+            else 0.0
+        )
+
+        # Defaults
+        self._cmd_fast_recovery_active = False
+        self._cmd_fast_recovery_reason = None
+        self._cmd_effective_min_interval_s = float(self._config.min_command_interval_s)
+        self._cmd_effective_max_step_up_c = float(MAX_STEP_UP_C)
+
+        # Enable fast recovery if the requested actuator delta is large, or if room error is large.
+        # (Mode 'boost' also counts as fast recovery.)
+        try:
+            is_boost_mode = reg_result.mode.value == "boost"
+        except Exception:
+            is_boost_mode = False
+
+        if (self._hvac_mode != HVACMode.OFF) and (not window_forced):
+            if delta_up_c >= FAST_RECOVERY_UP_DELTA_C:
+                self._cmd_fast_recovery_active = True
+                self._cmd_fast_recovery_reason = f"delta_up>={FAST_RECOVERY_UP_DELTA_C}C"
+            elif room_error_c >= FAST_RECOVERY_ROOM_ERROR_C:
+                self._cmd_fast_recovery_active = True
+                self._cmd_fast_recovery_reason = f"room_error>={FAST_RECOVERY_ROOM_ERROR_C}C"
+            elif is_boost_mode:
+                self._cmd_fast_recovery_active = True
+                self._cmd_fast_recovery_reason = "boost_mode"
+
+        if self._cmd_fast_recovery_active:
+            self._cmd_effective_min_interval_s = min(
+                self._cmd_effective_min_interval_s, float(FAST_RECOVERY_MIN_INTERVAL_S)
+            )
+            self._cmd_effective_max_step_up_c = max(
+                self._cmd_effective_max_step_up_c, float(FAST_RECOVERY_MAX_STEP_UP_C)
+            )
+
         command_target_c = desired_target_c
         step_limited = False
         step_up_limit_c = None
@@ -501,32 +596,28 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if current_tado_setpoint is not None:
             # Step-limit upward jumps; decreases remain immediate.
             if desired_target_c > (current_tado_setpoint + 0.05):
-                max_step_up = MAX_STEP_UP_C
+                max_step_up = float(self._cmd_effective_max_step_up_c)
 
-                try:
-                    is_boost = reg_result.mode.value == "boost"
-                except Exception:
-                    is_boost = False
+                # Adaptive BOOST: if not yet above internal + margin, allow a bigger step.
+                if is_boost_mode and current_tado_setpoint < (tado_internal + BOOST_OPEN_MARGIN_C):
+                    max_step_up = max(max_step_up, float(BOOST_FAST_STEP_UP_C))
 
-                if is_boost and current_tado_setpoint < (tado_internal + BOOST_OPEN_MARGIN_C):
-                    max_step_up = max(MAX_STEP_UP_C, BOOST_FAST_STEP_UP_C)
-
-                stepped = min(desired_target_c, current_tado_setpoint + max_step_up)
-                step_limited = (stepped != desired_target_c)
-                command_target_c = stepped
-                step_up_limit_c = max_step_up
+                # If we are recovering from frost protection (very large delta), jump once.
+                if (
+                    self._cmd_fast_recovery_active
+                    and current_tado_setpoint <= (FROST_PROTECT_C + 2.5)
+                    and delta_up_c >= float(FAST_RECOVERY_MAX_JUMP_DELTA_C)
+                ):
+                    command_target_c = desired_target_c
+                    step_limited = False
+                    step_up_limit_c = None
+                else:
+                    stepped = min(desired_target_c, current_tado_setpoint + max_step_up)
+                    step_limited = (stepped != desired_target_c)
+                    command_target_c = stepped
+                    step_up_limit_c = max_step_up
 
             command_target_c = round(command_target_c, 1)
-
-        # If we just resumed from a window-forced state, jump immediately to the desired target
-        # (bypass step-up limiting and rate limiting). This avoids a slow 0.5°C ramp from frost protection.
-        if resume_from_window and (current_tado_setpoint is not None):
-            if desired_target_c > (current_tado_setpoint + 0.05):
-                command_target_c = desired_target_c
-                step_limited = False
-                step_up_limit_c = None
-                command_target_c = round(command_target_c, 1)
-            # If desired_target is below current, the normal urgent-decrease path will handle it.
 
         # Diagnostics snapshot
         self._last_current_tado_setpoint_c = current_tado_setpoint
@@ -550,7 +641,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         else:
             diff = abs(command_target_c - current_tado_setpoint)
             time_since_last_send = now - self._last_command_sent_ts
-            is_rate_limited = time_since_last_send < self._config.min_command_interval_s
+            effective_min_interval_s = float(self._cmd_effective_min_interval_s)
+            is_rate_limited = time_since_last_send < effective_min_interval_s
 
             if diff < MIN_SEND_DELTA_C:
                 reason = f"min_delta_guard({MIN_SEND_DELTA_C}C)"
@@ -560,31 +652,45 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     should_send = True
                     reason = "urgent_decrease"
                 else:
-                    reason = f"rate_limited({int(self._config.min_command_interval_s - time_since_last_send)}s)"
+                    reason = f"rate_limited({int(effective_min_interval_s - time_since_last_send)}s)"
             else:
                 should_send = True
-                reason = "normal_update"
 
-        # Resume override: ignore rate limiting after window close-hold expired
-        if resume_from_window and (current_tado_setpoint is not None):
-            if command_target_c > (current_tado_setpoint + 0.05):
-                should_send = True
-                reason = "window_resume"
+                reason = "normal_update"
 
         if step_limited and step_up_limit_c is not None:
             reason = f"{reason}|step_up_limited({step_up_limit_c}C)"
         if window_reason:
             reason = f"{reason}|{window_reason}"
 
+        # Execute command
         if should_send:
+            # Record what we intend to send (debugging) before calling the service.
+            self._last_sent_target_c = command_target_c
+            self._last_sent_reason = reason
+            self._last_sent_at_ts = now
+
             await self._async_send_to_tado(command_target_c)
             self._last_command_sent_ts = now
             self._last_regulation_reason = f"sent({reason})"
         else:
             self._last_regulation_reason = reason
 
-        # Track window-forced state transitions for resume behavior
-        self._last_window_forced = window_forced
+        # Fast-recovery scheduling: continue ramping independent of the 60s base interval.
+        if (
+            self._cmd_fast_recovery_active
+            and (self._hvac_mode != HVACMode.OFF)
+            and (not window_forced)
+            and (current_tado_setpoint is not None)
+            and (desired_target_c > (command_target_c + 0.05))
+        ):
+            time_since = now - float(self._last_command_sent_ts)
+            remaining = max(0.0, float(self._cmd_effective_min_interval_s) - time_since)
+            delay_s = remaining if remaining > 0.0 else float(self._cmd_effective_min_interval_s)
+            self._schedule_fast_recovery_timer(delay_s)
+        else:
+            self._cancel_fast_recovery_timer()
+
         self.async_write_ha_state()
 
     async def _async_send_to_tado(self, target_c: float) -> None:
@@ -637,6 +743,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         tuning = self._config.tuning
+
+        # Remaining (max of pending/hold)
         remaining_any_s = max(self._window_open_delay_remaining_s, self._window_close_hold_remaining_s)
 
         attrs: dict[str, Any] = {
@@ -646,10 +754,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "tado_setpoint_c": self._last_current_tado_setpoint_c,
             "regulator": "hybrid",
 
+            # Window config/state (raw sensor)
             "window_open_enabled": self._window_open_enabled,
             "window_sensor_entity_id": self._window_sensor_entity_id,
             "window_open": self._window_open_active,
 
+            # Window delays + forcing diagnostics
             "window_open_delay_min": round(self._window_open_delay_s / 60.0, 3),
             "window_close_delay_min": round(self._window_close_delay_s / 60.0, 3),
             "window_forced": self._window_forced,
@@ -657,28 +767,42 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "window_open_delay_remaining_s": round(self._window_open_delay_remaining_s, 1),
             "window_close_hold_remaining_s": round(self._window_close_hold_remaining_s, 1),
 
+            # Command hygiene
             "command_min_send_delta_c": MIN_SEND_DELTA_C,
             "command_max_step_up_c": MAX_STEP_UP_C,
             "command_boost_open_margin_c": BOOST_OPEN_MARGIN_C,
             "command_boost_fast_step_up_c": BOOST_FAST_STEP_UP_C,
+            "command_effective_min_interval_s": round(self._cmd_effective_min_interval_s, 1),
+            "command_effective_max_step_up_c": round(self._cmd_effective_max_step_up_c, 2),
+            "command_fast_recovery_active": self._cmd_fast_recovery_active,
+            "command_fast_recovery_reason": self._cmd_fast_recovery_reason,
+            "tado_last_sent_target_c": self._last_sent_target_c,
+            "tado_last_sent_reason": self._last_sent_reason,
+            "tado_last_sent_age_s": (
+                round(time.time() - self._last_sent_at_ts, 1) if self._last_sent_at_ts is not None else None
+            ),
             "hybrid_desired_target_c": self._last_desired_target_c,
             "hybrid_command_target_c": self._last_command_target_c,
             "hybrid_command_step_limited": self._last_command_step_limited,
             "hybrid_command_step_up_limit_c": self._last_command_step_up_limit_c,
             "hybrid_command_diff_c": self._last_command_diff_c,
 
+            # Legacy tuning keys
             "pid_kp": tuning.kp,
             "pid_ki": tuning.ki,
             "pid_kd": tuning.kd,
 
+            # Effective hybrid tuning
             "hybrid_kp": self._hybrid_config.kp,
             "hybrid_ki_small": self._hybrid_config.ki_small,
 
+            # Hybrid state
             "hybrid_mode": self._hybrid_state.mode.value,
             "hybrid_bias_c": round(self._hybrid_state.bias_c, 3),
             "hybrid_i_small_c": round(self._hybrid_state.i_small_c, 3),
             "hybrid_dTdt_ema_c_per_min": round(self._hybrid_state.dTdt_ema_c_per_s * 60.0, 5),
 
+            # Compatibility keys
             "hybrid_window_open_triggered": self._window_open_triggered,
             "hybrid_window_open_remaining_s": round(remaining_any_s, 1),
             "hybrid_window_open_active": self._window_forced,
@@ -699,4 +823,4 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         return attrs
 
 
-# Commit: fix: resume immediately after window close (bypass step/rate limits)
+# Commit: fix: add fast recovery to bypass slow step/rate limiting
