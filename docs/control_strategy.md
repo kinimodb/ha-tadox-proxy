@@ -1,219 +1,177 @@
 # Control Strategy (Hybrid) — Tado X Proxy Thermostat
 
-## Ziel
-Alltagstaugliche Raumtemperaturregelung über Tado X, wobei die einzige Stellgröße die an Tado gesendete Zieltemperatur (Tado-Setpoint) ist. Die Strategie soll:
-- stabil sein (wenig Überschwingen),
-- robust gegenüber Störungen (z. B. Tür offen/zu) sein,
-- mit begrenzter Stellfrequenz funktionieren (Rate-Limit),
-- Setpoint-Nervosität minimieren,
-- den systematischen Sensor-/Montage-Offset zwischen Raumfühler und TRV (Thermostat) ausgleichen.
+Dieses Dokument beschreibt die **aktuelle Regelstrategie** im Branch `feature/hybrid-control`.
+Es ist bewusst praxisorientiert: Welche Signale nutzen wir, welche Logik läuft wo, und wie liest man die Telemetrie.
 
-## Grundidee
-Die Regelung besteht aus 4 Bausteinen:
-1) **Bias-Estimator (langsames Offset-Lernen)**: lernt einen dauerhaften Setpoint-Offset, der nötig ist, um den Raum-Sollwert zu treffen (kompensiert TRV-/Montagebias).
-2) **Schneller Komfort-Regler (P + optional kleine I-Komponente)**: reagiert auf aktuelle Abweichungen.
-3) **Zustandsautomat (BOOST / HOLD / COAST)**: bildet Nichtlinearitäten und Lastsprünge robust ab (Tür-offen/zu, Nachlauf der Heizung).
-4) **Command Hygiene**: Rate-Limit + Step-Limit + Mindeständerung, um Flattern zu reduzieren und Gerät/Cloud zu schonen.
-
-Damit trennen wir:
-- langsames „Offset-Lernen“ (Bias) von
-- schneller „Komfort-Reaktion“ (P, ggf. kleine I)
-und kapseln Lastsprünge über Zustände statt nur über einen universellen Regler.
+> Wichtig: Der Tado X TRV wird als **Aktuator-Blackbox** betrachtet.
+> Stellgröße ist der an Tado gesendete **Setpoint**. Das Ventilverhalten ergibt sich daraus indirekt.
 
 ---
 
-## Signale und Definitionen
+## 1) Architektur in 3 Ebenen (entscheidend)
 
-### Eingänge
-- `T_room` (°C): Raumtemperatur (Primärsensor)
-- `T_set_room` (°C): gewünschter Raum-Sollwert (vom Nutzer)
-- `T_trv` (°C): interne Tado-Temperatur (optional für Diagnose, nicht zwingend für Regelkern)
-- `hvac_mode`: heat/off
-- optional: `door_open` (bool) / `window_open` (bool) / presence (nicht vorausgesetzt)
+### Ebene A — Hybrid-Regler (Reglerlogik)
+**Datei:** `custom_components/tadox_proxy/hybrid_regulation.py`
 
-### Abgeleitete Größen
-- Fehler: `e = T_set_room - T_room`
-- Trend (°C/s): `dTdt = EMA( (T_room - T_room_prev) / dt )`
-  - EMA-Glättung: `dTdt = alpha * raw + (1-alpha) * dTdt_prev`
+Liefert den **idealen Target-Setpoint**, um den Raum Richtung Sollwert zu bringen:
+- Bias-Estimator (Langzeit-Offset)
+- State Machine: BOOST / HOLD / COAST
+- P (+ kleines I optional)
+- Trend/Prediction (Overshoot-Guard)
 
-### Stellgröße
-- `T_tado_target` (°C): an Tado zu sendende Zieltemperatur
+Output: `hybrid_target_c` (bzw. intern der “Reglerwunsch”)
 
 ---
 
-## Parameter (Defaults)
-> Werte sind Startwerte; Tuning erfolgt empirisch.
+### Ebene B — Window Handling (Störung / Override)
+**Datei:** `custom_components/tadox_proxy/climate.py` (sensor-basiert)
 
-### General
-- `control_interval_s = 60`
-- `tado_min_temp = 7.0`
-- `tado_max_temp = 35.0`
+Window Handling ist in diesem Branch **deterministisch und sensorbasiert** (binary_sensor):
+- Open-Delay: erst nach X Sekunden/Minuten „offen“ wird Frostschutz erzwungen
+- Close-Hold: nach dem Schließen wird Frostschutz für Y Sekunden/Minuten gehalten
 
-### Command Hygiene
-- `min_command_interval_s = 180`  (Rate-Limit)
-- `min_send_delta_c = 0.2`        (Mindeständerung, sonst nicht senden)
-- `max_step_delta_c = 0.5`        (Step-Limit pro Send)
-- `max_offset_c = 8.0`            (Clamp für Gesamt-Offset relativ zu Raum-Soll)
-
-### Bias-Estimator (langsames Lernen)
-- `bias_tau_s = 4 * 3600`         (Zeitkonstante 4h)
-- `bias_deadband_c = 0.1`         (nur lernen, wenn |e| klein genug / stabil)
-- `bias_rate_limit_c_per_h = 0.5` (zusätzliche Sicherheit)
-- `bias_min_c = -5.0`, `bias_max_c = +5.0`
-
-### Komfort-Regler (schnell)
-- `kp = 5.0`                      (Startwert)
-- `ki_small = 0.0002`             (optional; kann 0 sein, wenn Bias genügt)
-- `i_small_min_c = -2.0`, `i_small_max_c = +2.0`
-
-### Trend / Prädiktion
-- `dTdt_alpha = 0.25`
-- `trend_cool_threshold_c_per_min = +0.03`   (steigend)
-- `trend_drop_threshold_c_per_min = -0.03`   (fallend)
-- `predict_horizon_s = 900`                  (15 min)
-- `overshoot_guard_c = 0.2`                  (Puffer)
-
-### Zustandsautomat (Schwellwerte)
-- `boost_error_on_c = 0.6`       (BOOST, wenn e groß positiv)
-- `boost_error_off_c = 0.2`      (BOOST endet, wenn e klein)
-- `coast_error_on_c = -0.3`      (COAST, wenn e negativ)
-- `coast_error_off_c = -0.1`     (COAST endet, wenn e nur leicht negativ)
-- `hold_deadband_c = 0.1`        (HOLD nahe Soll)
-
-### BOOST-Setpoint
-- `boost_target_c = 25.0`        (oder min(tado_max_temp, T_set_room + max_offset_c))
-- `boost_max_minutes = 30`
-
-### COAST-Setpoint
-- `coast_target_c = 7.0`         (min temp), alternativ `T_set_room - 2.0` geklemmt
+**Wenn Window-forced aktiv ist, ist das ein Output-Override:**  
+→ Tado-Setpoint wird auf Frostschutz gesetzt, unabhängig vom Reglerwunsch.
 
 ---
 
-## Zustandsautomat
+### Ebene C — Command Policy (Sendepfad / Hygiene)
+**Datei:** `custom_components/tadox_proxy/climate.py`
 
-### Zustände
-- `BOOST`: schnelle Aufheizung bei großem Wärmebedarf oder schnellem Temperaturabfall
-- `HOLD`: stabil nahe Soll, minimale Aktivität
-- `COAST`: Nachlauf/Überschwingen abbauen, Heizung „auslaufen lassen“
+Übersetzt den Reglerwunsch in **tatsächliche Tado-Kommandos**, ohne Flattern und ohne unnötige Cloud-Last:
+- Min-Delta Guard
+- Rate-Limit (normal)
+- Step-Up Limit (normal)
+- Urgent Decrease (runter sofort)
+- Fast-Recovery (bounded), wenn es wirklich kalt ist / großer Gap / BOOST
+- Window-Resume: kontrolliertes Wiederanlaufen nach Frostschutz
 
-### Übergänge (ohne Türsensor)
-1) In `BOOST`, wenn:
-   - `e >= boost_error_on_c`
-   - ODER `dTdt <= trend_drop_threshold` (Temperatur fällt schnell)
-2) Aus `BOOST` nach `HOLD`, wenn:
-   - `e <= boost_error_off_c` UND `dTdt > trend_drop_threshold` (Abfall vorbei)
-   - ODER `boost_max_minutes` überschritten
-3) In `COAST`, wenn:
-   - `e <= coast_error_on_c`
-   - ODER Prädiktion: `T_room + dTdt * predict_horizon_s >= T_set_room + overshoot_guard_c`
-4) Aus `COAST` nach `HOLD`, wenn:
-   - `e >= coast_error_off_c` (nicht mehr deutlich zu warm)
-5) In `HOLD` sonst, zusätzlich gilt:
-   - Wenn `|e| <= hold_deadband_c` und Trend klein: HOLD beibehalten
-
-> Optional mit Türsensor:
-- Wenn `door_open == true`, BOOST-Schwelle senken (früher boosten) und COAST erschweren.
-- Wenn `door_open` von true→false wechselt: Bias-Lernen kurz einfrieren (z. B. 30 min), um Windup zu vermeiden.
+Output: `hybrid_command_target_c` + tatsächliches Sendeverhalten (`tado_last_sent_*`)
 
 ---
 
-## Bias-Estimator (Offset-Lernen)
+## 2) Signale / Inputs
 
-### Ziel
-`bias` bildet den langfristigen Setpoint-Offset ab, der nötig ist, um den Raum-Sollwert zu erreichen, ohne dass schnelle Lastsprünge (Tür) den Integrator „aufladen“.
+### Raumtemperatur (Ist)
+- Primär: externer Raumtemperatursensor (Proxy `current_temperature`)
+- Das ist die Regelgröße.
 
-### Update-Regel
-Nur aktualisieren, wenn:
-- `hvac_mode == heat`
-- `state != BOOST` (sonst lernt Bias fälschlich die Boost-Phase)
-- `|e| <= bias_deadband_c`
-- `|dTdt|` klein (z. B. < 0.01 °C/min), damit stationär
+### Raum-Sollwert
+- Proxy `temperature` (vom Nutzer/Automationen gesetzt)
 
-Dann:
-- `bias += (e / bias_tau_s) * dt`
-- zusätzlich begrenzen:
-  - `bias = clamp(bias, bias_min_c, bias_max_c)`
-  - pro Stunde Änderungsrate limitieren (`bias_rate_limit_c_per_h`)
+### Tado Telemetrie (nur Aktuatorfeedback)
+- `tado_internal_temperature_c` (Temperatur am Thermostatkopf)
+- `tado_setpoint_c` (aktueller Setpoint am TRV / Source Entity)
 
-Interpretation:
-- ist Raum dauerhaft 0.3°C zu kalt nahe Soll, bias steigt langsam → Tado-Setpoint wird langfristig etwas höher gefahren.
+**Interpretation:**  
+TRV-intern kann deutlich über Raumtemperatur liegen (Heizkörper-/Kopf-Nachlauf). Das ist normal.
 
 ---
 
-## Komfort-Regler (P + optional kleine I)
+## 3) Hybrid-Regler im Detail (Ebene A)
 
-### Motivation
-P reagiert schnell. Eine kleine I-Komponente kann Restfehler ausgleichen, wird aber bewusst klein gehalten, weil Bias den statischen Anteil trägt.
+### 3.1 Bias-Estimator (Langzeitlernen)
+Ziel: systematische Abweichungen ohne Integrator-Windup korrigieren.
 
-Berechnung:
-- `p = kp * e`
-- `i_small += e * ki_small * dt` (nur in HOLD, nur wenn nicht gesättigt)
-- `i_small = clamp(i_small, i_small_min_c, i_small_max_c)`
+- `hybrid_bias_c`: langsam lernender Offset
+- Lernen findet nur in „ruhigen“ Phasen statt (nahe steady state, Trend klein).
 
-Anti-Windup:
-- `i_small` einfrieren, wenn:
-  - aktueller Output gesättigt ist (`T_tado_target` am Clamp)
-  - Zustand BOOST oder COAST aktiv ist
+### 3.2 State Machine
+- **BOOST**: Raum deutlich zu kalt oder Temperatur fällt schnell → aggressiver öffnen
+- **HOLD**: nahe Soll → geringe Aktivität, stabil halten
+- **COAST**: zu warm / Overshoot erwartet → Ventil schließen (Target runter)
 
----
+Telemetrie:
+- `hybrid_mode` und `hybrid_mode_reason`
 
-## Stellwertbildung
+### 3.3 P (+ kleines I)
+- `hybrid_error_c = setpoint - room_temp`
+- `hybrid_p_term_c = kp * error`
+- `hybrid_i_small_c` optional (sehr konservativ)
+- Der Reglerwunsch wird als `hybrid_target_c` (bzw. `hybrid_desired_target_c`) sichtbar.
 
-1) Basis:
-- `base = T_set_room + bias`
-
-2) Zustandsabhängige Logik:
-- Wenn `BOOST`:
-  - `raw_target = max(boost_target_c, base + p)` (einfach robust)
-- Wenn `COAST`:
-  - `raw_target = coast_target_c` (oder clamp(base - 2.0))
-- Wenn `HOLD`:
-  - `raw_target = base + p + i_small`
-
-3) Clamp:
-- `raw_target = clamp(raw_target, tado_min_temp, tado_max_temp)`
-- zusätzlicher Clamp relativ zu Raum-Soll:
-  - `raw_target = clamp(raw_target, T_set_room - max_offset_c, T_set_room + max_offset_c)`
+### 3.4 Prediction (Overshoot-Guard)
+- `hybrid_predicted_temp_c` ist eine einfache lineare Projektion:
+  `T_pred = T_now + dTdt_ema * horizon`
+- Wird genutzt, um frühzeitig COAST zu wählen, wenn Overshoot wahrscheinlich ist.
+- In Window-forced Phasen ist Prediction nicht maßgeblich (Override).
 
 ---
 
-## Command Hygiene (Senden an Tado)
+## 4) Window Handling (Ebene B)
 
-Wir senden nur, wenn alle Bedingungen erfüllt sind:
-- seit letztem Senden: `now - last_send >= min_command_interval_s`
-- UND Änderung groß genug: `|raw_target - last_sent_target| >= min_send_delta_c`
+### 4.1 Sensorzustand
+- `window_open` zeigt den aktuellen Fensterkontakt-Status (binary_sensor on/off).
 
-Zusätzlich Step-Limit:
-- `target = last_sent_target + clamp(raw_target - last_sent_target, -max_step_delta_c, +max_step_delta_c)`
+### 4.2 Delay/Timers
+- `window_open_delay_min`: wie lange „offen“, bis Frostschutz erzwungen wird
+- `window_close_delay_min`: wie lange nach „zu“ Frostschutz gehalten wird
 
-Damit verhindern wir:
-- kleine, häufige Änderungen (min_send_delta)
-- große Sprünge (step limit)
-- zu häufiges Senden (rate limit)
+Telemetrie:
+- `window_open_pending`, `window_open_delay_remaining_s`
+- `window_close_hold_remaining_s`
 
-Sonderfall „Urgent“ (optional, sehr vorsichtig):
-- Bei sehr großem positiven Fehler (`e >= 1.2°C`) darf einmalig das Rate-Limit verkürzt werden (z. B. auf 60–90s), aber nur in Richtung HEIZEN (Boost), nie als Dauerzustand.
-
----
-
-## Logging / Telemetrie (Pflichtfelder)
-Für Diagnose und Tuning sollen pro control cycle geloggt werden:
-- `T_room`, `T_set_room`, `e`, `dTdt`
-- `state` (BOOST/HOLD/COAST)
-- `bias`, `p`, `i_small`
-- `raw_target`, `sent_target`, `send_reason` (rate-limited / step-limited / deadband / urgent)
-- `tado_internal_temp` (optional)
-- `hvac_action` / `hvac_mode`
+### 4.3 Override Semantik
+- `window_forced: true` bedeutet:
+  - Kommandiert wird Frostschutz (z. B. 5°C)
+  - Reglerzustand wird nicht „kaputtgerechnet“ (Output Override)
 
 ---
 
-## Tuning-Leitfaden (Kurz)
-1) **Command Hygiene zuerst** (rate/step/min_delta) so einstellen, dass Setpoints nicht flattern.
-2) `bias_tau` so wählen, dass Bias nicht auf Tür-Events reagiert (Stundenbereich).
-3) `kp` erhöhen bis Reaktion gut, aber ohne Überschwingen/Setpoint-Jitter.
-4) `ki_small` erst zuletzt (oder 0 lassen), wenn Bias + P nicht reichen.
-5) Schwellen der Zustandslogik so anpassen, dass:
-   - BOOST früh genug bei Tür offen greift,
-   - COAST früh genug bei Nachlauf greift,
-   - HOLD die meiste Zeit aktiv ist.
+## 5) Command Policy / Hygiene (Ebene C)
 
+### 5.1 Zielwerte (wichtigste Unterscheidung)
+- `hybrid_desired_target_c`: Reglerwunsch nach Clamp/Override
+- `hybrid_command_target_c`: tatsächlich geplanter Sendezielwert (nach Policy)
+- `tado_setpoint_c`: aktueller Setpoint am TRV (Source)
+- `tado_last_sent_target_c`: letzter vom Proxy gesendeter Setpoint
+
+### 5.2 Guards / Limits
+- Min-Delta Guard: keine Sends unter `command_min_send_delta_c` (z. B. 0.2°C)
+- Rate-Limit: normaler Mindestabstand zwischen Sends (`command_effective_min_interval_s`, typ. 180s)
+- Step-Up Limit: Erhöhungen werden begrenzt (`command_effective_max_step_up_c`, typ. 0.5°C)
+
+Decreases sind “urgent” (runter sofort), um schnell schließen zu können.
+
+### 5.3 Fast-Recovery (bounded)
+Fast-Recovery ist **keine Reglerlogik**, sondern eine Sendepfad-Policy:
+- verkürzt das Rate-Limit (z. B. 20s)
+- erhöht Step-Up Limit (z. B. 2.0°C)
+- aktiviert bei:
+  - BOOST, oder
+  - großem room_error, oder
+  - großem gap zwischen desired_target und aktuellem Tado-Setpoint
+
+Telemetrie:
+- `command_fast_recovery_active`
+- `command_fast_recovery_reason`
+
+### 5.4 Window-Resume
+Nach Window-Frostschutz darf die Policy **kontrolliert** “schneller wieder einsteigen”, damit kein minutenlanges Hochkriechen entsteht.
+Dieses Verhalten ist als Reason sichtbar (`regulation_reason` enthält entsprechende Marker).
+
+---
+
+## 6) Reading Guide: Welche Attribute zuerst?
+
+Wenn du schnell debuggen willst:
+
+1) Window:
+   - `window_open`, `window_forced`, `window_open_pending`
+2) Tado Ground Truth vs Send:
+   - `tado_setpoint_c` vs `tado_last_sent_target_c` (+ `tado_last_sent_age_s`)
+3) Reglerwunsch vs Command:
+   - `hybrid_desired_target_c` vs `hybrid_command_target_c`
+4) Warum-String:
+   - `regulation_reason`
+
+---
+
+## 7) Parameterübersicht / Single Source of Truth
+
+Für eine kompakte Karte “aktiv vs legacy vs deprecated” siehe:
+- `docs/parameters.md`
+
+---
+
+<!-- Commit: docs: update control strategy to match current hybrid + command policy + window handling -->
