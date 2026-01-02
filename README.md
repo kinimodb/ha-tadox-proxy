@@ -16,7 +16,7 @@ Eine **Home Assistant Custom Integration** für **Tado X Thermostate**, die als 
 - **Roadmap / Milestones:** `ROADMAP.md`
 - **Regelstrategie (Hybrid + Window + Command Policy):** `docs/control_strategy.md`
 - **Parameter Map (active vs legacy):** `docs/parameters.md`
-- **ADR (Branching/Policy):** `docs/adr/0001-hybrid-control-strategy.md`
+- **ADR (Branching/Policy):** `custom_components/tadox_proxy/docs/adr/0001-hybrid-control-strategy.md`
 
 ---
 
@@ -118,4 +118,4 @@ Die Proxy-Entity stellt bewusst viele Attribute bereit. Für schnelle Diagnose r
 
 Inspiriert von „Versatile Thermostat“ (Patterns), aber spezialisiert auf die Eigenheiten der Tado X Hardware.
 
-<!-- Commit: docs: add docs index and fix references for hybrid branch -->
+<!-- Commit: docs: fix ADR link path in README -->
