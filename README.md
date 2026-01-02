@@ -11,9 +11,12 @@ Eine **Home Assistant Custom Integration** für **Tado X Thermostate**, die als 
 - **Reifegrad:** BETA / Testbetrieb (v0.3.x)
 - **Hinweis:** `main` bleibt stabil; dieser Branch ist der Entwicklungsstand für die Hybrid-Regelstrategie.
 
-Technische Leitdokumente:
-- Regelstrategie-Spezifikation: `docs/control_strategy.md`
-- ADR / Branching-Policy: `custom_components/tadox_proxy/docs/adr/0001-hybrid-control-strategy.md`
+## Docs Index (Start here)
+
+- **Roadmap / Milestones:** `ROADMAP.md`
+- **Regelstrategie (Hybrid + Window + Command Policy):** `docs/control_strategy.md`
+- **Parameter Map (active vs legacy):** `docs/parameters.md`
+- **ADR (Branching/Policy):** `docs/adr/0001-hybrid-control-strategy.md`
 
 ---
 
@@ -39,6 +42,7 @@ Die Hybrid-Regelung kombiniert:
 - **P (+ kleines I optional)**
 - **Command Hygiene** (Min-Delta, Rate-Limit, Step-Limit)
 - **Fast-Recovery** (situativ, um nach Frost/Lüften nicht „in 0.5°C-Schritten alle Minuten“ zu kriechen)
+- **Window Handling** (sensor-basiert via binary_sensor)
 
 ---
 
@@ -57,7 +61,6 @@ Beim Hinzufügen der Integration wählst du:
 - **External Temperature Entity:** dein Raumtemperatursensor (Sensor)
 
 Optional (über Optionen / später konfigurierbar):
-- External Humidity Entity (falls vorhanden)
 - Window Handling (Fensterkontakt)
 
 ---
@@ -74,11 +77,11 @@ Optional (über Optionen / später konfigurierbar):
 Im Options Flow existieren `kp`, `ki`, `kd`.
 
 **Aktuelles Mapping im Hybrid-Branch:**
-- `kp` → **hybrid_kp** (wirksam)
-- `ki` → **hybrid_ki_small** (wirksam, konservativ begrenzt)
-- `kd` → **derzeit ohne Wirkung** im Hybrid-Regler (Legacy-Key)
+- `kp` → Hybrid `kp` (wirksam)
+- `ki` → Hybrid `ki_small` (wirksam, konservativ begrenzt)
+- `kd` → derzeit **ohne Wirkung** im Hybrid-Regler (Legacy-Key)
 
-Hinweis: Das vollständige Regelkonzept inkl. Parameterbedeutung ist in `docs/control_strategy.md` dokumentiert.
+Details: `docs/parameters.md`
 
 ---
 
@@ -96,13 +99,13 @@ Die Proxy-Entity stellt bewusst viele Attribute bereit. Für schnelle Diagnose r
 - `hybrid_mode`: boost / hold / coast
 - `hybrid_mode_reason`: Begründung des Zustandswechsels
 - `hybrid_error_c`: Soll-Ist-Abweichung (°C)
-- `hybrid_target_c`: vom Regler gewünschter Target-Setpoint (vor Sendepolicy)
-- `hybrid_desired_target_c`: gewünschter Zielwert (nach Clamp/Override)
-- `hybrid_command_target_c`: tatsächlich geplanter Sende-Zielwert (nach Hygiene/Policy)
+- `hybrid_target_c`: Regler-Target (vor Sendepolicy)
+- `hybrid_desired_target_c`: Reglerwunsch nach Clamp/Override
+- `hybrid_command_target_c`: tatsächlich geplanter Sendezielwert (nach Hygiene/Policy)
 
 ### Command Policy
-- `command_effective_min_interval_s`: effektives Rate-Limit (z. B. 180 normal / 20 fast recovery)
-- `command_effective_max_step_up_c`: effektives Step-Up-Limit (z. B. 0.5 normal / 2.0 fast recovery)
+- `command_effective_min_interval_s`
+- `command_effective_max_step_up_c`
 - `command_fast_recovery_active` + `command_fast_recovery_reason`
 
 ### Window Handling
@@ -111,18 +114,8 @@ Die Proxy-Entity stellt bewusst viele Attribute bereit. Für schnelle Diagnose r
 
 ---
 
-## Test-Workflow (empfohlen)
-
-1) Stabiler Zielwert (z. B. 17°C), Raum mehrere Stunden beobachten
-2) Lüften-Event (Fensterkontakt) und Verhalten prüfen:
-   - Frostschutz erzwingen nach Delay
-   - sauberes Resume (kein minutenlanges Hochkriechen)
-3) CSV exportieren (History) und anhand von Setpoint/Temperaturen analysieren
-
----
-
 ## Credits
 
 Inspiriert von „Versatile Thermostat“ (Patterns), aber spezialisiert auf die Eigenheiten der Tado X Hardware.
 
-<!-- Commit: docs: refresh README for hybrid control branch -->
+<!-- Commit: docs: add docs index and fix references for hybrid branch -->
