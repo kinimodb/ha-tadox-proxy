@@ -1,66 +1,73 @@
-# TADUX-proxy – Roadmap
+# ROADMAP — Hybrid Control Branch
 
-**Mission:** Ein lokaler PID-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch "Continuous Holding" eliminiert und präzise auf externe Raumsensoren regelt.
+Diese Roadmap beschreibt den Entwicklungsstand und die geplanten Schritte im Branch `feature/hybrid-control`.
+Fokus: **stabile, erklärbare Regelung** für Tado X (externes Raumthermometer, TRV als Black Box).
 
-## Status (v0.3.x)
-- **Architektur:** Continuous Holding PID (Kein Hard Deadband).
-- **Technik:** Python `async`, HA DataUpdateCoordinator.
-- **Aktuelle Phase:** Beta-Test & PID-Tuning.
+## Prinzipien
 
----
-
-## 🚀 M1 – Core Stability & Validation (Aktuell)
-**Ziel:** Beweisen, dass der "Continuous PID" Ansatz das "Sägezahn"-Problem und das "Einschlafen" der Tado-Ventile löst.
-- [x] Refactoring auf Stateless PID Class.
-- [x] Fix DataUpdateCoordinator (KeyError Abstürze).
-- [x] Implementierung "Soft Deadband" (I-Anteil läuft weiter).
-- [ ] **Validation:** Analyse von Real-World Daten (History Stats) aus Testräumen.
-
-## ⚙️ M2 – Advanced Configuration (Options Flow)
-**Ziel:** Jeder Raum ist anders (Größe, Dämmung, Heizkörper). Hardcodierte Parameter funktionieren nicht universell.
-- [ ] **UI für PID-Parameter:** Kp, Ki, Kd über "Konfigurieren" einstellbar machen.
-- [ ] **UI für Limits:** Min/Max Temperaturen und Deadband einstellbar machen.
-- [ ] Live-Reload: Parameter-Änderungen ohne Neustart wirksam machen.
-
-## 🎛 M3 – Presets & Modes (Spezifikation)
-Hier definieren wir das Verhalten der geplanten Modi:
-
-1.  **Comfort (Standard):**
-    - Nutzt die konfigurierten PID-Werte (Kp/Ki/Kd).
-    - Ziel: Präzises Halten der Temperatur.
-2.  **Eco (Energiesparen):**
-    - Reduzierter Setpoint (z. B. -2°C).
-    - *Optional:* Sanfteres Regelverhalten (niedrigerer Kp), um Überschwingen strikt zu vermeiden.
-3.  **Boost (Schnellaufheizen):**
-    - Ignoriert PID kurzzeitig.
-    - Sendet `Max_Temp` (z. B. 25°C) an Tado für X Minuten oder bis `Ist > Soll`.
-    - Danach Rückfall in Comfort.
-4.  **Away (Abwesend):**
-    - Wie Eco, aber meist tieferer Setpoint (konfigurierbar).
-    - Aktiviert durch Präsenz-Sensor oder manuell.
-5.  **Urlaub (Vacation):**
-    - Frostschutz (z. B. 5°C oder "Off").
-    - Deaktiviert regelmäßige PID-Berechnungen, um Batterie zu sparen (nur Sicherheits-Check alle 60 Min).
-
-## 🔌 M4 – Externe Trigger
-- [ ] Fensterkontakt (Sofort "Off" bei offen, Restore bei zu).
-- [ ] Präsenz (Auto-Eco bei Abwesenheit).
+1) **Test-first:** Keine Feature-Explosion vor stabiler Regelung (Tuning + Telemetrie).
+2) **Deterministische Störbehandlung:** Fensterlogik via Sensor (binary_sensor), nicht via Trend-Raten im Feld.
+3) **Command Hygiene:** Flattern vermeiden (Min-Delta, Rate-Limit, Step-Limit), aber “Fast Recovery” für echte Kälte/Recovery.
+4) **Branching:** `main` bleibt stabil; dieser Branch ist BETA/Test.
 
 ---
 
-## 📚 PID-Tuning Guide: Wie finde ich meine Werte?
-*(Konzept für Dokumentation / Helper-Text in der UI)*
+## M0 — Basisfunktion & Observability (DONE)
 
-Da jeder Raum physikalisch anders ist (Größe, Heizkörperleistung, Dämmung), gibt es keine "One Size Fits All" Werte.
-**Vorgehen:**
-1.  **Start:** Mit Defaults beginnen (`Kp=7.0`, `Ki=0.005`, `Kd=600`).
-2.  **Test:** 24h laufen lassen und Home Assistant History (`history.csv`) beobachten.
-3.  **Analyse & Anpassung:**
-    * **Problem:** Temperatur schwingt stark über und unter das Ziel (Sägezahn).
-        * *Lösung:* `Kp` senken (Regler ist zu nervös).
-    * **Problem:** Es dauert ewig, bis der Raum warm wird.
-        * *Lösung:* `Kp` erhöhen (Regler gibt zu wenig Gas).
-    * **Problem:** Temperatur ist stabil, liegt aber dauerhaft *unter* dem Ziel.
-        * *Lösung:* `Ki` leicht erhöhen (Regler lernt den Offset zu langsam).
-    * **Problem:** Temperatur ist stabil, liegt aber dauerhaft *über* dem Ziel.
-        * *Lösung:* `Kp` senken oder `Ki` verringern (Offset hat sich zu stark aufgebaut).
+- [x] Proxy-Climate-Entity mit externem Raumtemperatursensor
+- [x] Hybrid-Regler (Bias + BOOST/HOLD/COAST)
+- [x] Telemetrie-Attribute (`hybrid_*`, `regulation_reason`)
+- [x] Command Hygiene (Min-Delta / Rate-Limit / Step-Up-Limit)
+- [x] Fast-Recovery (bounded) für schnelle Recovery bei BOOST/hoher Abweichung
+- [x] Window Handling via Sensor + Open-Delay + Close-Hold
+- [x] “Ground Truth” Send-Telemetrie (`tado_last_sent_*`)
+
+---
+
+## M1 — Stabilisierung & Tuning (IN PROGRESS)
+
+Ziel: “Dauerbetrieb ohne Überraschungen”, reproduzierbar anhand von CSV-Exports.
+
+- [ ] Testmatrix definieren (Szenarien + erwartete Eigenschaften)
+  - Stabil halten (HOLD) über mehrere Stunden
+  - Lüften / Window open/close: Frostschutz + sauberes Resume
+  - Kälteeinbruch (Drop): BOOST + Fast-Recovery, danach Ramp-Down ohne Sägezahn
+- [ ] Parameter-Tuning (datenbasiert):
+  - BOOST-Trigger/Exit, HOLD-Deadband, COAST-Trigger
+  - Fast-Recovery thresholds
+  - Bias-Lernparameter (tau, deadband)
+- [ ] Telemetrie-Konsistenz prüfen (keine missverständlichen Attribute)
+
+**Exit-Kriterium M1:**  
+Mindestens 48h Testbetrieb ohne “stuck frost / stuck boost / sawtooth flapping” und mit nachvollziehbaren `regulation_reason`-Strings.
+
+---
+
+## M2 — Komfortfeatures (BLOCKED bis M1 Exit)
+
+Features erst nach stabiler Regelung.
+
+- [ ] Presence / Home-Away (optional enable + entity + away setpoint)
+- [ ] Presets (Boost, Eco, Comfort)
+- [ ] Vacation mode (Zeitplan außer Kraft, Frostschutz/Komfort definierbar)
+- [ ] Erweiterte Fensterlogik (sekundenbasierte Delays, optional)
+
+---
+
+## M3 — UI/UX (BLOCKED bis M1 Exit)
+
+- [ ] Dashboard Card (eigene UI Card, optional)
+- [ ] Icons/Branding (Integration + Card)
+- [ ] Dokumentation für Nutzer (Konfiguration, Tuning, Troubleshooting)
+
+---
+
+## M4 — Release Hardening (später)
+
+- [ ] Diagnostics / Debug endpoints (HA Diagnostics)
+- [ ] Robustheit gegen Sensor-Ausfälle (Fallbacks, klare States)
+- [ ] CI/Quality (lint, tests, hassfest, hacs action)
+
+---
+
+<!-- Commit: docs: align roadmap with hybrid strategy and test-first milestones -->
