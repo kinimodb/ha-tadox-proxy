@@ -13,16 +13,26 @@ explainable during tuning and debugging.
 
 from __future__ import annotations
 
-import datetime as dt
+import asyncio
+import dataclasses
 import logging
 import time
-from dataclasses import asdict
-from typing import Any
+from datetime import timedelta
+from typing import Any, cast
 
-from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACAction, HVACMode
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS, UnitOfTemperature
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.components.climate import ClimateEntity
+from homeassistant.components.climate.const import (
+    HVACAction,
+    HVACMode,
+)
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    ATTR_TEMPERATURE,
+    CONF_NAME,
+    STATE_OFF,
+    UnitOfTemperature,
+)
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
@@ -40,84 +50,99 @@ from .const import (
     CONF_WINDOW_OPEN_ENABLED,
     CONF_WINDOW_SENSOR_ENTITY_ID,
 )
-from .hybrid_regulation import HybridConfig, HybridRegulator, HybridResult, HybridState
-from .parameters import (
-    DEFAULT_CONTROL_INTERVAL_S,
-    FROST_PROTECT_C,
-    RATE_LIMIT_DECREASE_EPS_C,
-    WILL_HEAT_EPS_C,
-    RegulationConfig,
-    PidTuning,
+from .coordinator import TadoxProxyCoordinator
+from .hybrid_regulation import HybridConfig, HybridRegulator, HybridState
+from .regulation_config import RegulationConfig
+from .util import (
+    clamp,
+    get_climate_attr_float,
+    get_climate_attr_str,
+    get_climate_hvac_mode,
+    is_binary_sensor_on,
+    now_utc,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
-# Command hygiene (base defaults)
+# Constants
 # -----------------------------------------------------------------------------
-MIN_SEND_DELTA_C: float = 0.2
-MAX_STEP_UP_C: float = 0.5
 
-# “Fast recovery” parameters (bounded)
-FAST_RECOVERY_MIN_INTERVAL_S: float = 20.0
-FAST_RECOVERY_MAX_STEP_UP_C: float = 2.0
+DEFAULT_CONTROL_INTERVAL_S = 60
 
-# Triggers for fast recovery
-FAST_RECOVERY_ERROR_C: float = 1.5  # setpoint - room_temp
-FAST_RECOVERY_TARGET_GAP_C: float = 3.0  # desired_target - current_tado_setpoint
+# Frost protect setpoint when window open forced.
+FROST_PROTECT_C = 5.0
 
-# Special case: leaving frost protection after window. One-time “jump to desired”.
-FROSTISH_C: float = 7.5
-FROST_EXIT_JUMP_GAP_C: float = 8.0
+# Tado set_temperature resolution in HA is typically 0.1. We'll round.
+ROUND_STEP_C = 0.1
 
+# Command hygiene
+MIN_SEND_DELTA_C = 0.2
+MAX_STEP_UP_C = 0.5
+
+# Urgent decreases (close valve) should bypass rate limit if significantly lower than current setpoint.
+RATE_LIMIT_DECREASE_EPS_C = 0.05
+
+# Will-heat epsilon: if setpoint > internal temp + eps => likely heating
+WILL_HEAT_EPS_C = 0.3
+
+# Resume behavior after window forced:
+# - allow a one-time "jump" upwards without step limit if gap is large, to avoid minutes of crawling.
+RESUME_JUMP_GAP_C = 2.0
+RESUME_JUMP_ALLOWED_ONCE = True
+
+# Fast recovery (bounded)
+FAST_RECOVERY_MIN_INTERVAL_S = 20
+FAST_RECOVERY_MAX_STEP_UP_C = 2.0
+
+# Trigger thresholds (heuristics)
+FAST_RECOVERY_ERROR_C = 1.2
+FAST_RECOVERY_TARGET_GAP_C = 3.0
+
+# Boost open margin: if Tado internal temp is close to setpoint, sometimes valve won't open; raise target slightly.
+BOOST_OPEN_MARGIN_C = 0.5
+
+# When in boost and we detect we still won't open, allow a fast step-up limit.
+BOOST_FAST_STEP_UP_C = 2.0
+
+
+# -----------------------------------------------------------------------------
+# Setup
+# -----------------------------------------------------------------------------
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: Any,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Tado X Proxy climate entity."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    entity = TadoXProxyClimate(coordinator=coordinator, unique_id=entry.entry_id, config_entry=entry)
-    async_add_entities([entity])
+    coordinator: TadoxProxyCoordinator = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities([TadoxProxyThermostat(coordinator, entry)], update_before_add=True)
 
 
-class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
-    """Proxy thermostat entity that regulates a Tado X thermostat."""
+# -----------------------------------------------------------------------------
+# Entity
+# -----------------------------------------------------------------------------
 
-    _attr_has_entity_name = True
+class TadoxProxyThermostat(CoordinatorEntity[TadoxProxyCoordinator], ClimateEntity, RestoreEntity):
+    """Proxy thermostat entity (Hybrid control)."""
+
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_precision = PRECISION_TENTHS
-    _attr_min_temp = 5.0
-    _attr_max_temp = 35.0
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TURN_OFF
         | ClimateEntityFeature.TURN_ON
     )
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
-    _attr_translation_key = "tadox_proxy"
 
-    def __init__(self, coordinator, unique_id: str, config_entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: TadoxProxyCoordinator, entry: Any) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = unique_id
-        self._config_entry = config_entry
-        self._attr_name = None
+        self.entry = entry
+        self._config = RegulationConfig.from_entry(entry)
 
-        self._config = RegulationConfig()
+        self._attr_name = self._config.name
+        self._attr_unique_id = f"{entry.entry_id}_proxy"
 
-        # Apply tuning from Options Flow (legacy keys mapped to hybrid)
-        if config_entry.options:
-            opts = config_entry.options
-            kp = opts.get("kp", self._config.tuning.kp)
-            ki = opts.get("ki", self._config.tuning.ki)
-            kd = opts.get("kd", self._config.tuning.kd)
-            self._config.tuning = PidTuning(kp=kp, ki=ki, kd=kd)
-
-        self._hvac_mode: HVACMode = HVACMode.HEAT
-        self._target_temp: float = 20.0
-
-        # Hybrid regulator
+        # Hybrid config is derived from tuning keys to preserve UI/Options compatibility.
         self._hybrid_config = HybridConfig(
             min_target_c=self._config.min_target_c,
             max_target_c=self._config.max_target_c,
@@ -136,42 +161,36 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._regulator = HybridRegulator(self._hybrid_config)
         self._hybrid_state = HybridState()
 
-        # timestamps
-        self._last_regulation_ts: float = 0.0
-        self._last_command_sent_ts: float = 0.0
+        # State
+        self._hvac_mode: HVACMode = HVACMode.HEAT
+        self._target_temperature: float = self._config.default_target_c
 
-        # last results
-        self._last_regulation_result: HybridResult | None = None
-        self._last_regulation_reason: str = "startup"
+        # Last regulation result & reason
+        self._last_regulation_result = None
+        self._last_regulation_reason: str | None = None
 
-        # command telemetry
-        self._last_current_tado_setpoint_c: float | None = None
-        self._last_desired_target_c: float | None = None
-        self._last_command_target_c: float | None = None
+        # Last command telemetry
+        self._last_command_sent_ts: float | None = None
         self._last_command_step_limited: bool = False
         self._last_command_step_up_limit_c: float | None = None
         self._last_command_diff_c: float | None = None
+        self._last_desired_target_c: float | None = None
+        self._last_command_target_c: float | None = None
 
-        # extra “ground truth” telemetry
         self._last_sent_target_c: float | None = None
+        self._last_sent_context_id: str | None = None
         self._last_sent_reason: str | None = None
         self._last_sent_mono: float | None = None
 
-        self._effective_min_interval_s: float = self._config.min_command_interval_s
-        self._effective_step_up_c: float = MAX_STEP_UP_C
-        self._fast_recovery_active: bool = False
-        self._fast_recovery_reason: str | None = None
+        # Window handling config (sensor-based)
+        self._window_open_enabled: bool = bool(self._config.window_open_enabled)
+        self._window_sensor_entity_id: str | None = self._config.window_sensor_entity_id
+        self._window_open_delay_s: float = float(self._config.window_open_delay_min) * 60.0
+        self._window_close_delay_s: float = float(self._config.window_close_delay_min) * 60.0
 
-        # window options
-        opts = config_entry.options or {}
-        self._window_open_enabled: bool = bool(opts.get(CONF_WINDOW_OPEN_ENABLED, False))
-        self._window_sensor_entity_id: str | None = opts.get(CONF_WINDOW_SENSOR_ENTITY_ID)
-        self._window_open_delay_s: float = float(opts.get(CONF_WINDOW_OPEN_DELAY_MIN, 0) or 0) * 60.0
-        self._window_close_delay_s: float = float(opts.get(CONF_WINDOW_CLOSE_DELAY_MIN, 0) or 0) * 60.0
-
-        # window runtime state
-        self._window_open_active: bool = False  # raw sensor
-        self._window_forced: bool = False  # output override active
+        # Window runtime state
+        self._window_open: bool = False
+        self._window_forced: bool = False
         self._window_open_pending: bool = False
         self._window_open_delay_remaining_s: float = 0.0
         self._window_close_hold_remaining_s: float = 0.0
@@ -189,485 +208,361 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._unsub_window_tick = None
         self._unsub_fast_recovery_timer = None
 
-    @property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._config_entry.entry_id)},
-            name=self._config_entry.title,
-            manufacturer="Tado X Proxy",
-            model="Hybrid Regulator",
-        )
+        # Effective command policy (normal vs fast recovery)
+        self._effective_min_interval_s: float = float(self._config.min_command_interval_s)
+        self._effective_step_up_c: float = MAX_STEP_UP_C
+        self._fast_recovery_active: bool = False
+        self._fast_recovery_reason: str | None = None
+        self._unsub_fast_recovery_tick = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
-        # restore state
+        # restore last state
         last_state = await self.async_get_last_state()
-        if last_state:
-            self._hvac_mode = (
-                last_state.state if last_state.state in self._attr_hvac_modes else HVACMode.HEAT
-            )
-            if last_state.attributes.get(ATTR_TEMPERATURE):
-                try:
-                    self._target_temp = float(last_state.attributes[ATTR_TEMPERATURE])
-                except (ValueError, TypeError):
-                    self._target_temp = 20.0
+        if last_state is not None:
+            try:
+                self._hvac_mode = get_climate_hvac_mode(last_state, default=HVACMode.HEAT)
+            except Exception:
+                self._hvac_mode = HVACMode.HEAT
 
-        self._async_setup_window_sensor()
+            try:
+                t = get_climate_attr_float(last_state, "temperature")
+                if t is not None:
+                    self._target_temperature = float(t)
+            except Exception:
+                pass
 
+        # window sensor subscription
+        self._setup_window_sensor_subscription()
+
+        # periodic regulation cycle
         async_track_time_interval(
-            self.hass,
-            self._async_regulation_timer_callback,
-            dt.timedelta(seconds=DEFAULT_CONTROL_INTERVAL_S),
+            self.hass, self._async_regulation_cycle, timedelta(seconds=DEFAULT_CONTROL_INTERVAL_S)
         )
 
-        await self._async_regulation_cycle(trigger="startup")
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._attr_unique_id)},
+            name=self._attr_name,
+            manufacturer="Tado",
+            model="Tado X Proxy Thermostat",
+        )
 
-    async def async_will_remove_from_hass(self) -> None:
-        for unsub in (
-            self._unsub_window_sensor,
-            self._unsub_window_open_timer,
-            self._unsub_window_close_timer,
-            self._unsub_window_tick,
-            self._unsub_fast_recovery_timer,
-        ):
-            if unsub:
-                try:
-                    unsub()
-                except Exception:
-                    pass
-        await super().async_will_remove_from_hass()
+    @property
+    def hvac_mode(self) -> HVACMode:
+        return self._hvac_mode
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        self._hvac_mode = hvac_mode
+        self.async_write_ha_state()
+
+    @property
+    def temperature_unit(self) -> str:
+        return UnitOfTemperature.CELSIUS
+
+    @property
+    def target_temperature(self) -> float:
+        return self._target_temperature
+
+    async def async_set_temperature(self, **kwargs: Any) -> None:
+        temp = kwargs.get(ATTR_TEMPERATURE)
+        if temp is not None:
+            self._target_temperature = float(temp)
+            self.async_write_ha_state()
+            # run regulation soon (do not wait full interval)
+            await self._async_regulation_cycle(now_utc())
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self.coordinator.data.get("room_temp")
+
+    @property
+    def min_temp(self) -> float:
+        return float(self._config.min_target_c)
+
+    @property
+    def max_temp(self) -> float:
+        return float(self._config.max_target_c)
 
     # -----------------------------------------------------------------------------
-    # Window sensor handling
+    # Window handling (sensor-based)
     # -----------------------------------------------------------------------------
-    def _async_setup_window_sensor(self) -> None:
+
+    def _setup_window_sensor_subscription(self) -> None:
         if self._unsub_window_sensor:
-            try:
-                self._unsub_window_sensor()
-            finally:
-                self._unsub_window_sensor = None
-
-        self._cancel_window_timers()
-        self._stop_window_tick()
-
-        self._window_open_deadline_mono = None
-        self._window_close_deadline_mono = None
-        self._window_open_active = False
+            self._unsub_window_sensor()
+            self._unsub_window_sensor = None
 
         if not self._window_open_enabled or not self._window_sensor_entity_id:
             return
 
-        st = self.hass.states.get(self._window_sensor_entity_id)
-        if st is not None:
-            self._window_open_active = (st.state == "on")
-
-        now_m = time.monotonic()
-        if self._window_open_active:
-            self._window_open_deadline_mono = now_m + max(0.0, self._window_open_delay_s)
-            self._window_close_deadline_mono = None
-            self._schedule_window_open_timer()
-            self._start_window_tick()
-
         @callback
-        def _handle_window_change(event) -> None:
+        def _window_sensor_changed(event: Any) -> None:
             new_state = event.data.get("new_state")
-            is_open = new_state is not None and new_state.state == "on"
-            now_m2 = time.monotonic()
-
-            self._window_open_active = is_open
-            self._cancel_window_timers()
-
-            if is_open:
-                self._window_open_deadline_mono = now_m2 + max(0.0, self._window_open_delay_s)
-                self._window_close_deadline_mono = None
-                self._schedule_window_open_timer()
-                self._start_window_tick()
-            else:
-                self._window_close_deadline_mono = now_m2 + max(0.0, self._window_close_delay_s)
-                self._window_open_deadline_mono = None
-                self._schedule_window_close_timer()
-                self._start_window_tick()
-
-            # immediate cycle so pending/hold becomes visible instantly
-            self.hass.async_create_task(self._async_regulation_cycle(trigger="window_sensor"))
-            self.async_write_ha_state()
+            if new_state is None:
+                return
+            is_open = is_binary_sensor_on(new_state)
+            self._handle_window_sensor_update(is_open)
 
         self._unsub_window_sensor = async_track_state_change_event(
-            self.hass, [self._window_sensor_entity_id], _handle_window_change
+            self.hass, [self._window_sensor_entity_id], _window_sensor_changed
         )
 
-    def _cancel_window_timers(self) -> None:
+        # seed initial state
+        st = self.hass.states.get(self._window_sensor_entity_id)
+        if st is not None:
+            self._handle_window_sensor_update(is_binary_sensor_on(st))
+
+    def _cancel_window_open_timer(self) -> None:
         if self._unsub_window_open_timer:
-            try:
-                self._unsub_window_open_timer()
-            finally:
-                self._unsub_window_open_timer = None
-        if self._unsub_window_close_timer:
-            try:
-                self._unsub_window_close_timer()
-            finally:
-                self._unsub_window_close_timer = None
-
-    def _schedule_window_open_timer(self) -> None:
-        if self._unsub_window_open_timer:
-            try:
-                self._unsub_window_open_timer()
-            finally:
-                self._unsub_window_open_timer = None
-
-        if not self._window_open_enabled or not self._window_sensor_entity_id:
-            return
-        if not self._window_open_active or self._window_open_deadline_mono is None:
-            return
-
-        delay = max(0.0, self._window_open_deadline_mono - time.monotonic())
-
-        @callback
-        def _fire(_now) -> None:
+            self._unsub_window_open_timer()
             self._unsub_window_open_timer = None
-            self.hass.async_create_task(self._async_regulation_cycle(trigger="window_open_delay_expired"))
-            self.async_write_ha_state()
 
-        self._unsub_window_open_timer = async_call_later(self.hass, delay, _fire)
-
-    def _schedule_window_close_timer(self) -> None:
+    def _cancel_window_close_timer(self) -> None:
         if self._unsub_window_close_timer:
-            try:
-                self._unsub_window_close_timer()
-            finally:
-                self._unsub_window_close_timer = None
-
-        if not self._window_open_enabled or not self._window_sensor_entity_id:
-            return
-        if self._window_open_active or self._window_close_deadline_mono is None:
-            return
-
-        delay = max(0.0, self._window_close_deadline_mono - time.monotonic())
-
-        @callback
-        def _fire(_now) -> None:
+            self._unsub_window_close_timer()
             self._unsub_window_close_timer = None
-            self.hass.async_create_task(self._async_regulation_cycle(trigger="window_close_hold_expired"))
-            self.async_write_ha_state()
 
-        self._unsub_window_close_timer = async_call_later(self.hass, delay, _fire)
+    def _cancel_window_tick(self) -> None:
+        if self._unsub_window_tick:
+            self._unsub_window_tick()
+            self._unsub_window_tick = None
 
     def _start_window_tick(self) -> None:
         if self._unsub_window_tick:
             return
 
-        @callback
-        def _tick(_now_dt: dt.datetime) -> None:
-            self._update_window_diagnostics()
-            self.async_write_ha_state()
+        def _tick(_: Any) -> None:
+            self._update_window_timers()
 
-            if self._window_open_delay_remaining_s <= 0.0 and self._window_close_hold_remaining_s <= 0.0:
-                self._stop_window_tick()
+        self._unsub_window_tick = async_track_time_interval(
+            self.hass, lambda _: _tick(_), timedelta(seconds=1)
+        )
 
-        self._unsub_window_tick = async_track_time_interval(self.hass, _tick, dt.timedelta(seconds=1))
+    def _update_window_timers(self) -> None:
+        now = time.monotonic()
 
-    def _stop_window_tick(self) -> None:
-        if self._unsub_window_tick:
-            try:
-                self._unsub_window_tick()
-            finally:
-                self._unsub_window_tick = None
+        # open delay countdown
+        if self._window_open_deadline_mono is not None:
+            self._window_open_delay_remaining_s = max(0.0, self._window_open_deadline_mono - now)
+            if self._window_open_delay_remaining_s <= 0.0:
+                self._window_open_deadline_mono = None
+                self._window_open_pending = False
+                self._window_forced = True
+                self._window_forced_reason = "window_open_forced"
+        else:
+            self._window_open_delay_remaining_s = 0.0
 
-    def _compute_window_state(self) -> tuple[bool, str | None, bool, float, float]:
-        """Return (forced, reason, pending, open_remaining_s, close_remaining_s)."""
-        if not self._window_open_enabled or not self._window_sensor_entity_id:
-            return False, None, False, 0.0, 0.0
+        # close hold countdown
+        if self._window_close_deadline_mono is not None:
+            self._window_close_hold_remaining_s = max(0.0, self._window_close_deadline_mono - now)
+            if self._window_close_hold_remaining_s <= 0.0:
+                self._window_close_deadline_mono = None
+                self._window_close_hold_remaining_s = 0.0
+                self._window_forced = False
+                self._window_forced_reason = None
+        else:
+            if not self._window_forced:
+                self._window_close_hold_remaining_s = 0.0
 
-        now_m = time.monotonic()
+        # stop tick if no timers active
+        if (self._window_open_deadline_mono is None) and (self._window_close_deadline_mono is None):
+            self._cancel_window_tick()
 
-        # OPEN: delay -> forced frost
-        if self._window_open_active:
-            delay_s = max(0.0, self._window_open_delay_s)
-            if delay_s <= 0.0:
-                return True, "window_open_forced", False, 0.0, 0.0
-
-            if self._window_open_deadline_mono is None:
-                self._window_open_deadline_mono = now_m + delay_s
-                self._schedule_window_open_timer()
-
-            rem = max(0.0, self._window_open_deadline_mono - now_m)
-            if rem <= 0.0:
-                return True, "window_open_forced", False, 0.0, 0.0
-            return False, "window_open_pending", True, rem, 0.0
-
-        # CLOSED: hold forced for N seconds
-        hold_s = max(0.0, self._window_close_delay_s)
-        if hold_s <= 0.0 or self._window_close_deadline_mono is None:
-            return False, None, False, 0.0, 0.0
-
-        rem = max(0.0, self._window_close_deadline_mono - now_m)
-        if rem <= 0.0:
-            return False, None, False, 0.0, 0.0
-        return True, "window_close_hold", False, 0.0, rem
-
-    def _update_window_diagnostics(self) -> None:
-        forced, reason, pending, open_rem, close_rem = self._compute_window_state()
-        self._window_forced = forced
-        self._window_forced_reason = reason
-        self._window_open_pending = pending
-        self._window_open_delay_remaining_s = open_rem
-        self._window_close_hold_remaining_s = close_rem
-
-    # -----------------------------------------------------------------------------
-    # Base HA callbacks
-    # -----------------------------------------------------------------------------
-    @callback
-    def _async_regulation_timer_callback(self, now: dt.datetime) -> None:
-        self.hass.async_create_task(self._async_regulation_cycle(trigger="timer"))
-
-    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        if hvac_mode not in self._attr_hvac_modes:
-            return
-        self._hvac_mode = hvac_mode
+        # Update state
         self.async_write_ha_state()
-        await self._async_regulation_cycle(trigger="hvac_mode_change")
 
-    async def async_set_temperature(self, **kwargs: Any) -> None:
-        if (temp := kwargs.get(ATTR_TEMPERATURE)) is None:
-            return
-        self._target_temp = float(temp)
+    def _handle_window_sensor_update(self, is_open: bool) -> None:
+        self._window_open = bool(is_open)
+        now = time.monotonic()
+
+        if is_open:
+            # cancel close hold; start open delay if not already forced
+            self._cancel_window_close_timer()
+            self._window_close_deadline_mono = None
+            self._window_close_hold_remaining_s = 0.0
+
+            if not self._window_forced:
+                if self._window_open_delay_s <= 0.0:
+                    self._window_forced = True
+                    self._window_open_pending = False
+                    self._window_open_deadline_mono = None
+                    self._window_forced_reason = "window_open_forced"
+                else:
+                    self._window_open_pending = True
+                    self._window_open_deadline_mono = now + self._window_open_delay_s
+                    self._window_forced_reason = "window_open_pending"
+                    self._start_window_tick()
+        else:
+            # window closed
+            self._window_open_pending = False
+            self._window_open_deadline_mono = None
+            self._window_open_delay_remaining_s = 0.0
+
+            if self._window_forced:
+                # start close hold timer
+                if self._window_close_delay_s <= 0.0:
+                    self._window_forced = False
+                    self._window_forced_reason = None
+                    self._window_close_deadline_mono = None
+                    self._window_close_hold_remaining_s = 0.0
+                else:
+                    self._window_close_deadline_mono = now + self._window_close_delay_s
+                    self._window_forced_reason = "window_close_hold"
+                    self._start_window_tick()
+
         self.async_write_ha_state()
-        await self._async_regulation_cycle(trigger="set_temperature")
+
+        # run regulation soon
+        asyncio.create_task(self._async_regulation_cycle(now_utc()))
 
     # -----------------------------------------------------------------------------
-    # Helpers: read source entity state as “ground truth” (not coordinator-stale)
+    # Regulation cycle
     # -----------------------------------------------------------------------------
-    def _get_source_entity_id(self) -> str | None:
-        return self.coordinator.config_entry.data.get("source_entity_id")
 
-    def _read_source_setpoint_c(self) -> float | None:
-        src = self._get_source_entity_id()
-        if not src:
-            return None
-        st = self.hass.states.get(src)
-        if st is None:
-            return None
-        try:
-            return float(st.attributes.get("temperature"))
-        except (TypeError, ValueError):
-            return None
-
-    def _read_source_internal_temp_c(self) -> float | None:
-        src = self._get_source_entity_id()
-        if not src:
-            return None
-        st = self.hass.states.get(src)
-        if st is None:
-            return None
-        try:
-            return float(st.attributes.get("current_temperature"))
-        except (TypeError, ValueError):
-            return None
-
-    # -----------------------------------------------------------------------------
-    # Fast recovery timer
-    # -----------------------------------------------------------------------------
-    def _schedule_fast_recovery_tick(self) -> None:
-        """Schedule a short tick while fast recovery is active to avoid waiting for control_interval."""
-        if self._unsub_fast_recovery_timer:
-            return
-        if not self._fast_recovery_active:
+    async def _async_regulation_cycle(self, _: Any) -> None:
+        if self.hass is None:
             return
 
-        delay = max(1.0, min(FAST_RECOVERY_MIN_INTERVAL_S, self._effective_min_interval_s))
-
-        @callback
-        def _fire(_now) -> None:
-            self._unsub_fast_recovery_timer = None
-            self.hass.async_create_task(self._async_regulation_cycle(trigger="fast_recovery_tick"))
-
-        self._unsub_fast_recovery_timer = async_call_later(self.hass, delay, _fire)
-
-    def _cancel_fast_recovery_tick(self) -> None:
-        if self._unsub_fast_recovery_timer:
-            try:
-                self._unsub_fast_recovery_timer()
-            finally:
-                self._unsub_fast_recovery_timer = None
-
-    # -----------------------------------------------------------------------------
-    # Regulation loop
-    # -----------------------------------------------------------------------------
-    async def _async_regulation_cycle(self, trigger: str) -> None:
-        now_wall = time.time()
-
-        # Sensors used for regulation
-        room_temp = self.coordinator.data.get("room_temp")
+        # room temperature input
+        room_temp = self.current_temperature
         if room_temp is None:
             self._last_regulation_reason = "waiting_for_sensors"
             self.async_write_ha_state()
             return
 
-        # “Ground truth” for Tado telemetry
-        tado_internal = self._read_source_internal_temp_c()
-        tado_setpoint = self._read_source_setpoint_c()
+        setpoint_c = float(self._target_temperature)
+        room_temp_c = float(room_temp)
 
-        if tado_internal is None:
-            # fallback to coordinator if needed
-            tado_internal = self.coordinator.data.get("tado_internal_temp")
+        # determine heating enabled
+        heating_enabled = self._hvac_mode != HVACMode.OFF
+
+        # Hybrid compute
+        dt_s = DEFAULT_CONTROL_INTERVAL_S
+        res = self._regulator.compute_target(
+            setpoint_c=setpoint_c,
+            room_temp_c=room_temp_c,
+            time_delta_s=dt_s,
+            state=self._hybrid_state,
+            heating_enabled=heating_enabled,
+        )
+        self._hybrid_state = res.new_state
+        self._last_regulation_result = res
+
+        # desired target from regulator
+        desired_target_c = float(res.target_c)
+
+        # apply window override
+        window_forced = self._window_open_enabled and self._window_forced
+        window_reason = self._window_forced_reason
+        if window_forced:
+            desired_target_c = float(FROST_PROTECT_C)
+
+        # clamp desired target to config bounds (and round)
+        desired_target_c = float(clamp(desired_target_c, self._config.min_target_c, self._config.max_target_c))
+        desired_target_c = round(desired_target_c / ROUND_STEP_C) * ROUND_STEP_C
+
+        # --- command policy & hygiene ---
+        tado_setpoint = self._read_source_setpoint_c()
         if tado_setpoint is None:
             tado_setpoint = self.coordinator.data.get("tado_setpoint")
 
-        # compute dt for hybrid
-        dt_s = 0.0
-        if self._last_regulation_ts > 0:
-            dt_s = now_wall - self._last_regulation_ts
-        self._last_regulation_ts = now_wall
-
-        # effective user setpoint
-        effective_setpoint = self._target_temp
-        if self._hvac_mode == HVACMode.OFF:
-            effective_setpoint = FROST_PROTECT_C
-
-        # update window diagnostics each cycle
-        self._update_window_diagnostics()
-        window_forced = self._window_forced
-        window_reason = self._window_forced_reason
-        resume_from_window = self._last_window_forced and (not window_forced)
-
-        # IMPORTANT: Window-forced is an output override and should not mutate hybrid state.
-        # So we compute hybrid only when not forced; otherwise we synthesize a result for telemetry.
-        if window_forced:
-            desired_target_c = FROST_PROTECT_C
-            reg_result = HybridResult(
-                target_c=desired_target_c,
-                error_c=0.0,
-                p_term_c=0.0,
-                predicted_temp_c=room_temp,
-                mode=self._hybrid_state.mode,
-                new_state=self._hybrid_state,
-                debug_info={"mode_reason": "window_forced"},
-            )
-            self._last_regulation_result = reg_result
-        else:
-            reg_result = self._regulator.compute_target(
-                setpoint_c=effective_setpoint,
-                room_temp_c=room_temp,
-                time_delta_s=dt_s,
-                state=self._hybrid_state,
-                heating_enabled=(self._hvac_mode != HVACMode.OFF),
-            )
-            self._hybrid_state = reg_result.new_state
-            self._last_regulation_result = reg_result
-
-            desired_target_c = max(
-                self._config.min_target_c,
-                min(self._config.max_target_c, reg_result.target_c),
-            )
-
-        desired_target_c = round(float(desired_target_c), 1)
-
-        # -------------------------
-        # Command policy selection
-        # -------------------------
+        # Decide fast recovery
         self._fast_recovery_active = False
         self._fast_recovery_reason = None
         self._effective_min_interval_s = float(self._config.min_command_interval_s)
-        self._effective_step_up_c = float(MAX_STEP_UP_C)
+        self._effective_step_up_c = MAX_STEP_UP_C
 
-        # Calculate room error (setpoint - room_temp) for urgency.
-        room_error_c = float(effective_setpoint - room_temp)
-
+        gap = None
         if tado_setpoint is not None:
-            target_gap_c = float(desired_target_c - tado_setpoint)
-        else:
-            target_gap_c = 0.0
+            gap = float(desired_target_c) - float(tado_setpoint)
 
-        # Conditions for fast recovery:
-        # - Hybrid in BOOST, or
-        # - Room error large (cold), or
-        # - Desired target far from current Tado setpoint
-        try:
-            is_boost = reg_result.mode.value == "boost"
-        except Exception:
-            is_boost = False
-
-        if (not window_forced) and (self._hvac_mode != HVACMode.OFF):
-            if is_boost:
+        if not window_forced:
+            if res.mode.value == "boost":
                 self._fast_recovery_active = True
                 self._fast_recovery_reason = "boost"
-            elif room_error_c >= FAST_RECOVERY_ERROR_C:
+            elif abs(res.error_c) >= FAST_RECOVERY_ERROR_C:
                 self._fast_recovery_active = True
-                self._fast_recovery_reason = f"room_error({room_error_c:.2f})"
-            elif target_gap_c >= FAST_RECOVERY_TARGET_GAP_C:
+                self._fast_recovery_reason = "room_error"
+            elif gap is not None and gap >= FAST_RECOVERY_TARGET_GAP_C:
                 self._fast_recovery_active = True
-                self._fast_recovery_reason = f"target_gap({target_gap_c:.2f})"
+                self._fast_recovery_reason = "target_gap"
 
         if self._fast_recovery_active:
-            self._effective_min_interval_s = min(self._effective_min_interval_s, FAST_RECOVERY_MIN_INTERVAL_S)
-            self._effective_step_up_c = max(self._effective_step_up_c, FAST_RECOVERY_MAX_STEP_UP_C)
+            self._effective_min_interval_s = float(FAST_RECOVERY_MIN_INTERVAL_S)
+            self._effective_step_up_c = float(FAST_RECOVERY_MAX_STEP_UP_C)
 
-        # Resume from window: allow ONE immediate “jump” to desired, bounded.
-        # This is explicitly to avoid slow 0.5°C ramp from frost.
-        resume_jump_allowed = False
-        if resume_from_window and tado_setpoint is not None:
-            gap = desired_target_c - float(tado_setpoint)
-            if float(tado_setpoint) <= FROSTISH_C and gap >= FROST_EXIT_JUMP_GAP_C:
-                resume_jump_allowed = True
+        # Boost open guard: if Tado internal temp close to setpoint, raise desired a bit (helps valve open)
+        tado_internal = self._read_source_internal_temp_c()
+        if tado_internal is None:
+            tado_internal = self.coordinator.data.get("tado_internal_temp")
 
-        # -------------------------
-        # Build command target
-        # -------------------------
-        command_target_c = desired_target_c
+        if not window_forced and tado_internal is not None:
+            if res.mode.value == "boost":
+                if float(desired_target_c) <= float(tado_internal) + BOOST_OPEN_MARGIN_C:
+                    desired_target_c = float(tado_internal) + BOOST_OPEN_MARGIN_C + 0.1
+                    desired_target_c = float(clamp(desired_target_c, self._config.min_target_c, self._config.max_target_c))
+
+        # Decide command target (step limiting)
+        command_target_c = float(desired_target_c)
         step_limited = False
-        step_up_limit_c = None
+        step_up_limit_c: float | None = None
 
         if tado_setpoint is not None:
             current_sp = float(tado_setpoint)
 
-            # Upwards moves are stepped unless:
-            # - resume_jump_allowed (one-time), or
-            # - still allow full jump if within min interval but big gap (fast recovery handled separately)
-            if command_target_c > current_sp + 0.05:
-                if resume_jump_allowed:
-                    # One-time direct jump to desired.
-                    step_limited = False
-                    step_up_limit_c = None
-                    command_target_c = desired_target_c
-                else:
-                    max_step = self._effective_step_up_c
-                    stepped = min(desired_target_c, current_sp + max_step)
-                    step_limited = (stepped != desired_target_c)
-                    step_up_limit_c = max_step
-                    command_target_c = round(float(stepped), 1)
+            if command_target_c > current_sp + 0.001:
+                # step up
+                step_up_limit_c = self._effective_step_up_c
+                if step_up_limit_c is not None and (command_target_c - current_sp) > step_up_limit_c:
+                    command_target_c = current_sp + step_up_limit_c
+                    step_limited = True
+            elif command_target_c < current_sp - 0.001:
+                # decreases are urgent; no step limit by default
+                pass
 
-        command_target_c = round(float(command_target_c), 1)
+        # round command target
+        command_target_c = round(command_target_c / ROUND_STEP_C) * ROUND_STEP_C
 
-        # Diagnostics snapshot
-        self._last_current_tado_setpoint_c = tado_setpoint
+        # bookkeeping for telemetry
         self._last_desired_target_c = desired_target_c
         self._last_command_target_c = command_target_c
         self._last_command_step_limited = step_limited
-        self._last_command_step_up_limit_c = step_up_limit_c
-        self._last_command_diff_c = (
-            abs(command_target_c - float(tado_setpoint)) if tado_setpoint is not None else None
-        )
-
-        # -------------------------
-        # Decide whether to send
-        # -------------------------
-        should_send = False
-        reason = "noop"
-
-        if tado_setpoint is None:
-            should_send = True
-            reason = "init_unknown_current_setpoint"
+        self._last_command_step_up_limit_c = step_up_limit_c if step_limited else None
+        if tado_setpoint is not None:
+            self._last_command_diff_c = round(float(command_target_c) - float(tado_setpoint), 3)
         else:
-            current_sp = float(tado_setpoint)
-            diff = abs(command_target_c - current_sp)
+            self._last_command_diff_c = None
 
-            time_since_last_send = now_wall - self._last_command_sent_ts
-            is_rate_limited = time_since_last_send < self._effective_min_interval_s
+        # Decide if we should send
+        should_send = False
+        reason = None
+        now_wall = time.time()
 
-            if diff < MIN_SEND_DELTA_C:
+        # Min delta guard
+        if tado_setpoint is not None:
+            if abs(float(command_target_c) - float(tado_setpoint)) < MIN_SEND_DELTA_C:
+                should_send = False
                 reason = f"min_delta_guard({MIN_SEND_DELTA_C}C)"
-            elif is_rate_limited:
+            else:
+                should_send = True
+                reason = "normal_update"
+        else:
+            should_send = True
+            reason = "normal_update(no_source_state)"
+
+        # rate limit
+        if should_send and self._last_command_sent_ts is not None:
+            time_since_last_send = now_wall - float(self._last_command_sent_ts)
+            if time_since_last_send < self._effective_min_interval_s:
+                # Allow urgent decreases even within rate limit
+                if tado_setpoint is not None:
+                    current_sp = float(tado_setpoint)
+                else:
+                    current_sp = float(command_target_c)
+
                 is_decrease = command_target_c < (current_sp - RATE_LIMIT_DECREASE_EPS_C)
                 if is_decrease:
                     should_send = True
@@ -675,9 +570,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 else:
                     remaining = int(max(0.0, self._effective_min_interval_s - time_since_last_send))
                     reason = f"rate_limited({remaining}s)"
-            else:
-                should_send = True
-                reason = "normal_update"
+                    should_send = False
 
         # Window forced must always be sent promptly (close valve).
         # Even if rate-limited, this should be treated as urgent decrease.
@@ -685,14 +578,26 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             current_sp = float(tado_setpoint)
             if command_target_c < (current_sp - RATE_LIMIT_DECREASE_EPS_C):
                 should_send = True
-                reason = "window_forced_urgent_decrease"
+                reason = "window_open_forced"
+            else:
+                # do not spam; the valve is already closed enough
+                should_send = False
+                reason = "window_open_forced(no_change)"
 
-        # Resume “jump” should not be blocked by rate limit.
+        # Resume from window: allow a one-time jump to avoid minutes of crawl
+        resume_from_window = self._last_window_forced and (not window_forced)
+        resume_jump_allowed = False
+        if resume_from_window and RESUME_JUMP_ALLOWED_ONCE:
+            resume_jump_allowed = True
+
         if resume_jump_allowed and tado_setpoint is not None:
             current_sp = float(tado_setpoint)
-            if command_target_c > current_sp + 0.05:
-                should_send = True
-                reason = "window_resume_jump"
+            if (desired_target_c - current_sp) >= RESUME_JUMP_GAP_C:
+                # ignore step limiting once
+                command_target_c = float(desired_target_c)
+                command_target_c = round(command_target_c / ROUND_STEP_C) * ROUND_STEP_C
+                step_limited = False
+                step_up_limit_c = None
 
         # decorate reason
         if step_limited and step_up_limit_c is not None:
@@ -706,13 +611,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # send command
         if should_send:
-            await self._async_send_to_tado(command_target_c)
+            send_ctx = Context()
+            await self._async_send_to_tado(command_target_c, context=send_ctx)
             self._last_command_sent_ts = now_wall
             self._last_regulation_reason = f"sent({reason})"
 
             self._last_sent_target_c = command_target_c
             self._last_sent_reason = reason
             self._last_sent_mono = time.monotonic()
+            self._last_sent_context_id = send_ctx.id
         else:
             self._last_regulation_reason = reason
 
@@ -726,7 +633,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_window_forced = window_forced
         self.async_write_ha_state()
 
-    async def _async_send_to_tado(self, target_c: float) -> None:
+    async def _async_send_to_tado(self, target_c: float, *, context: Context | None = None) -> None:
         source_entity = self._get_source_entity_id()
         if not source_entity:
             return
@@ -740,6 +647,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     "temperature": float(target_c),
                     "hvac_mode": HVACMode.HEAT,
                 },
+                context=context,
                 blocking=True,
             )
         except Exception as err:
@@ -748,17 +656,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     # -----------------------------------------------------------------------------
     # Properties
     # -----------------------------------------------------------------------------
-    @property
-    def current_temperature(self) -> float | None:
-        return self.coordinator.data.get("room_temp")
-
-    @property
-    def target_temperature(self) -> float | None:
-        return self._target_temp
-
-    @property
-    def hvac_mode(self) -> HVACMode:
-        return self._hvac_mode
 
     @property
     def hvac_action(self) -> HVACAction:
@@ -776,6 +673,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if tado_internal is not None and tado_setpoint is not None:
             if float(tado_setpoint) > float(tado_internal) + WILL_HEAT_EPS_C:
                 return HVACAction.HEATING
+            return HVACAction.IDLE
+
         return HVACAction.IDLE
 
     @property
@@ -809,11 +708,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "tado_last_sent_target_c": self._last_sent_target_c,
             "tado_last_sent_reason": self._last_sent_reason,
             "tado_last_sent_age_s": sent_age_s,
+            "tado_last_sent_context_id": self._last_sent_context_id,
 
-            # window config/state
+            # window config/runtime
             "window_open_enabled": self._window_open_enabled,
             "window_sensor_entity_id": self._window_sensor_entity_id,
-            "window_open": self._window_open_active,
+            "window_open": self._window_open,
             "window_open_delay_min": round(self._window_open_delay_s / 60.0, 3),
             "window_close_delay_min": round(self._window_close_delay_s / 60.0, 3),
             "window_forced": self._window_forced,
@@ -871,4 +771,4 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         return attrs
 
 
-# Commit: fix: make window forcing + command hygiene transparent and bounded
+# Commit: fix: add last-sent context id for service-call correlation
