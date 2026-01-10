@@ -40,7 +40,6 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_COMMAND_REASON,
@@ -159,6 +158,9 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
             ki_small=tuning.ki,
         )
         self._regulator = HybridRegulator(self._hybrid_cfg)
+
+        # Persistent regulator state (required by HybridRegulator.step API)
+        self._hybrid_state = HybridState()
 
         # Command policy
         self._policy = CommandPolicy(
@@ -302,7 +304,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         self._telemetry["window_mode"] = self._window_mode.value
 
         @callback
-        def _on_window_event(event: Event) -> None:
+        def _on_window_event(event: Any) -> None:
             self._handle_window_event(event)
 
         self._unsub_window_sensor = async_track_state_change_event(
@@ -312,7 +314,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         )
 
     @callback
-    def _handle_window_event(self, event: Event) -> None:
+    def _handle_window_event(self, event: Any) -> None:
         if not self._window_open_enabled or not self._window_sensor_entity_id:
             return
 
@@ -421,13 +423,19 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         now = time.time()
         desired = self._target_temperature
 
-        cmd, state, bias = self._regulator.compute(
-            room_temp=room_temp,
-            target_temp=desired,
+        result = self._regulator.step(
+            state=self._hybrid_state,
+            room_temp_c=room_temp,
+            target_temp_c=desired,
             now_ts=now,
         )
+        # HybridRegulator.step mutates and returns state; keep a reference for clarity
+        self._hybrid_state = result.new_state
 
-        self._telemetry[ATTR_HYBRID_STATE] = state.value if isinstance(state, HybridState) else str(state)
+        cmd = result.target_c
+        bias = result.new_state.bias_c
+
+        self._telemetry[ATTR_HYBRID_STATE] = result.mode.value
         self._telemetry[ATTR_HYBRID_CMD] = cmd
         self._telemetry[ATTR_HYBRID_BIAS] = bias
 
