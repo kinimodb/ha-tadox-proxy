@@ -170,7 +170,13 @@ class CommandPolicy:
 
         # First ever send
         if last_sent_setpoint is None or last_sent_ts is None:
-            return PolicyDecision(True, desired, "first_send")
+            decision = PolicyDecision(True, desired, "first_send")
+            _LOGGER.debug(
+                "CommandPolicy decision=%s desired=%.3f last=None dt=None delta=None",
+                decision.reason,
+                desired,
+            )
+            return decision
 
         last = float(last_sent_setpoint)
         dt = float(now_ts - last_sent_ts)
@@ -178,21 +184,102 @@ class CommandPolicy:
 
         # Noise guard
         if abs(delta) < self.min_setpoint_delta_c:
-            return PolicyDecision(False, last, "below_min_delta")
+            decision = PolicyDecision(False, last, "below_min_delta")
+            _LOGGER.debug(
+                "CommandPolicy decision=%s desired=%.3f last=%.3f dt=%.1f delta=%.3f "
+                "(min_delta=%.3f min_interval=%.1f step_up_limit=%.3f)",
+                decision.reason,
+                desired,
+                last,
+                dt,
+                delta,
+                self.min_setpoint_delta_c,
+                self.min_command_interval_s,
+                self.step_up_limit_c,
+            )
+            return decision
 
         # Urgent decrease bypasses rate limit
         if delta <= -self.min_setpoint_delta_c:
-            return PolicyDecision(True, desired, "urgent_decrease")
+            decision = PolicyDecision(True, desired, "urgent_decrease")
+            _LOGGER.debug(
+                "CommandPolicy decision=%s desired=%.3f last=%.3f dt=%.1f delta=%.3f "
+                "(min_delta=%.3f min_interval=%.1f step_up_limit=%.3f)",
+                decision.reason,
+                desired,
+                last,
+                dt,
+                delta,
+                self.min_setpoint_delta_c,
+                self.min_command_interval_s,
+                self.step_up_limit_c,
+            )
+            return decision
 
         # Rate limit for increases
         if dt < self.min_command_interval_s:
-            return PolicyDecision(False, last, "rate_limited")
+            decision = PolicyDecision(False, last, "rate_limited")
+            _LOGGER.debug(
+                "CommandPolicy decision=%s desired=%.3f last=%.3f dt=%.1f delta=%.3f "
+                "(min_delta=%.3f min_interval=%.1f step_up_limit=%.3f)",
+                decision.reason,
+                desired,
+                last,
+                dt,
+                delta,
+                self.min_setpoint_delta_c,
+                self.min_command_interval_s,
+                self.step_up_limit_c,
+            )
+            return decision
 
         # Step-up limit for increases
         if delta > self.step_up_limit_c:
             limited = last + self.step_up_limit_c
             if abs(limited - last) < self.min_setpoint_delta_c:
-                return PolicyDecision(False, last, "step_up_too_small")
-            return PolicyDecision(True, limited, "step_up_limited")
+                decision = PolicyDecision(False, last, "step_up_too_small")
+                _LOGGER.debug(
+                    "CommandPolicy decision=%s desired=%.3f last=%.3f dt=%.1f delta=%.3f limited=%.3f "
+                    "(min_delta=%.3f min_interval=%.1f step_up_limit=%.3f)",
+                    decision.reason,
+                    desired,
+                    last,
+                    dt,
+                    delta,
+                    limited,
+                    self.min_setpoint_delta_c,
+                    self.min_command_interval_s,
+                    self.step_up_limit_c,
+                )
+                return decision
 
-        return PolicyDecision(True, desired, "send")
+            decision = PolicyDecision(True, limited, "step_up_limited")
+            _LOGGER.debug(
+                "CommandPolicy decision=%s desired=%.3f last=%.3f dt=%.1f delta=%.3f limited=%.3f "
+                "(min_delta=%.3f min_interval=%.1f step_up_limit=%.3f)",
+                decision.reason,
+                desired,
+                last,
+                dt,
+                delta,
+                limited,
+                self.min_setpoint_delta_c,
+                self.min_command_interval_s,
+                self.step_up_limit_c,
+            )
+            return decision
+
+        decision = PolicyDecision(True, desired, "send")
+        _LOGGER.debug(
+            "CommandPolicy decision=%s desired=%.3f last=%.3f dt=%.1f delta=%.3f "
+            "(min_delta=%.3f min_interval=%.1f step_up_limit=%.3f)",
+            decision.reason,
+            desired,
+            last,
+            dt,
+            delta,
+            self.min_setpoint_delta_c,
+            self.min_command_interval_s,
+            self.step_up_limit_c,
+        )
+        return decision
