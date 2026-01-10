@@ -28,55 +28,56 @@ class HybridMode(str, Enum):
     COAST = "coast"
 
 
+class WindowMode(str, Enum):
+    """Simple window state enum used by the climate entity.
+
+    The regulator itself only implements a window-open *latch* (to force COAST),
+    but the proxy entity needs a stable enum for "open/closed" state tracking.
+    """
+
+    OPEN = "open"
+    CLOSED = "closed"
+
+
 @dataclass
 class HybridConfig:
     """Configuration for the hybrid regulator.
 
-    Note on BOOST:
-    - boost_target_c is intentionally defined as a *relative floor* above the setpoint,
-      not as an absolute target.
-    - This avoids hard-forcing 25°C for small errors while still opening the valve decisively.
+    Many values are intentionally conservative, as this controller is meant to
+    behave robustly on slow radiator systems.
     """
 
-    # Absolute limits for commands sent to the TRV / cloud
+    # --- General bounds / mapping ---
+    min_setpoint_c: float = 5.0
+    max_setpoint_c: float = 30.0
+    min_delta_send_c: float = 0.5
+
+    # Optional clamps
     min_target_c: float = 5.0
-    max_target_c: float = 25.0
+    max_target_c: float = 30.0
 
-    # Relative clamp around room setpoint (prevents silly values relative to target)
-    max_offset_c: float = 8.0
+    # Bias estimator / offset handling
+    # bias_c is learned so that "effective room temp" = measured_room_temp + bias_c
+    # Positive bias means "room is actually warmer than sensor says".
+    bias_initial_c: float = 0.0
+    bias_learn_rate_c_per_h: float = 0.1
+    bias_deadband_c: float = 0.05
+    max_bias_abs_c: float = 2.0
 
-    # --- Comfort control (fast) ---
+    # PI-ish control (light I)
     kp: float = 5.0
-    ki_small: float = 0.0002
-    i_small_min_c: float = -2.0
-    i_small_max_c: float = 2.0
+    ki_small: float = 0.005
 
-    # --- Bias estimator (slow) ---
-    bias_tau_s: float = 4 * 3600.0  # 4 hours
-    bias_deadband_c: float = 0.1
-    bias_trend_max_c_per_min: float = 0.01  # only learn when nearly stationary
-    bias_rate_limit_c_per_h: float = 0.5
-    bias_min_c: float = -5.0
-    bias_max_c: float = 5.0
+    # Small I clamp (prevents windup)
+    i_small_min_c: float = -1.5
+    i_small_max_c: float = 1.5
 
-    # --- Trend / prediction ---
-    dTdt_alpha: float = 0.25
-    trend_drop_threshold_c_per_min: float = -0.03  # falling quickly
-    trend_rise_threshold_c_per_min: float = 0.03   # rising quickly
-    predict_horizon_s: float = 900.0               # 15 minutes
-    overshoot_guard_c: float = 0.2
+    # Prediction (overshoot guard)
+    prediction_window_s: float = 15 * 60.0
+    prediction_gain: float = 0.6
 
-    # --- Window-open / rapid-loss handling ---
-    # If the room temperature drops very quickly, it is often due to an open window/door.
-    # In that case we close the valve (COAST) for a limited time to avoid wasting energy
-    # and to prevent overshoot once the window is closed.
-    window_open_enabled: bool = True
-    window_open_drop_threshold_c_per_min: float = -0.2  # very fast drop => assume window open
-    window_open_hold_minutes: float = 15.0
-
-    # --- State thresholds ---
-    hold_deadband_c: float = 0.1
-
+    # Mode thresholds
+    # BOOST when far below setpoint and rising slowly; COAST when near/above and rising quickly.
     boost_error_on_c: float = 0.6
     boost_error_off_c: float = 0.2
     # Minimum raise above setpoint while in BOOST (keeps valve decisively open without hard-forcing max).
@@ -87,21 +88,31 @@ class HybridConfig:
     coast_error_off_c: float = -0.1
     coast_target_c: float = 7.0
 
+    # Overshoot guard
+    overshoot_guard_on_c: float = 0.2
+    overshoot_guard_off_c: float = 0.05
+
+    # Window-open latch detection
+    # If room temp drops faster than this, latch COAST for window_open_latch_minutes.
+    window_drop_latch_c_per_min: float = 0.15
+    window_open_latch_minutes: float = 20.0
+
+    # --- Bias learning gates ---
+    # Only learn bias when room temperature changes slowly (avoid learning during transients).
+    bias_trend_max_c_per_min: float = 0.03
+
 
 @dataclass
 class HybridState:
     """Controller state that persists between cycles."""
     mode: HybridMode = HybridMode.HOLD
 
-    # Long-term offset (learned)
     bias_c: float = 0.0
-
-    # Small integrator (comfort only)
     i_small_c: float = 0.0
 
-    # Trend estimator
-    dTdt_ema_c_per_s: float = 0.0
+    # History for trend / prediction
     last_room_temp_c: Optional[float] = None
+    last_update_ts: Optional[float] = None
 
     # Mode timing
     mode_entered_monotonic_s: float = field(default_factory=time.monotonic)
@@ -128,227 +139,171 @@ class HybridRegulator:
     def __init__(self, config: HybridConfig) -> None:
         self.config = config
 
-    def compute_target(
+    def step(
         self,
         *,
-        setpoint_c: float,
-        room_temp_c: float,
-        time_delta_s: float,
         state: HybridState,
-        heating_enabled: bool,
+        room_temp_c: float,
+        target_temp_c: float,
+        now_ts: float,
     ) -> HybridResult:
+        """Perform one regulation step.
+
+        Inputs:
+          - state: persistent controller state
+          - room_temp_c: external room temperature (controlled variable)
+          - target_temp_c: desired room temperature setpoint (user target)
+          - now_ts: epoch seconds
+        """
+
         cfg = self.config
-        dt = float(time_delta_s or 0.0)
 
-        # Error: positive means "too cold"
-        e = float(setpoint_c - room_temp_c)
+        debug: dict[str, Any] = {}
 
-        # Update trend estimator
-        dTdt_ema = self._update_trend(room_temp_c=room_temp_c, dt_s=dt, state=state)
+        # ---------------------------------------------------------------------
+        # Trend estimation / prediction
+        # ---------------------------------------------------------------------
+        dt_s: float = 0.0
+        trend_c_per_min: float = 0.0
+        predicted_temp_c: Optional[float] = None
 
-        # Window-open detection (very fast drop): latch COAST
-        now = time.monotonic()
-        if cfg.window_open_enabled and dt > 0:
-            window_thr = cfg.window_open_drop_threshold_c_per_min / 60.0  # °C/s
-            if dTdt_ema <= window_thr:
-                state.window_open_until_monotonic_s = now + (cfg.window_open_hold_minutes * 60.0)
+        if state.last_room_temp_c is not None and state.last_update_ts is not None:
+            dt_s = max(1.0, now_ts - state.last_update_ts)
+            dtemp = room_temp_c - state.last_room_temp_c
+            trend_c_per_min = (dtemp / dt_s) * 60.0
 
-        # Determine base mode
-        mode: Optional[HybridMode] = None
-        mode_reason: Optional[str] = None
+            # Simple prediction: project over prediction window with a gain
+            predicted_temp_c = room_temp_c + (trend_c_per_min * (cfg.prediction_window_s / 60.0) * cfg.prediction_gain)
 
-        # Forced off: treat as COAST
-        if not heating_enabled:
-            mode = HybridMode.COAST
-            mode_reason = "heating_disabled"
+        debug["dt_s"] = dt_s
+        debug["trend_c_per_min"] = trend_c_per_min
+        debug["predicted_temp_c"] = predicted_temp_c
 
-        # Window-open latch active -> force COAST
-        if mode is None and state.window_open_until_monotonic_s > now:
-            mode = HybridMode.COAST
-            mode_reason = "window_open_detected"
-
-        # Predict temperature at horizon (for overshoot guard)
-        predicted = None
-        if cfg.predict_horizon_s > 0:
-            predicted = room_temp_c + dTdt_ema * cfg.predict_horizon_s
-
-        # Decide mode transitions
-        if mode is None:
-            mode, mode_reason = self._decide_mode(
-                setpoint_c=setpoint_c,
-                room_temp_c=room_temp_c,
-                error_c=e,
-                dTdt_ema_c_per_s=dTdt_ema,
-                predicted_temp_c=predicted,
-                state=state,
-            )
-
-        # Build target according to mode
-        bias_c = state.bias_c
-        i_small_c = state.i_small_c
-
-        # In HOLD we may update bias and i_small
-        if mode == HybridMode.HOLD and dt > 0:
-            bias_c = self._update_bias(
-                bias_c=bias_c,
-                error_c=e,
-                dTdt_ema_c_per_s=dTdt_ema,
-                dt_s=dt,
-            )
-
-        base = setpoint_c + bias_c
-        p_term = cfg.kp * e
-
-        if mode == HybridMode.BOOST:
-            # BOOST floor is relative to setpoint (setpoint + boost_target_c), not absolute.
-            raw_target = max(setpoint_c + cfg.boost_target_c, base + p_term)
-            i_small_next = i_small_c  # freeze
-        elif mode == HybridMode.COAST:
-            raw_target = cfg.coast_target_c
-            i_small_next = i_small_c  # freeze
+        # Window-open latch detection
+        if trend_c_per_min < -cfg.window_drop_latch_c_per_min:
+            state.window_open_until_monotonic_s = time.monotonic() + (cfg.window_open_latch_minutes * 60.0)
+            debug["window_latch_triggered"] = True
         else:
-            # HOLD: allow small I (optional)
-            i_small_next = i_small_c
-            if cfg.ki_small > 0 and dt > 0:
-                tentative_i = i_small_c + (e * cfg.ki_small * dt)
-                tentative_i = max(cfg.i_small_min_c, min(cfg.i_small_max_c, tentative_i))
+            debug["window_latch_triggered"] = False
+
+        window_latched = time.monotonic() < state.window_open_until_monotonic_s
+        debug["window_latched"] = window_latched
+
+        # ---------------------------------------------------------------------
+        # Bias learning (slow)
+        # ---------------------------------------------------------------------
+        # We learn bias when near-stationary: small trend
+        if abs(trend_c_per_min) <= cfg.bias_trend_max_c_per_min:
+            # Error with current bias
+            effective_room = room_temp_c + state.bias_c
+            error_for_bias = target_temp_c - effective_room
+
+            if abs(error_for_bias) > cfg.bias_deadband_c:
+                # Convert rate to per second
+                learn_rate_c_per_s = cfg.bias_learn_rate_c_per_h / 3600.0
+                # If room is colder than target (error positive), we would like effective_room higher -> increase bias?
+                # Actually effective_room = room + bias. To reduce positive error, increase bias.
+                bias_delta = (error_for_bias) * learn_rate_c_per_s * dt_s if dt_s > 0 else 0.0
+                state.bias_c += bias_delta
+                # Clamp
+                state.bias_c = max(-cfg.max_bias_abs_c, min(cfg.max_bias_abs_c, state.bias_c))
+                debug["bias_delta"] = bias_delta
             else:
-                tentative_i = i_small_c
-            i_small_next = tentative_i
-            raw_target = base + p_term + i_small_next
+                debug["bias_delta"] = 0.0
+        else:
+            debug["bias_delta"] = 0.0
+            debug["bias_learning_suppressed"] = True
 
-        # Clamp target
-        target_c = self._clamp_absolute_target(setpoint_c=setpoint_c, target_c=raw_target)
+        debug["bias_c"] = state.bias_c
 
-        # Update state fields
-        new_state = HybridState(
-            mode=mode,
-            bias_c=bias_c,
-            i_small_c=i_small_next,
-            dTdt_ema_c_per_s=dTdt_ema,
-            last_room_temp_c=room_temp_c,
-            mode_entered_monotonic_s=state.mode_entered_monotonic_s,
-            window_open_until_monotonic_s=state.window_open_until_monotonic_s,
-        )
+        # ---------------------------------------------------------------------
+        # Main control
+        # ---------------------------------------------------------------------
+        effective_room_temp_c = room_temp_c + state.bias_c
+        error_c = target_temp_c - effective_room_temp_c
 
-        # Update mode_entered if mode changed
-        if state.mode != mode:
-            new_state.mode_entered_monotonic_s = now
+        debug["effective_room_temp_c"] = effective_room_temp_c
+        debug["error_c"] = error_c
 
-        debug = {
-            "mode_reason": mode_reason,
-        }
+        # Overshoot guard uses prediction if available
+        overshoot_risk = False
+        if predicted_temp_c is not None:
+            predicted_effective = predicted_temp_c + state.bias_c
+            overshoot_risk = predicted_effective > (target_temp_c + cfg.overshoot_guard_on_c)
+        debug["overshoot_risk"] = overshoot_risk
+
+        # Mode transitions (state machine)
+        new_mode = state.mode
+        mode_reason = "stay"
+
+        # Window latch forces COAST
+        if window_latched:
+            new_mode = HybridMode.COAST
+            mode_reason = "window_latch"
+        else:
+            if state.mode != HybridMode.BOOST and error_c >= cfg.boost_error_on_c:
+                new_mode = HybridMode.BOOST
+                mode_reason = "error_high"
+            elif state.mode == HybridMode.BOOST and error_c <= cfg.boost_error_off_c:
+                new_mode = HybridMode.HOLD
+                mode_reason = "boost_exit"
+            elif state.mode != HybridMode.COAST and (error_c <= cfg.coast_error_on_c or overshoot_risk):
+                new_mode = HybridMode.COAST
+                mode_reason = "overshoot_or_above"
+            elif state.mode == HybridMode.COAST and error_c >= cfg.coast_error_off_c and not overshoot_risk:
+                new_mode = HybridMode.HOLD
+                mode_reason = "coast_exit"
+
+        # If mode changed, reset mode timer
+        if new_mode != state.mode:
+            state.mode = new_mode
+            state.mode_entered_monotonic_s = time.monotonic()
+        debug["mode_reason"] = mode_reason
+        debug["mode"] = state.mode.value
+
+        # Compute P term
+        p_term_c = cfg.kp * error_c
+        debug["p_term_c"] = p_term_c
+
+        # Small integral action
+        if dt_s > 0:
+            state.i_small_c += cfg.ki_small * error_c * (dt_s / 60.0)  # normalize to minutes
+            state.i_small_c = max(cfg.i_small_min_c, min(cfg.i_small_max_c, state.i_small_c))
+        debug["i_small_c"] = state.i_small_c
+
+        # Target mapping to setpoint:
+        # - HOLD: aim near target with P+I
+        # - BOOST: add a boost offset above target to open valve decisively
+        # - COAST: raise setpoint high (Tado thinks it's warm enough?) Actually for COAST we want valve closed -> setpoint low.
+        #   But since Tado setpoint is the "desired room temp", lower setpoint tends to close. We'll use a low target around min_target.
+        desired_target_c = target_temp_c + p_term_c + state.i_small_c
+
+        if state.mode == HybridMode.BOOST:
+            desired_target_c = max(desired_target_c, target_temp_c + cfg.boost_target_c)
+            # safety max time in BOOST
+            if (time.monotonic() - state.mode_entered_monotonic_s) > (cfg.boost_max_minutes * 60.0):
+                state.mode = HybridMode.HOLD
+                state.mode_entered_monotonic_s = time.monotonic()
+                debug["boost_timeout"] = True
+
+        elif state.mode == HybridMode.COAST:
+            # push setpoint low to encourage valve close; coast_target_c acts as absolute low setpoint
+            desired_target_c = min(desired_target_c, cfg.coast_target_c)
+
+        # Clamp
+        desired_target_c = max(cfg.min_target_c, min(cfg.max_target_c, desired_target_c))
+        debug["desired_target_c_pre_clamp"] = desired_target_c
+
+        # Update history
+        state.last_room_temp_c = room_temp_c
+        state.last_update_ts = now_ts
 
         return HybridResult(
-            target_c=target_c,
-            error_c=e,
-            p_term_c=p_term,
-            predicted_temp_c=predicted,
-            mode=mode,
-            new_state=new_state,
+            target_c=desired_target_c,
+            error_c=error_c,
+            p_term_c=p_term_c,
+            predicted_temp_c=predicted_temp_c,
+            mode=state.mode,
+            new_state=state,
             debug_info=debug,
         )
-
-    def _update_trend(self, *, room_temp_c: float, dt_s: float, state: HybridState) -> float:
-        cfg = self.config
-
-        if dt_s <= 0 or state.last_room_temp_c is None:
-            return state.dTdt_ema_c_per_s
-
-        raw = (room_temp_c - state.last_room_temp_c) / dt_s
-        return (cfg.dTdt_alpha * raw) + ((1.0 - cfg.dTdt_alpha) * state.dTdt_ema_c_per_s)
-
-    def _update_bias(self, *, bias_c: float, error_c: float, dTdt_ema_c_per_s: float, dt_s: float) -> float:
-        """Slow offset learning, only near steady-state."""
-        cfg = self.config
-
-        # Only learn when close to target and near-stationary
-        dTdt_c_per_min = dTdt_ema_c_per_s * 60.0
-        if abs(error_c) > cfg.bias_deadband_c:
-            return bias_c
-        if abs(dTdt_c_per_min) > cfg.bias_trend_max_c_per_min:
-            return bias_c
-        if cfg.bias_tau_s <= 0:
-            return bias_c
-
-        # Desired bias change is proportional to error (very small per dt)
-        desired_bias = bias_c + (error_c * (dt_s / cfg.bias_tau_s))
-
-        # Clamp bias
-        desired_bias = max(cfg.bias_min_c, min(cfg.bias_max_c, desired_bias))
-
-        # Rate limit (per hour)
-        max_step = (cfg.bias_rate_limit_c_per_h / 3600.0) * dt_s
-        if desired_bias > bias_c + max_step:
-            desired_bias = bias_c + max_step
-        elif desired_bias < bias_c - max_step:
-            desired_bias = bias_c - max_step
-
-        return desired_bias
-
-    def _decide_mode(
-        self,
-        *,
-        setpoint_c: float,
-        room_temp_c: float,
-        error_c: float,
-        dTdt_ema_c_per_s: float,
-        predicted_temp_c: Optional[float],
-        state: HybridState,
-    ) -> tuple[HybridMode, str]:
-        """State transitions."""
-        cfg = self.config
-
-        # Trend thresholds
-        drop_thr = cfg.trend_drop_threshold_c_per_min / 60.0
-        rise_thr = cfg.trend_rise_threshold_c_per_min / 60.0
-
-        predicted_overshoot = False
-        if predicted_temp_c is not None:
-            if predicted_temp_c >= setpoint_c + cfg.overshoot_guard_c:
-                predicted_overshoot = True
-
-        now = time.monotonic()
-
-        # Current mode handling
-        if state.mode == HybridMode.BOOST:
-            elapsed_min = (now - state.mode_entered_monotonic_s) / 60.0
-            if elapsed_min >= cfg.boost_max_minutes:
-                return HybridMode.HOLD, "boost_timeout"
-            if error_c <= cfg.boost_error_off_c and dTdt_ema_c_per_s > drop_thr:
-                return HybridMode.HOLD, "boost_recovered"
-            return HybridMode.BOOST, "boost_active"
-
-        if state.mode == HybridMode.COAST:
-            if error_c >= cfg.coast_error_off_c:
-                return HybridMode.HOLD, "coast_recovered"
-            return HybridMode.COAST, "coast_active"
-
-        # HOLD mode decisions
-        if error_c <= cfg.coast_error_on_c or predicted_overshoot:
-            return HybridMode.COAST, "coast_enter"
-
-        if error_c >= cfg.boost_error_on_c or dTdt_ema_c_per_s <= drop_thr:
-            return HybridMode.BOOST, "boost_enter"
-
-        # Otherwise remain in HOLD
-        # (Optionally: if very close to target and rising quickly, pre-empt COAST)
-        if abs(error_c) <= cfg.hold_deadband_c and dTdt_ema_c_per_s >= rise_thr:
-            return HybridMode.HOLD, "hold_near_target_rising"
-
-        return HybridMode.HOLD, "hold_normal"
-
-    def _clamp_absolute_target(self, setpoint_c: float, target_c: float) -> float:
-        """Clamp absolute target respecting both absolute limits and max offset vs setpoint."""
-        cfg = self.config
-        # Relative clamp around room setpoint
-        rel_min = setpoint_c - cfg.max_offset_c
-        rel_max = setpoint_c + cfg.max_offset_c
-        clamped = max(rel_min, min(rel_max, target_c))
-        # Absolute clamp
-        clamped = max(cfg.min_target_c, min(cfg.max_target_c, clamped))
-        # Round to 0.1 °C to match HA climate precision / Tado typical resolution
-        return round(clamped, 1)
-
-
-# Commit: fix: make boost floor relative to setpoint (avoid hard-forced 25C)
