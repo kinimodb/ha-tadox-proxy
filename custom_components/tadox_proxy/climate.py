@@ -29,6 +29,7 @@ from homeassistant.const import (
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_OFF,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -113,6 +114,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_min_temp = DEFAULT_MIN_TEMP_C
     _attr_max_temp = DEFAULT_MAX_TEMP_C
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
 
     def __init__(self, hass: HomeAssistant, entry: Any, coordinator: Any) -> None:
         """Initialize the proxy thermostat."""
@@ -180,14 +182,13 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         # Persistent regulator state (required by HybridRegulator.step API)
         self._hybrid_state = HybridState()
 
-        # Command policy
-        self._policy = CommandPolicy(
-            min_command_interval_s=float(options.get("min_command_interval_s", DEFAULT_MIN_COMMAND_INTERVAL_S)),
-            min_setpoint_delta_c=float(options.get("min_setpoint_delta_c", DEFAULT_MIN_SETPOINT_DELTA_C)),
-            step_up_limit_c=float(options.get("step_up_limit_c", DEFAULT_STEP_UP_LIMIT_C)),
-            fast_recovery_max_c=float(options.get("fast_recovery_max_c", FAST_RECOVERY_MAX_C)),
-            fast_recovery_duration_s=float(options.get("fast_recovery_duration_s", FAST_RECOVERY_DURATION_S)),
-        )
+        # Command policy (CommandPolicy has no __init__ -> set attributes explicitly)
+        self._policy = CommandPolicy()
+        self._policy.min_command_interval_s = float(options.get("min_command_interval_s", DEFAULT_MIN_COMMAND_INTERVAL_S))
+        self._policy.min_setpoint_delta_c = float(options.get("min_setpoint_delta_c", DEFAULT_MIN_SETPOINT_DELTA_C))
+        self._policy.step_up_limit_c = float(options.get("step_up_limit_c", DEFAULT_STEP_UP_LIMIT_C))
+        self._policy.fast_recovery_max_c = float(options.get("fast_recovery_max_c", FAST_RECOVERY_MAX_C))
+        self._policy.fast_recovery_duration_s = float(options.get("fast_recovery_duration_s", FAST_RECOVERY_DURATION_S))
 
         self._attr_unique_id = f"{entry.entry_id}_climate"
 
