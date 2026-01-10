@@ -94,7 +94,8 @@ async def async_setup_entry(
     async_add_entities: Any,
 ) -> None:
     """Set up tadox_proxy climate entity from a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    # __init__.py stores the DataUpdateCoordinator directly at hass.data[DOMAIN][entry.entry_id]
+    coordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([TadoxProxyThermostat(hass, entry, coordinator)], update_before_add=True)
 
 
@@ -123,7 +124,11 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
 
         # Entities
         self._tado_entity_id: str | None = cast(str | None, data.get(CONF_TADO_CLIMATE_ENTITY_ID))
-        self._room_sensor_entity_id: str | None = cast(str | None, data.get(CONF_ROOM_SENSOR_ENTITY_ID))
+        # Options > Data (align with __init__.py coordinator update source)
+        self._room_sensor_entity_id: str | None = cast(
+            str | None,
+            options.get(CONF_ROOM_SENSOR_ENTITY_ID, data.get(CONF_ROOM_SENSOR_ENTITY_ID)),
+        )
         self._tado_temp_entity_id: str | None = cast(str | None, data.get(CONF_TADO_TEMP_ENTITY_ID))
 
         # Window options
