@@ -88,6 +88,11 @@ class HybridConfig:
     coast_error_off_c: float = -0.1
     coast_target_c: float = 7.0
 
+    # Prevent extreme setpoint drops below the user target.
+    # Any value slightly below target is sufficient to close the valve; going far below
+    # causes long recovery due to step-up limiting.
+    max_setpoint_drop_below_target_c: float = 0.5
+
     # Overshoot guard
     overshoot_guard_on_c: float = 0.2
     overshoot_guard_off_c: float = 0.05
@@ -201,8 +206,7 @@ class HybridRegulator:
             if abs(error_for_bias) > cfg.bias_deadband_c:
                 # Convert rate to per second
                 learn_rate_c_per_s = cfg.bias_learn_rate_c_per_h / 3600.0
-                # If room is colder than target (error positive), we would like effective_room higher -> increase bias?
-                # Actually effective_room = room + bias. To reduce positive error, increase bias.
+                # If room is colder than target (error positive), we would like effective_room higher -> increase bias
                 bias_delta = (error_for_bias) * learn_rate_c_per_s * dt_s if dt_s > 0 else 0.0
                 state.bias_c += bias_delta
                 # Clamp
@@ -258,6 +262,7 @@ class HybridRegulator:
         if new_mode != state.mode:
             state.mode = new_mode
             state.mode_entered_monotonic_s = time.monotonic()
+
         debug["mode_reason"] = mode_reason
         debug["mode"] = state.mode.value
 
@@ -274,8 +279,7 @@ class HybridRegulator:
         # Target mapping to setpoint:
         # - HOLD: aim near target with P+I
         # - BOOST: add a boost offset above target to open valve decisively
-        # - COAST: raise setpoint high (Tado thinks it's warm enough?) Actually for COAST we want valve closed -> setpoint low.
-        #   But since Tado setpoint is the "desired room temp", lower setpoint tends to close. We'll use a low target around min_target.
+        # - COAST: keep setpoint slightly below the user target (close valve without extreme drops)
         desired_target_c = target_temp_c + p_term_c + state.i_small_c
 
         if state.mode == HybridMode.BOOST:
@@ -287,8 +291,14 @@ class HybridRegulator:
                 debug["boost_timeout"] = True
 
         elif state.mode == HybridMode.COAST:
-            # push setpoint low to encourage valve close; coast_target_c acts as absolute low setpoint
-            desired_target_c = min(desired_target_c, cfg.coast_target_c)
+            # For heating systems, any value slightly below the user target is enough to close the valve.
+            # Avoid driving the setpoint far below target (would cause slow recovery with step-up limiting).
+            desired_target_c = min(desired_target_c, target_temp_c - cfg.max_setpoint_drop_below_target_c)
+
+        # Floor: never drive the underlying setpoint far below the user target.
+        below_target_floor_c = target_temp_c - cfg.max_setpoint_drop_below_target_c
+        desired_target_c = max(desired_target_c, below_target_floor_c)
+        debug["below_target_floor_c"] = below_target_floor_c
 
         # Clamp
         desired_target_c = max(cfg.min_target_c, min(cfg.max_target_c, desired_target_c))
