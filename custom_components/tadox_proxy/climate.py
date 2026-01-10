@@ -83,6 +83,9 @@ CONTROL_LOOP_INTERVAL = timedelta(seconds=30)
 FAST_RECOVERY_MAX_C = 3.0
 FAST_RECOVERY_DURATION_S = 20 * 60
 
+# Window frost protection setpoint
+WINDOW_FROST_TEMP_C = 5.0
+
 
 # -----------------------------------------------------------------------------
 # Setup
@@ -124,11 +127,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
 
         # Entities
         self._tado_entity_id: str | None = cast(str | None, data.get(CONF_TADO_CLIMATE_ENTITY_ID))
-        # Options > Data (align with __init__.py coordinator update source)
-        self._room_sensor_entity_id: str | None = cast(
-            str | None,
-            options.get(CONF_ROOM_SENSOR_ENTITY_ID, data.get(CONF_ROOM_SENSOR_ENTITY_ID)),
-        )
+        self._room_sensor_entity_id: str | None = cast(str | None, data.get(CONF_ROOM_SENSOR_ENTITY_ID))
         self._tado_temp_entity_id: str | None = cast(str | None, data.get(CONF_TADO_TEMP_ENTITY_ID))
 
         # Window options
@@ -188,7 +187,6 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
             step_up_limit_c=float(options.get("step_up_limit_c", DEFAULT_STEP_UP_LIMIT_C)),
             fast_recovery_max_c=float(options.get("fast_recovery_max_c", FAST_RECOVERY_MAX_C)),
             fast_recovery_duration_s=float(options.get("fast_recovery_duration_s", FAST_RECOVERY_DURATION_S)),
-            debug=bool(options.get("debug", True)),
         )
 
         self._attr_unique_id = f"{entry.entry_id}_climate"
@@ -422,9 +420,14 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
             self.async_write_ha_state()
             return
 
-        # Window override: frost protection (implemented by the regulator via window_mode)
-        window_mode = self._window_mode
-        self._telemetry["window_mode"] = window_mode.value
+        # Window override: frost protection
+        if self._window_mode == WindowMode.OPEN:
+            await self._async_send_setpoint(WINDOW_FROST_TEMP_C, reason="window_open_frost")
+            self._hvac_action = HVACAction.HEATING
+            self.async_write_ha_state()
+            return
+
+        self._telemetry["window_mode"] = self._window_mode.value
 
         # Hybrid regulation
         now = time.time()
@@ -435,17 +438,16 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
             room_temp_c=room_temp,
             target_temp_c=desired,
             now_ts=now,
-            window_mode=window_mode,
         )
         self._hybrid_state = result.new_state
 
         self._telemetry[ATTR_HYBRID_STATE] = result.mode.value
-        self._telemetry[ATTR_HYBRID_CMD] = result.command_temp_c
+        self._telemetry[ATTR_HYBRID_CMD] = result.target_c
         self._telemetry[ATTR_HYBRID_BIAS] = result.new_state.bias_c
 
         # Command policy
         decided = self._policy.apply(
-            desired_setpoint=result.command_temp_c,
+            desired_setpoint=result.target_c,
             last_sent_setpoint=self._last_sent_setpoint,
             last_sent_ts=self._last_sent_ts,
             now_ts=now,
@@ -457,7 +459,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
             await self._async_send_setpoint(decided.setpoint, reason=decided.reason)
 
         # HVAC action heuristic
-        if desired - room_temp > 0.2:
+        if desired is not None and (desired - room_temp) > 0.2:
             self._hvac_action = HVACAction.HEATING
         else:
             self._hvac_action = HVACAction.IDLE
@@ -475,6 +477,14 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         st = self.hass.states.get(self._room_sensor_entity_id)
         if st is None:
             return None
+
+        # Prefer attribute-based temperature (common for some sensor/template entities)
+        if "temperature" in st.attributes:
+            try:
+                return float(st.attributes["temperature"])
+            except (ValueError, TypeError):
+                pass
+
         try:
             return float(st.state)
         except (ValueError, TypeError):
@@ -487,6 +497,14 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         st = self.hass.states.get(self._tado_temp_entity_id)
         if st is None:
             return None
+
+        for key in ("current_temperature", "temperature"):
+            if key in st.attributes:
+                try:
+                    return float(st.attributes[key])
+                except (ValueError, TypeError):
+                    pass
+
         try:
             return float(st.state)
         except (ValueError, TypeError):
