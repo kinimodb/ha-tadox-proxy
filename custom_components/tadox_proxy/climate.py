@@ -158,7 +158,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         self._telemetry: dict[str, Any] = {}
 
         # Expose external room temp via Climate.current_temperature
-        self._current_temperature: float | None = None
+        self._attr_current_temperature: float | None = None
 
         # Loop
         self._unsub_control_loop: Any = None
@@ -220,13 +220,6 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
     @property
     def hvac_action(self) -> HVACAction:
         return self._hvac_action
-
-    @property
-    def current_temperature(self) -> float | None:
-        """Return the external room temperature used for regulation."""
-        if self._current_temperature is not None:
-            return self._current_temperature
-        return self._read_room_temperature()
 
     @property
     def target_temperature(self) -> float | None:
@@ -397,7 +390,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
 
     async def _async_control_tick(self) -> None:
         # Reset transient status each tick to avoid stale telemetry
-        self._telemetry.pop("status", None)
+        self._telemetry["status"] = "ok"
 
         if self._hvac_mode == HVACMode.OFF:
             self._hvac_action = HVACAction.OFF
@@ -409,7 +402,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         tado_temp = self._read_tado_internal_temperature()
         tado_setpoint = self._read_tado_setpoint()
 
-        self._current_temperature = room_temp
+        self._attr_current_temperature = room_temp
 
         self._telemetry[ATTR_ROOM_TEMPERATURE] = room_temp
         self._telemetry[ATTR_TADO_TEMPERATURE] = tado_temp
@@ -418,6 +411,7 @@ class TadoxProxyThermostat(ClimateEntity, RestoreEntity):
         if room_temp is None:
             self._hvac_action = HVACAction.IDLE
             self._telemetry["status"] = "no_room_temp"
+            self._attr_current_temperature = None
             self.async_write_ha_state()
             return
 
