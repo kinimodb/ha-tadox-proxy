@@ -147,24 +147,44 @@ class TestFeedforward:
 class TestPiCorrection:
     """The PI layer should slowly correct persistent errors."""
 
-    def test_integral_accumulates_over_time(self):
-        """Integral should grow when there is a persistent error."""
+    def test_integral_accumulates_near_target(self):
+        """Integral should grow when error is within deadband (near target)."""
         reg = make_regulator()
         state = RegulationState()
 
-        # Simulate 5 cycles of 60s each with 0.5°C persistent undershoot
+        # Simulate 5 cycles of 60s each with 0.2°C persistent undershoot
+        # (within the 0.3°C integral deadband)
         for _ in range(5):
             result = reg.compute(
                 setpoint_c=21.0,
-                room_temp_c=20.5,
+                room_temp_c=20.8,
                 tado_internal_c=22.0,
                 time_delta_s=60.0,
                 state=state,
             )
             state = result.new_state
 
-        # Expected integral: 5 * (0.5 * 0.003 * 60) = 0.45
-        assert abs(result.i_correction_c - 0.45) < 0.01
+        # Expected integral: 5 * (0.2 * 0.003 * 60) = 0.18
+        assert abs(result.i_correction_c - 0.18) < 0.01
+
+    def test_integral_does_not_accumulate_far_from_target(self):
+        """Integral should decay (not grow) when error is outside deadband."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        # Simulate 10 cycles with 1.0°C error (far outside 0.3°C deadband)
+        for _ in range(10):
+            result = reg.compute(
+                setpoint_c=21.0,
+                room_temp_c=20.0,
+                tado_internal_c=21.0,
+                time_delta_s=60.0,
+                state=state,
+            )
+            state = result.new_state
+
+        # Integral should be near 0 (decayed, not accumulated)
+        assert abs(result.i_correction_c) < 0.01
 
     def test_integral_decays_on_overshoot(self):
         """Integral should decrease when room overshoots."""
@@ -172,17 +192,18 @@ class TestPiCorrection:
         # Start with some integral built up
         state = RegulationState(integral_c=1.0)
 
-        # Room overshoots by 0.3°C
+        # Room overshoots by 0.2°C (within deadband → normal integration)
         result = reg.compute(
             setpoint_c=21.0,
-            room_temp_c=21.3,
+            room_temp_c=21.2,
             tado_internal_c=22.0,
             time_delta_s=60.0,
             state=state,
         )
 
-        # Error = -0.3, integral change = -0.3 * 0.003 * 60 = -0.054
-        # New integral should be ~0.946
+        # Error = -0.2 (within deadband), integral decreases via normal accumulation
+        # integral change = -0.2 * 0.003 * 60 = -0.036
+        # New integral should be ~0.964
         assert result.i_correction_c < 1.0
         assert result.i_correction_c > 0.9
 
@@ -254,12 +275,12 @@ class TestAntiWindup:
         reg = FeedforwardPiRegulator(config)
         state = RegulationState(integral_c=0.95)
 
-        # Large error for many cycles to push integral up
+        # Small error within deadband for many cycles to push integral up
         for _ in range(20):
             result = reg.compute(
                 setpoint_c=21.0,
-                room_temp_c=20.0,
-                tado_internal_c=21.0,  # small offset to avoid max saturation
+                room_temp_c=20.8,       # 0.2°C error within deadband
+                tado_internal_c=21.5,   # small offset to avoid max saturation
                 time_delta_s=60.0,
                 state=state,
             )
@@ -347,6 +368,48 @@ class TestFullScenario:
 
         # Final commands should have settled (not stuck at max)
         assert commands[-1] < 25.0, f"Command should have settled, got {commands[-1]}"
+
+    def test_integral_does_not_cause_overshoot(self):
+        """Reproduce the real-world overshoot: integral must not build up
+        during heating, so the command drops quickly at target."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        # Simulate heating from 16.3°C toward 17.5°C (like the test room)
+        room = 16.3
+        tado_internal = 16.4
+        target = 17.5
+
+        for _ in range(25):  # ~25 minutes of heating
+            result = reg.compute(
+                setpoint_c=target,
+                room_temp_c=round(room, 2),
+                tado_internal_c=round(tado_internal, 2),
+                time_delta_s=60.0,
+                state=state,
+            )
+            state = result.new_state
+
+            # Simple thermal model
+            heating_power = max(0, result.target_for_tado_c - tado_internal) * 0.08
+            tado_internal += heating_power - 0.03
+            room += (tado_internal - room) * 0.04 - 0.005
+
+        # Room should be near target now
+        assert room > 17.0
+
+        # Key check: integral should be near 0 because error was > deadband
+        # during most of the heating phase
+        assert abs(result.i_correction_c) < 0.3, (
+            f"Integral should be small after heating, got {result.i_correction_c}"
+        )
+
+        # The command should be close to tado_internal (not 2-3°C above)
+        # because feedforward handles the offset and integral is near 0
+        overshoot_margin = result.target_for_tado_c - tado_internal
+        assert overshoot_margin < 2.0, (
+            f"Command should not be far above tado_internal, margin={overshoot_margin}"
+        )
 
     def test_no_overshoot_on_setpoint_change(self):
         """Lowering setpoint should immediately lower the command."""

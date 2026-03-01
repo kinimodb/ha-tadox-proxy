@@ -45,6 +45,15 @@ class RegulationConfig:
     integral_min_c: float = -2.0
     integral_max_c: float = 2.0
 
+    # Integral deadband: only accumulate integral when |error| < this value.
+    # Outside this zone the integral decays, preventing buildup during gross
+    # heating/cooling transients that would cause overshoot.
+    integral_deadband_c: float = 0.3
+
+    # Decay factor applied to the integral each cycle when |error| >= deadband.
+    # 0.95 means ~5% reduction per 60s cycle → drains in ~15 min.
+    integral_decay: float = 0.95
+
     # Rate limiting: minimum seconds between commands to Tado (battery saving)
     min_command_interval_s: float = 180.0
 
