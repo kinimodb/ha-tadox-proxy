@@ -14,9 +14,12 @@ correction handles any remaining steady-state error.
                     + kp * error             (proportional correction)
                     + integral               (integral correction)
 
-Anti-windup: the integral freezes whenever the output is saturated (clamped
-at max or min target) *in the same direction as the error*, so it cannot
-build up during phases where the system is already at full heating or off.
+Anti-windup (two mechanisms):
+1. The integral freezes whenever the output is saturated (clamped at max or
+   min target) in the same direction as the error.
+2. The integral only accumulates when |error| < deadband (near target).
+   Outside this zone the integral *decays* toward zero, preventing buildup
+   during gross heating transients that would cause overshoot.
 """
 from __future__ import annotations
 
@@ -111,25 +114,32 @@ class FeedforwardPiRegulator:
         )
         is_saturated = abs(final_command - raw_command) > 0.01
 
-        # 7. Anti-windup: only accumulate integral when NOT saturated
-        #    in the *same direction* as the error.
+        # 7. Anti-windup (two mechanisms)
         new_integral = state.integral_c
         if time_delta_s > 0:
             saturated_high = raw_command > self.cfg.max_target_c
             saturated_low = raw_command < self.cfg.min_target_c
 
+            # Mechanism A: block integration during output saturation
             may_integrate = True
             if saturated_high and error > 0:
                 may_integrate = False
             if saturated_low and error < 0:
                 may_integrate = False
 
-            if may_integrate:
+            # Mechanism B: only accumulate near target, decay otherwise
+            near_target = abs(error) < self.cfg.integral_deadband_c
+
+            if may_integrate and near_target:
+                # Near target → accumulate integral for steady-state accuracy
                 new_integral += error * self.cfg.tuning.ki * time_delta_s
                 new_integral = max(
                     self.cfg.integral_min_c,
                     min(self.cfg.integral_max_c, new_integral),
                 )
+            elif not near_target:
+                # Far from target → decay integral to prevent overshoot
+                new_integral *= self.cfg.integral_decay
 
         # 8. Build result
         new_state = RegulationState(
