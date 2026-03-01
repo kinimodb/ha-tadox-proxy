@@ -1,6 +1,4 @@
-"""
-Climate Entity for Tado X Proxy.
-"""
+"""Climate Entity for Tado X Proxy."""
 from __future__ import annotations
 
 import logging
@@ -20,7 +18,7 @@ from homeassistant.const import (
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -31,14 +29,13 @@ from .const import DOMAIN
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
     FROST_PROTECT_C,
-    RATE_LIMIT_DECREASE_EPS_C,
-    WILL_HEAT_EPS_C,
     RegulationConfig,
-    PidTuning,
+    CorrectionTuning,
 )
-from .regulation import PidRegulator, RegulationState
+from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -46,22 +43,17 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Tado X Proxy climate entity."""
-    # Retrieve the coordinator created in __init__.py
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    
-    # Create the entity
-    # We pass the full config entry to access ID and Title for Device Info
     entity = TadoXProxyClimate(
         coordinator=coordinator,
-        unique_id=f"{entry.entry_id}",
+        unique_id=entry.entry_id,
         config_entry=entry,
     )
-    
     async_add_entities([entity])
 
 
 class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
-    """Proxy Climate Entity that controls a Tado X TRV via PID."""
+    """Proxy climate entity that controls a Tado X TRV via feedforward + PI."""
 
     _attr_has_entity_name = True
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -79,186 +71,170 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         super().__init__(coordinator)
         self._attr_unique_id = unique_id
         self._config_entry = config_entry
-        self._attr_name = None # Use translation key from HA
-        
-        # Configuration & Parameters
-        self._config = RegulationConfig()
-        
-        # Apply Tuning from Options Flow (if configured)
-        if config_entry.options:
-            opts = config_entry.options
-            # Use defaults from current config if not in options
-            kp = opts.get("kp", self._config.tuning.kp)
-            ki = opts.get("ki", self._config.tuning.ki)
-            kd = opts.get("kd", self._config.tuning.kd)
-            
-            _LOGGER.debug(f"Loading custom PID parameters: Kp={kp}, Ki={ki}, Kd={kd}")
-            self._config.tuning = PidTuning(kp=kp, ki=ki, kd=kd)
+        self._attr_name = None  # uses translation key
 
-        
-        # Internal State
+        # Build regulation config from defaults + options
+        self._config = self._build_config(config_entry)
+        self._regulator = FeedforwardPiRegulator(self._config)
+        self._reg_state = RegulationState()
+
+        # UI state
         self._hvac_mode = HVACMode.HEAT
         self._target_temp = 20.0
-        
-        # PID Regulator & State Memory
-        self._regulator = PidRegulator(self._config)
-        self._pid_state = RegulationState() 
-        
-        # Operational Timestamps
+
+        # Timing
         self._last_regulation_ts = 0.0
         self._last_command_sent_ts = 0.0
 
-        # Diagnostics buffer
-        self._last_regulation_result = None
-        self._last_regulation_reason = "startup"
+        # Diagnostics
+        self._last_result = None
+        self._last_reason = "startup"
+
+    @staticmethod
+    def _build_config(entry: ConfigEntry) -> RegulationConfig:
+        """Build regulation config, applying options over defaults."""
+        config = RegulationConfig()
+        opts = entry.options
+        if opts:
+            kp = opts.get("correction_kp", config.tuning.kp)
+            ki = opts.get("correction_ki", config.tuning.ki)
+            config.tuning = CorrectionTuning(kp=kp, ki=ki)
+        return config
 
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information for the proxy."""
-        # This connects the entity to the device in the registry
         return DeviceInfo(
             identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._config_entry.title,
             manufacturer="Tado X Proxy",
-            model="PID Regulator",
+            model="Feedforward + PI Regulator",
         )
 
     async def async_added_to_hass(self) -> None:
-        """Run when entity about to be added."""
+        """Run when entity about to be added to HA."""
         await super().async_added_to_hass()
 
-        # Restore state
+        # Restore previous state
         last_state = await self.async_get_last_state()
         if last_state:
-            self._hvac_mode = last_state.state if last_state.state in self._attr_hvac_modes else HVACMode.HEAT
-            if last_state.attributes.get(ATTR_TEMPERATURE):
+            if last_state.state in (HVACMode.HEAT, HVACMode.OFF):
+                self._hvac_mode = HVACMode(last_state.state)
+            temp = last_state.attributes.get(ATTR_TEMPERATURE)
+            if temp is not None:
                 try:
-                    self._target_temp = float(last_state.attributes[ATTR_TEMPERATURE])
+                    self._target_temp = float(temp)
                 except (ValueError, TypeError):
-                    self._target_temp = 20.0
+                    pass
 
-        # Start the regulation timer
+        # Start periodic regulation
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
-                self._async_timer_tick,
-                datetime.timedelta(seconds=DEFAULT_CONTROL_INTERVAL_S)
+                self._async_regulation_cycle_timer,
+                datetime.timedelta(seconds=DEFAULT_CONTROL_INTERVAL_S),
             )
         )
 
-    @callback
-    async def _async_timer_tick(self, _now) -> None:
-        """Periodic timer trigger."""
+    async def _async_regulation_cycle_timer(self, _now) -> None:
+        """Periodic timer callback."""
         await self._async_regulation_cycle(trigger="timer")
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new target hvac mode."""
+        """Set new target HVAC mode."""
         if hvac_mode not in self._attr_hvac_modes:
             return
         self._hvac_mode = hvac_mode
-        self.async_write_ha_state() # Update UI immediately
+        self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="hvac_mode_change")
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
-        if (temp := kwargs.get(ATTR_TEMPERATURE)) is None:
+        temp = kwargs.get(ATTR_TEMPERATURE)
+        if temp is None:
             return
         self._target_temp = float(temp)
-        self.async_write_ha_state() # Update UI immediately
+        self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="set_temperature")
 
-    # -----------------------------------------------------------------------
-    # Core Regulation Logic
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Core regulation
+    # ------------------------------------------------------------------
 
     async def _async_regulation_cycle(self, trigger: str) -> None:
-        """Execute one control loop cycle."""
+        """Execute one control cycle."""
         now = time.time()
-        
-        # 1. Gather Inputs
+
+        # 1. Gather sensor data from coordinator
         room_temp = self.coordinator.data.get("room_temp")
         tado_internal = self.coordinator.data.get("tado_internal_temp")
-        
+
         if room_temp is None or tado_internal is None:
-            self._last_regulation_reason = "waiting_for_sensors"
+            self._last_reason = "waiting_for_sensors"
             self.async_write_ha_state()
             return
 
-        # Time delta calculation
-        dt = 0.0
-        if self._last_regulation_ts > 0:
-            dt = now - self._last_regulation_ts
+        # 2. Time delta
+        dt = (now - self._last_regulation_ts) if self._last_regulation_ts > 0 else 0.0
         self._last_regulation_ts = now
 
-        # 2. Determine Effective Target
-        effective_setpoint = self._target_temp
-        if self._hvac_mode == HVACMode.OFF:
-            effective_setpoint = FROST_PROTECT_C
+        # 3. Effective setpoint (frost protection when OFF)
+        setpoint = FROST_PROTECT_C if self._hvac_mode == HVACMode.OFF else self._target_temp
 
-        # 3. PID Computation
-        reg_result = self._regulator.compute(
-            setpoint_c=effective_setpoint,
-            current_temp_c=room_temp,
+        # 4. Compute regulation
+        result = self._regulator.compute(
+            setpoint_c=setpoint,
+            room_temp_c=room_temp,
+            tado_internal_c=tado_internal,
             time_delta_s=dt,
-            state=self._pid_state
+            state=self._reg_state,
         )
-        
-        self._pid_state = reg_result.new_state
-        self._last_regulation_result = reg_result
+        self._reg_state = result.new_state
+        self._last_result = result
 
-        # 4. Calculate Command for Tado
-        raw_command_target = effective_setpoint + reg_result.output_delta_c
-        
-        final_command_target = max(
-            self._config.min_target_c, 
-            min(self._config.max_target_c, raw_command_target)
-        )
-        
-        final_command_target = round(final_command_target, 1)
+        # 5. Rate limiting & send decision
+        current_tado_setpoint = self.coordinator.data.get("tado_setpoint", 0.0)
+        diff = abs(result.target_for_tado_c - current_tado_setpoint)
+        time_since_last = now - self._last_command_sent_ts
+        is_rate_limited = time_since_last < self._config.min_command_interval_s
 
-        # 5. Rate Limiting
         should_send = False
         reason = "noop"
 
-        current_tado_setpoint = self.coordinator.data.get("tado_setpoint", 0.0)
-        
-        diff = abs(final_command_target - current_tado_setpoint)
-        time_since_last_send = now - self._last_command_sent_ts
-        is_rate_limited = time_since_last_send < self._config.min_command_interval_s
-
-        if diff < 0.1:
+        if diff < self._config.min_change_threshold_c:
             reason = "already_at_target"
         elif is_rate_limited:
-            is_decrease = (final_command_target < current_tado_setpoint - RATE_LIMIT_DECREASE_EPS_C)
-            if is_decrease:
+            # Allow immediate decrease (e.g. user lowered setpoint significantly)
+            is_urgent_decrease = result.target_for_tado_c < current_tado_setpoint - 1.0
+            if is_urgent_decrease:
                 should_send = True
                 reason = "urgent_decrease"
             else:
-                reason = f"rate_limited({int(self._config.min_command_interval_s - time_since_last_send)}s)"
+                remaining = int(self._config.min_command_interval_s - time_since_last)
+                reason = f"rate_limited({remaining}s)"
         else:
             should_send = True
             reason = "normal_update"
 
-        # 6. Execute Command
+        # 6. Send command to Tado
         if should_send:
-            await self._async_send_to_tado(final_command_target)
+            await self._async_send_to_tado(result.target_for_tado_c)
             self._last_command_sent_ts = now
-            self._last_regulation_reason = f"sent({reason})"
+            self._last_reason = f"sent({reason})"
         else:
-            self._last_regulation_reason = reason
+            self._last_reason = reason
 
         self.async_write_ha_state()
 
     async def _async_send_to_tado(self, target_c: float) -> None:
-        """Send command to the source entity."""
-        source_entity = self.coordinator.config_entry.data.get("source_entity_id")
+        """Send a temperature command to the source Tado entity."""
+        source_entity = self._config_entry.data.get("source_entity_id")
         if not source_entity:
             return
 
-        _LOGGER.debug(f"Sending {target_c}°C to {source_entity}")
-        
+        _LOGGER.debug("Sending %.1f°C to %s", target_c, source_entity)
+
         try:
-            # FIX: Correct async_call syntax. domain and service must be lowercase arguments.
             await self.hass.services.async_call(
                 domain="climate",
                 service="set_temperature",
@@ -267,67 +243,64 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     "temperature": target_c,
                     "hvac_mode": HVACMode.HEAT,
                 },
-                blocking=True
+                blocking=True,
             )
-        except Exception as e:
-            _LOGGER.error(f"Failed to send command to Tado: {e}")
+        except Exception:
+            _LOGGER.exception("Failed to send command to Tado")
 
-    # -----------------------------------------------------------------------
-    # Properties for UI
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Properties for HA UI
+    # ------------------------------------------------------------------
+
     @property
     def current_temperature(self) -> float | None:
+        """Return the room temperature from the external sensor."""
         return self.coordinator.data.get("room_temp")
 
     @property
     def target_temperature(self) -> float | None:
+        """Return the user-set target temperature."""
         return self._target_temp
 
     @property
     def hvac_mode(self) -> HVACMode:
+        """Return the current HVAC mode."""
         return self._hvac_mode
 
     @property
     def hvac_action(self) -> HVACAction:
+        """Infer heating/idle from the Tado entity state."""
         if self._hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
-        
+
         tado_internal = self.coordinator.data.get("tado_internal_temp")
         tado_setpoint = self.coordinator.data.get("tado_setpoint")
-        
-        if tado_internal and tado_setpoint:
-            if tado_setpoint > tado_internal + WILL_HEAT_EPS_C:
+
+        if tado_internal is not None and tado_setpoint is not None:
+            if tado_setpoint > tado_internal + 0.05:
                 return HVACAction.HEATING
-        
+
         return HVACAction.IDLE
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Diagnostic attributes."""
-        # Current tuning params (for debug visibility)
-        tuning = self._config.tuning
-        
-        attrs = {
-            "control_interval_s": DEFAULT_CONTROL_INTERVAL_S,
-            "regulation_reason": self._last_regulation_reason,
-            "tado_internal_temperature_c": self.coordinator.data.get("tado_internal_temp"),
-            "pid_kp": tuning.kp,
-            "pid_ki": tuning.ki,
-            "pid_kd": tuning.kd,
-            "pid_p_term_c": 0,
-            "pid_i_term_c": 0,
-            "pid_d_term_c": 0,
-            "pid_output_delta_c": 0,
+        """Return diagnostic attributes visible in HA Developer Tools."""
+        attrs: dict[str, Any] = {
+            "regulation_reason": self._last_reason,
+            "tado_internal_temp_c": self.coordinator.data.get("tado_internal_temp"),
+            "correction_kp": self._config.tuning.kp,
+            "correction_ki": self._config.tuning.ki,
         }
-        
-        if self._last_regulation_result:
-            res = self._last_regulation_result
+
+        if self._last_result:
+            r = self._last_result
             attrs.update({
-                "pid_output_delta_c": res.output_delta_c,
-                "pid_p_term_c": res.p_term_c,
-                "pid_i_term_c": res.i_term_c,
-                "pid_d_term_c": res.d_term_c,
-                "pid_error_c": res.error_c,
+                "feedforward_offset_c": r.feedforward_offset_c,
+                "p_correction_c": r.p_correction_c,
+                "i_correction_c": r.i_correction_c,
+                "error_c": r.error_c,
+                "target_for_tado_c": r.target_for_tado_c,
+                "is_saturated": r.is_saturated,
             })
-            
+
         return attrs

@@ -1,10 +1,9 @@
 # Tado X Proxy Integration (HACS)
 
-Eine **Home Assistant Custom Component**, die als intelligenter "Man-in-the-Middle" Regler für **Tado X Thermostate** fungiert.
+Eine **Home Assistant Custom Component**, die als intelligenter Proxy-Regler für **Tado X Thermostate** fungiert.
 
-## ⚠️ Status: BETA / TESTPHASE
-Diese Integration befindet sich im aktiven Refactoring (v0.3.x). Nutzung auf eigene Gefahr.
-**Aktuelles Ziel:** Testen des neuen "Continuous PID" Algorithmus in verschiedenen Räumen.
+## Status: BETA (v0.4.0)
+Diese Integration befindet sich in der Testphase. Nutzung auf eigene Gefahr.
 
 ## Das Problem
 Tado X Thermostate messen die Temperatur direkt am heißen Heizkörper. Das führt oft zu:
@@ -12,12 +11,20 @@ Tado X Thermostate messen die Temperatur direkt am heißen Heizkörper. Das füh
 2.  **Oszillation:** Ventil macht auf/zu/auf/zu (Sägezahn-Kurve).
 3.  **Offset-Drift:** Der von Tado gelernte Offset passt oft nicht zur Realität.
 
-## Die Lösung: "Continuous Holding PID"
-Dieser Proxy erstellt eine neue Climate-Entität (z. B. `climate.wohnzimmer_proxy`), die:
+## Die Lösung: Feedforward + PI
+Dieser Proxy erstellt eine neue Climate-Entität (z.B. `climate.wohnzimmer_proxy`), die:
 1.  Einen **externen Raumsensor** als alleinige Wahrheit nutzt.
-2.  Einen eigenen **PID-Regler** berechnet.
-3.  Das Tado-Ventil **permanent aktiv steuert**, indem es die Zieltemperatur dynamisch anpasst (z. B. "Stelle Tado auf 24°C", damit es effektiv 21°C im Raum hält).
-4.  Das Ventil nie ganz "schlafen" lässt (Soft Deadband), um die Temperatur stabil zu halten.
+2.  Den **Sensor-Offset** zwischen Tado und Raum misst und sofort kompensiert (Feedforward).
+3.  Einen sanften **PI-Korrekturfaktor** für verbleibende Fehler berechnet.
+4.  **Mit** Tados internem Regler zusammenarbeitet, anstatt gegen ihn zu kämpfen.
+
+### Wie es funktioniert
+```
+Tado-Offset = Tado-Sensor − Raum-Sensor          (z.B. 24°C − 19°C = 5°C)
+Basis-Ziel  = Wunsch-Temperatur + Tado-Offset     (z.B. 21°C + 5°C = 26°C)
+Korrektur   = Kp × Fehler + Ki × ∫Fehler dt       (kleiner Feinabgleich)
+Befehl      = Basis-Ziel + Korrektur               (geclampt auf 5−25°C)
+```
 
 ## Installation (HACS)
 
@@ -28,10 +35,19 @@ Dieser Proxy erstellt eine neue Climate-Entität (z. B. `climate.wohnzimmer_prox
     * **Source Entity:** Das originale Tado X Thermostat.
     * **External Sensor:** Dein Raumsensor (Aqara, Sonoff, etc.).
 
-## Konfiguration & Tuning (Roadmap)
-Aktuell sind die PID-Werte (`Kp=7.0`, `Ki=0.005`) noch als "Safe Defaults" im Code hinterlegt.
-Da jeder Raum (Volumen, Heizkörpergröße) eigene physikalische Eigenschaften hat, wird **Milestone 2** eine Benutzeroberfläche (Options Flow) einführen, um diese Werte pro Thermostat anzupassen.
-Eine Anleitung zum Ermitteln der perfekten Werte findest du in der [ROADMAP](ROADMAP.md).
+## Konfiguration & Tuning
+
+Über **Einstellungen > Geräte & Dienste > Tado X Proxy > Konfigurieren** kannst du anpassen:
+
+| Parameter | Default | Beschreibung |
+|-----------|---------|-------------|
+| **Kp (Proportional)** | 0.8 | Stärke der sofortigen Fehlerkorrektur |
+| **Ki (Integral)** | 0.003 | Geschwindigkeit der Langzeit-Drift-Korrektur |
+
+**Tuning-Tipps:**
+* **Temperatur schwingt:** Kp senken (z.B. 0.5)
+* **Aufheizen dauert zu lang:** Kp erhöhen (z.B. 1.2)
+* **Temperatur liegt dauerhaft unter/über Ziel:** Ki anpassen
 
 ## Credits
 Inspiriert von `Versatile Thermostat`, aber spezialisiert auf die Eigenheiten der Tado X Hardware (Matter/Thread).

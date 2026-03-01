@@ -23,18 +23,16 @@
     "step": {
       "init": {
         "title": "Proxy options",
-        "description": "Select the external sensors that should be used for this proxy thermostat.",
+        "description": "Tune the regulation parameters and select the external temperature sensor.",
         "data": {
-          "external_temperature_entity_id": "External temperature sensor",
-          "external_humidity_entity_id": "External humidity sensor",
-          "window_sensor_entity_id": "Window sensor",
-          "presence_sensor_entity_id": "Presence sensor"
+          "correction_kp": "Proportional correction (Kp)",
+          "correction_ki": "Integral correction (Ki)",
+          "external_temperature_entity_id": "External temperature sensor"
         }
       }
     },
     "error": {
       "temp_entity_not_found": "External temperature sensor not found.",
-      "temp_not_a_sensor": "Please select a sensor entity as the external temperature sensor.",
       "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
     }
   }

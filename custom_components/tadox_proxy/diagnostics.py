@@ -1,3 +1,4 @@
+"""Diagnostics support for Tado X Proxy."""
 from __future__ import annotations
 
 from typing import Any
@@ -7,15 +8,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import (
-    CONF_SOURCE_ENTITY_ID,
-    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-    CONF_EXTERNAL_HUMIDITY_ENTITY_ID,
-    CONF_WINDOW_SENSOR_ENTITY_ID,
-    CONF_PRESENCE_SENSOR_ENTITY_ID,
-)
+from .const import CONF_SOURCE_ENTITY_ID, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID
 
-# Add keys here if you ever store sensitive data in entry.data/options (tokens, coords, etc.)
 TO_REDACT: list[str] = []
 
 
@@ -43,16 +37,10 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     source_entity_id = config_entry.data.get(CONF_SOURCE_ENTITY_ID)
-
     ext_temp_id = _effective_entity_id(config_entry, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
-    ext_hum_id = _effective_entity_id(config_entry, CONF_EXTERNAL_HUMIDITY_ENTITY_ID)
-    window_id = _effective_entity_id(config_entry, CONF_WINDOW_SENSOR_ENTITY_ID)
-    presence_id = _effective_entity_id(config_entry, CONF_PRESENCE_SENSOR_ENTITY_ID)
 
     selected_entities: list[str] = [
-        eid
-        for eid in [source_entity_id, ext_temp_id, ext_hum_id, window_id, presence_id]
-        if eid
+        eid for eid in [source_entity_id, ext_temp_id] if eid
     ]
 
     # Proxy entities created by this config entry
@@ -79,9 +67,6 @@ async def async_get_config_entry_diagnostics(
         "effective_selection": {
             "source_entity_id": source_entity_id,
             "external_temperature_entity_id": ext_temp_id,
-            "external_humidity_entity_id": ext_hum_id,
-            "window_sensor_entity_id": window_id,
-            "presence_sensor_entity_id": presence_id,
         },
         "proxy_entities": proxy_entities,
         "states": {eid: _state_snapshot(hass, eid) for eid in selected_entities},

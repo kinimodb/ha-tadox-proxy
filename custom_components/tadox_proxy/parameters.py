@@ -1,65 +1,52 @@
 """Central parameter defaults for tadox_proxy."""
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 
-# ---------------------------------------------------------------------------
-# Proxy / integration behavior defaults
-# ---------------------------------------------------------------------------
-
-DEFAULT_CONTROL_INTERVAL_S: int = 60  # 1 min
-FROST_PROTECT_C: float = 5.0
-WILL_HEAT_EPS_C: float = 0.05
-RATE_LIMIT_DECREASE_EPS_C: float = 0.05
-
 
 # ---------------------------------------------------------------------------
-# PID tuning + regulation safety rails
+# Integration behaviour defaults
+# ---------------------------------------------------------------------------
+
+DEFAULT_CONTROL_INTERVAL_S: int = 60   # seconds between regulation cycles
+FROST_PROTECT_C: float = 5.0           # target temperature when HVAC is OFF
+
+
+# ---------------------------------------------------------------------------
+# Correction tuning  (PI layer on top of feedforward)
 # ---------------------------------------------------------------------------
 
 @dataclass
-class PidTuning:
-    """PID tuning parameters."""
-    # Aggressive P to overcome Tado internal heat offset
-    kp: float = 7.0
-    # Slow I to maintain holding temperature (approx 23min time constant)
-    ki: float = 0.005
-    # Strong D to brake overshoot
-    kd: float = 600.0
+class CorrectionTuning:
+    """PI correction parameters applied on top of the feedforward offset.
+
+    These are intentionally *small* – the feedforward does the heavy lifting.
+    """
+
+    kp: float = 0.8    # proportional gain for residual room-error correction
+    ki: float = 0.003   # integral gain for slow steady-state error correction
 
 
-@dataclass(frozen=False)
+# ---------------------------------------------------------------------------
+# Full regulation config with safety rails
+# ---------------------------------------------------------------------------
+
+@dataclass
 class RegulationConfig:
-    """Regulation parameters and safety rails."""
+    """All regulation parameters and safety limits."""
 
-    # Use default_factory to allow mutable defaults
-    tuning: PidTuning = field(default_factory=PidTuning)
+    tuning: CorrectionTuning = field(default_factory=CorrectionTuning)
 
-    # Soft Deadband: PID keeps calculating I-term, but we don't send updates 
-    # if error is small, unless I-term drift requires it.
-    deadband_c: float = 0.20
-
-    # Output limits (delta on top of setpoint)
-    max_delta_c: float = 4.0
-
-    # Absolute actuator limits
+    # Absolute temperature limits for commands sent to Tado
     min_target_c: float = 5.0
     max_target_c: float = 25.0
 
-    # Rate limit (5 min to save battery)
+    # Anti-windup limits for the integral correction term
+    integral_min_c: float = -2.0
+    integral_max_c: float = 2.0
+
+    # Rate limiting: minimum seconds between commands to Tado (battery saving)
     min_command_interval_s: float = 180.0
 
-    # Anti short-cycling
-    min_on_s: float = 300.0
-    min_off_s: float = 300.0
-
-    # Heating state thresholds
-    heat_on_threshold_delta_c: float = 0.20
-    heat_off_threshold_delta_c: float = 0.05
-
-    # Anti-windup rail for Integral term
-    # UPDATED v0.3.1: Increased limits for Tado X high heat buildup
-    integral_term_min_c: float = -5.0
-    integral_term_max_c: float = 5.0
-
-    # Derivative smoothing
-    derivative_ema_alpha: float = 0.20
+    # Minimum difference to current Tado setpoint before sending a new command
+    min_change_threshold_c: float = 0.3
