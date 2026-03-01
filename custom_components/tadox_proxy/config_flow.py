@@ -1,3 +1,4 @@
+"""Config and Options flows for Tado X Proxy."""
 from __future__ import annotations
 
 import voluptuous as vol
@@ -11,13 +12,10 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     CONF_NAME,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-    CONF_EXTERNAL_HUMIDITY_ENTITY_ID,
-    CONF_WINDOW_SENSOR_ENTITY_ID,
-    CONF_PRESENCE_SENSOR_ENTITY_ID,
 )
 from .parameters import RegulationConfig
 
-# Helper to validate temperature sensors
+
 def _is_temperature_sensor_state(state) -> bool:
     """Best-effort validation for a temperature sensor entity state."""
     if state is None:
@@ -27,7 +25,7 @@ def _is_temperature_sensor_state(state) -> bool:
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """UI setup for the integration (Initial Setup)."""
+    """UI setup for the integration (initial setup)."""
 
     VERSION = 1
 
@@ -86,13 +84,12 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
-    """Per-entry options (gear icon) for PID tuning & sensors."""
+    """Per-entry options (gear icon) for tuning & sensor selection."""
 
     async def async_step_init(self, user_input=None):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate external sensor if changed
             ext_temp_entity_id = user_input.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
             if ext_temp_entity_id:
                 temp_state = self.hass.states.get(ext_temp_entity_id)
@@ -100,44 +97,39 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     errors["base"] = "temp_entity_not_found"
                 elif not _is_temperature_sensor_state(temp_state):
                     errors["base"] = "temp_not_temperature"
-            
+
             if not errors:
                 return self.async_create_entry(title="", data=user_input)
 
-        # Load current values (from options or fallback to defaults/data)
+        # Load current values (options > data > defaults)
         current_options = self.config_entry.options
         current_data = self.config_entry.data
-        defaults = RegulationConfig().tuning # Load defaults from parameters.py
+        defaults = RegulationConfig()
 
-        # Helper to get value: Option > Data > Default
-        def get_val(key, default):
-            return current_options.get(key, default)
-
-        # Entity fallback
         current_ext_temp = current_options.get(
-            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, 
-            current_data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
+            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+            current_data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID),
         )
 
         options_schema = vol.Schema(
             {
-                # 1. PID Tuning Section
-                vol.Required("kp", default=get_val("kp", defaults.kp)): 
-                    vol.All(vol.Coerce(float), vol.Range(min=0.0, max=100.0)),
-                vol.Required("ki", default=get_val("ki", defaults.ki)): 
-                    vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
-                vol.Required("kd", default=get_val("kd", defaults.kd)): 
-                    vol.All(vol.Coerce(float), vol.Range(min=0.0, max=2000.0)),
+                # Correction tuning
+                vol.Required(
+                    "correction_kp",
+                    default=current_options.get("correction_kp", defaults.tuning.kp),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0)),
+                vol.Required(
+                    "correction_ki",
+                    default=current_options.get("correction_ki", defaults.tuning.ki),
+                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.1)),
 
-                # 2. Sensor Configuration
-                vol.Required(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, default=current_ext_temp): 
-                    selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-                    ),
-                vol.Optional(CONF_EXTERNAL_HUMIDITY_ENTITY_ID, default=get_val(CONF_EXTERNAL_HUMIDITY_ENTITY_ID, None)): 
-                    selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
-                    ),
+                # External sensor
+                vol.Required(
+                    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+                    default=current_ext_temp,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
             }
         )
 
