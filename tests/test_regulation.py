@@ -40,6 +40,7 @@ _reg = _load_module(
 
 RegulationConfig = _params.RegulationConfig
 CorrectionTuning = _params.CorrectionTuning
+PresetConfig = _params.PresetConfig
 FeedforwardPiRegulator = _reg.FeedforwardPiRegulator
 RegulationState = _reg.RegulationState
 
@@ -440,3 +441,106 @@ class TestFullScenario:
         assert result.target_for_tado_c < high_command
         # Error is now negative (room too warm for new setpoint)
         assert result.error_c < 0
+
+
+# -----------------------------------------------------------------------
+# Preset configuration
+# -----------------------------------------------------------------------
+
+class TestPresetConfig:
+    """Verify PresetConfig defaults and integration with RegulationConfig."""
+
+    def test_default_preset_values(self):
+        """Default presets should have sensible values."""
+        presets = PresetConfig()
+        assert presets.eco_offset_c == -2.0
+        assert presets.boost_target_c == 25.0
+        assert presets.boost_duration_min == 30
+        assert presets.away_target_c == 16.0
+        assert presets.vacation_target_c == 5.0
+
+    def test_preset_config_in_regulation_config(self):
+        """RegulationConfig should carry PresetConfig defaults."""
+        config = RegulationConfig()
+        assert config.presets.eco_offset_c == -2.0
+        assert config.presets.boost_target_c == 25.0
+
+    def test_custom_preset_values(self):
+        """Custom preset values should override defaults."""
+        presets = PresetConfig(eco_offset_c=-3.0, away_target_c=14.0)
+        config = RegulationConfig(presets=presets)
+        assert config.presets.eco_offset_c == -3.0
+        assert config.presets.away_target_c == 14.0
+        # Others stay default
+        assert config.presets.boost_target_c == 25.0
+
+    def test_eco_setpoint_calculation(self):
+        """Eco mode should reduce the setpoint by eco_offset_c."""
+        presets = PresetConfig(eco_offset_c=-2.0)
+        comfort_target = 21.0
+        eco_target = comfort_target + presets.eco_offset_c
+        assert eco_target == 19.0
+
+    def test_regulation_with_eco_setpoint(self):
+        """Regulation engine should produce lower command for eco setpoint."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        # Comfort: setpoint 21°C
+        result_comfort = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.0,
+            tado_internal_c=22.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        # Eco: setpoint 19°C (21 - 2)
+        result_eco = reg.compute(
+            setpoint_c=19.0,
+            room_temp_c=20.0,
+            tado_internal_c=22.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        # Eco command should be lower than comfort
+        assert result_eco.target_for_tado_c < result_comfort.target_for_tado_c
+        # In eco, room is already above target → negative error
+        assert result_eco.error_c < 0
+
+    def test_regulation_with_boost_setpoint(self):
+        """Boost uses max temperature → highest possible command."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        # Boost: setpoint 25°C
+        result = reg.compute(
+            setpoint_c=25.0,
+            room_temp_c=18.0,
+            tado_internal_c=20.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        # Command should be at maximum (clamped to 25°C)
+        assert result.target_for_tado_c == 25.0
+        assert result.is_saturated is True
+
+    def test_regulation_with_vacation_setpoint(self):
+        """Vacation uses frost protection → minimal heating."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        # Vacation: setpoint 5°C, room at 18°C → way above target
+        result = reg.compute(
+            setpoint_c=5.0,
+            room_temp_c=18.0,
+            tado_internal_c=20.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        # Command should be at minimum (frost protection)
+        assert result.target_for_tado_c == 5.0
+        assert result.error_c == -13.0

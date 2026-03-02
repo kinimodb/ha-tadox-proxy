@@ -11,6 +11,11 @@ from homeassistant.components.climate import (
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
+    PRESET_AWAY,
+    PRESET_BOOST,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_NONE,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
@@ -18,23 +23,41 @@ from homeassistant.const import (
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    CONF_ECO_OFFSET,
+    CONF_BOOST_TARGET,
+    CONF_BOOST_DURATION,
+    CONF_AWAY_TARGET,
+    CONF_VACATION_TARGET,
+    PRESET_VACATION,
+)
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
     FROST_PROTECT_C,
     RegulationConfig,
     CorrectionTuning,
+    PresetConfig,
 )
 from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
+
+# Ordered list of presets shown in the UI
+PRESET_LIST = [
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_BOOST,
+    PRESET_AWAY,
+    PRESET_VACATION,
+]
 
 
 async def async_setup_entry(
@@ -62,8 +85,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.TURN_OFF
         | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.PRESET_MODE
     )
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
+    _attr_preset_modes = PRESET_LIST
     _attr_translation_key = "tadox_proxy"
 
     def __init__(self, coordinator, unique_id: str, config_entry: ConfigEntry):
@@ -81,6 +106,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # UI state
         self._hvac_mode = HVACMode.HEAT
         self._target_temp = 20.0
+        self._preset_mode = PRESET_COMFORT
+
+        # Boost timer
+        self._boost_cancel: CALLBACK_TYPE | None = None
 
         # Timing
         self._last_regulation_ts = 0.0
@@ -99,6 +128,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             kp = opts.get("correction_kp", config.tuning.kp)
             ki = opts.get("correction_ki", config.tuning.ki)
             config.tuning = CorrectionTuning(kp=kp, ki=ki)
+            config.presets = PresetConfig(
+                eco_offset_c=opts.get(CONF_ECO_OFFSET, config.presets.eco_offset_c),
+                boost_target_c=opts.get(CONF_BOOST_TARGET, config.presets.boost_target_c),
+                boost_duration_min=opts.get(CONF_BOOST_DURATION, config.presets.boost_duration_min),
+                away_target_c=opts.get(CONF_AWAY_TARGET, config.presets.away_target_c),
+                vacation_target_c=opts.get(CONF_VACATION_TARGET, config.presets.vacation_target_c),
+            )
         return config
 
     @property
@@ -126,6 +162,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     self._target_temp = float(temp)
                 except (ValueError, TypeError):
                     pass
+            # Restore preset (default to comfort if missing or invalid)
+            restored_preset = last_state.attributes.get("preset_mode")
+            if restored_preset in PRESET_LIST:
+                self._preset_mode = restored_preset
+                # Don't restore boost – it's time-limited and the timer is gone
+                if self._preset_mode == PRESET_BOOST:
+                    self._preset_mode = PRESET_COMFORT
 
         # Start periodic regulation
         self.async_on_remove(
@@ -157,6 +200,65 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="set_temperature")
 
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode."""
+        if preset_mode not in PRESET_LIST:
+            _LOGGER.warning("Unknown preset mode: %s", preset_mode)
+            return
+
+        old_preset = self._preset_mode
+        self._preset_mode = preset_mode
+
+        # Cancel any running boost timer
+        if self._boost_cancel is not None:
+            self._boost_cancel()
+            self._boost_cancel = None
+
+        # Start boost timer if entering boost mode
+        if preset_mode == PRESET_BOOST:
+            duration_s = self._config.presets.boost_duration_min * 60
+            self._boost_cancel = async_call_later(
+                self.hass, duration_s, self._async_boost_expired
+            )
+            _LOGGER.info(
+                "Boost started for %d min", self._config.presets.boost_duration_min
+            )
+
+        _LOGGER.debug("Preset changed: %s → %s", old_preset, preset_mode)
+        self.async_write_ha_state()
+        await self._async_regulation_cycle(trigger="preset_change")
+
+    async def _async_boost_expired(self, _now) -> None:
+        """Called when the boost timer expires – revert to comfort."""
+        self._boost_cancel = None
+        _LOGGER.info("Boost expired, reverting to comfort")
+        await self.async_set_preset_mode(PRESET_COMFORT)
+
+    # ------------------------------------------------------------------
+    # Effective setpoint calculation
+    # ------------------------------------------------------------------
+
+    def _effective_setpoint(self) -> float:
+        """Calculate the effective setpoint based on HVAC mode and preset.
+
+        Returns the temperature the regulation engine should target.
+        """
+        if self._hvac_mode == HVACMode.OFF:
+            return FROST_PROTECT_C
+
+        if self._preset_mode == PRESET_COMFORT:
+            return self._target_temp
+        elif self._preset_mode == PRESET_ECO:
+            return self._target_temp + self._config.presets.eco_offset_c
+        elif self._preset_mode == PRESET_BOOST:
+            return self._config.presets.boost_target_c
+        elif self._preset_mode == PRESET_AWAY:
+            return self._config.presets.away_target_c
+        elif self._preset_mode == PRESET_VACATION:
+            return self._config.presets.vacation_target_c
+
+        return self._target_temp
+
     # ------------------------------------------------------------------
     # Core regulation
     # ------------------------------------------------------------------
@@ -178,8 +280,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         dt = (now - self._last_regulation_ts) if self._last_regulation_ts > 0 else 0.0
         self._last_regulation_ts = now
 
-        # 3. Effective setpoint (frost protection when OFF)
-        setpoint = FROST_PROTECT_C if self._hvac_mode == HVACMode.OFF else self._target_temp
+        # 3. Effective setpoint (considers HVAC mode + preset)
+        setpoint = self._effective_setpoint()
 
         # 4. Compute regulation
         result = self._regulator.compute(
@@ -283,6 +385,11 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         return HVACAction.IDLE
 
     @property
+    def preset_mode(self) -> str:
+        """Return the current preset mode."""
+        return self._preset_mode
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return diagnostic attributes visible in HA Developer Tools."""
         attrs: dict[str, Any] = {
@@ -290,6 +397,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "tado_internal_temp_c": self.coordinator.data.get("tado_internal_temp"),
             "correction_kp": self._config.tuning.kp,
             "correction_ki": self._config.tuning.ki,
+            "effective_setpoint_c": self._effective_setpoint(),
         }
 
         if self._last_result:
