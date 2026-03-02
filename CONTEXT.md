@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2025-03 (v0.4.1)
+**Letzte Aktualisierung:** 2025-03 (v0.5.0)
 
 ---
 
@@ -49,6 +49,15 @@ Tado X TRVs laufen auf Batterie. Häufige Befehle (jede 60s) würden die Batteri
 schnell leeren. Daher: min. 180s zwischen Befehlen, mit Bypass für dringende
 Absenkungen (> 1°C Differenz).
 
+### Presets (v0.5.0)
+
+5 Betriebsmodi: Comfort (Default), Eco (Offset), Boost (Timer), Away, Vacation.
+- **Eco** nutzt `target_temp + eco_offset_c` (negative Zahl → Absenkung).
+- **Boost** setzt feste Max-Temperatur mit `async_call_later`-Timer, auto-revert zu Comfort.
+- **Away/Vacation** nutzen feste Temperaturen (16°C / 5°C).
+- Preset wird über `RestoreEntity` persistiert, außer Boost (revert bei Neustart).
+- Alle Preset-Temperaturen über Options Flow konfigurierbar.
+
 ---
 
 ## Datei-Architektur
@@ -56,12 +65,12 @@ Absenkungen (> 1°C Differenz).
 ```
 custom_components/tadox_proxy/
 ├── __init__.py        # DataUpdateCoordinator (pollt alle 60s)
-├── climate.py         # ClimateEntity mit Regulation Loop
-├── config_flow.py     # Setup + Options Flow (Kp, Ki, Sensor)
-├── const.py           # DOMAIN + Config-Keys
+├── climate.py         # ClimateEntity mit Regulation Loop + Presets
+├── config_flow.py     # Setup + Options Flow (Kp, Ki, Presets, Sensor)
+├── const.py           # DOMAIN + Config-Keys + PRESET_VACATION
 ├── diagnostics.py     # HA Diagnostik-Export
-├── manifest.json      # HACS/HA Metadata
-├── parameters.py      # Zentrale Parameter-Defaults (RegulationConfig)
+├── manifest.json      # HACS/HA Metadata (v0.5.0)
+├── parameters.py      # Zentrale Parameter-Defaults (RegulationConfig + PresetConfig)
 ├── regulation.py      # Feedforward + PI Engine (FeedforwardPiRegulator)
 ├── strings.json       # UI-Strings (Fallback)
 └── translations/
@@ -70,7 +79,7 @@ custom_components/tadox_proxy/
 
 tests/
 ├── __init__.py
-└── test_regulation.py # 16 Unit Tests (importiert ohne HA-Dependency)
+└── test_regulation.py # 24 Unit Tests (importiert ohne HA-Dependency)
 ```
 
 ### Abhängigkeits-Kette
@@ -80,6 +89,7 @@ parameters.py ← regulation.py ← climate.py
                                     ↑
 __init__.py (Coordinator) ──────────┘
 config_flow.py (Options) ──────────┘
+const.py ──────────────────────────┘
 ```
 
 - `parameters.py` und `regulation.py` haben **keine** Home Assistant Abhängigkeit → testbar ohne HA.
@@ -91,12 +101,13 @@ config_flow.py (Options) ──────────┘
 ## Regelungs-Formel
 
 ```
-command = setpoint + (tado_internal - room_temp) + kp * error + integral
-                     └── feedforward ──────────┘   └── PI ──┘
+effective_setpoint = f(preset, target_temp)   # Comfort→target, Eco→target-2, etc.
+command = effective_setpoint + (tado_internal - room_temp) + kp * error + integral
+                               └── feedforward ──────────┘   └── PI ──┘
 ```
 
 Wobei:
-- `error = setpoint - room_temp`
+- `error = effective_setpoint - room_temp`
 - `integral` akkumuliert nur bei `|error| < 0.3°C`, decayed sonst
 - `command` geclampt auf [5°C, 25°C]
 - Anti-Windup: Integral friert bei Sättigung + Deadband-Gating
@@ -104,6 +115,8 @@ Wobei:
 ---
 
 ## Aktuelle Parameter (Defaults)
+
+### Regelung
 
 | Parameter | Wert | Datei |
 |-----------|------|-------|
@@ -118,6 +131,16 @@ Wobei:
 | Frost Protection | 5°C | parameters.py |
 | Update Interval | 60s | __init__.py / parameters.py |
 
+### Presets
+
+| Parameter | Wert | Datei |
+|-----------|------|-------|
+| Eco Offset | −2.0°C | parameters.py (PresetConfig) |
+| Boost Target | 25.0°C | parameters.py (PresetConfig) |
+| Boost Duration | 30 min | parameters.py (PresetConfig) |
+| Away Target | 16.0°C | parameters.py (PresetConfig) |
+| Vacation Target | 5.0°C | parameters.py (PresetConfig) |
+
 ---
 
 ## Real-World-Testergebnisse
@@ -128,6 +151,7 @@ Wobei:
 |---------|-----------|-----------|---------------------|-----------|
 | v0.4.0 | 0.6°C | Stabil nach Warmup | ~2.0°C (zu hoch) | Overshoot-Problem |
 | v0.4.1 | 0.3°C | ±0.3–0.5°C, 11h+ Nacht bestanden | ~0.06°C | Gut |
+| v0.5.0 | – | Presets implementiert, Test steht aus | – | Pending |
 
 **Typische Messwerte (v0.4.1, Nachtbetrieb):**
 - Ziel: 18.0°C, Raum pendelt: 17.7–18.5°C
@@ -139,25 +163,17 @@ Wobei:
 
 ## Bekannte Einschränkungen
 
-1. **Kein Preset-Support** – Eco, Boost, Away, Vacation noch nicht implementiert (M3).
-2. **Keine externen Trigger** – Fensterkontakt, Präsenz noch nicht angebunden (M4).
-3. **Nur ein Testraum validiert** – Default-Parameter müssen in anderen Räumen geprüft werden.
-4. **Tado X spezifisch** – Nicht getestet mit anderen Tado-Modellen.
-5. **Batterie-Monitoring** – Kein direktes Feedback über Batterie-Zustand des TRV.
+1. **Keine externen Trigger** – Fensterkontakt, Präsenz noch nicht angebunden (M4).
+2. **Nur ein Testraum validiert** – Default-Parameter müssen in anderen Räumen geprüft werden.
+3. **Tado X spezifisch** – Nicht getestet mit anderen Tado-Modellen.
+4. **Batterie-Monitoring** – Kein direktes Feedback über Batterie-Zustand des TRV.
 
 ---
 
-## Nächster Meilenstein: M3 – Presets & Modes
+## Nächster Meilenstein: M4 – Externe Trigger
 
-Geplante Presets: Comfort (Default), Eco (−2°C), Boost (25°C temporär), Away (16°C), Vacation (5°C).
-
-**Technische Todos:**
-1. `ClimateEntityFeature.PRESET_MODE` in climate.py aktivieren.
-2. Preset-Temperaturen in Options Flow konfigurierbar machen.
-3. Boost-Timer mit Auto-Revert implementieren.
-4. Preset-State über `RestoreEntity` persistieren.
-5. strings.json / translations aktualisieren.
-6. Tests erweitern.
+- Fensterkontakt: Sofort auf Frostschutz bei "offen", Restore bei "zu".
+- Präsenz-Sensor: Auto-Wechsel auf Away/Eco bei Abwesenheit.
 
 ---
 
@@ -166,4 +182,4 @@ Geplante Presets: Comfort (Default), Eco (−2°C), Boost (25°C temporär), Awa
 - **Framework:** pytest
 - **Import-Trick:** `importlib.util.spec_from_file_location` umgeht `__init__.py` (HA-Abhängigkeit).
 - **Ausführen:** `cd /path/to/repo && python -m pytest tests/ -v`
-- **Aktuell:** 16 Tests in 5 Klassen (Feedforward, PI, AntiWindup, Safety, FullScenario).
+- **Aktuell:** 23 Tests in 6 Klassen (Feedforward, PI, AntiWindup, Safety, FullScenario, PresetConfig).

@@ -2,11 +2,12 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.4.1)
+## Status (v0.5.0)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator.
 - **Phase:** Beta-Test – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
+- **Presets:** Comfort, Eco, Boost (mit Timer), Away, Vacation.
 
 ---
 
@@ -31,23 +32,18 @@
 - [x] Options Flow: Externer Sensor wechselbar.
 - [x] Live-Reload: Parameter-Änderungen ohne Neustart (OptionsFlowWithReload).
 
-## M3 – Presets & Modes (nächster Meilenstein)
+## M3 – Presets & Modes (v0.5.0) ✅
 
 **Ziel:** Verschiedene Betriebsmodi für den Alltag.
 
-| Preset | Beschreibung | Details |
-|--------|-------------|---------|
-| **Comfort** | Standard-Betrieb | Nutzt die konfigurierte Zieltemperatur. Ist der Default nach Einrichtung. |
-| **Eco** | Energiesparen bei Anwesenheit | Reduziert den Sollwert um einen konfigurierbaren Wert (z.B. −2°C). |
-| **Boost** | Schnelles Aufheizen | Setzt temporär max. Temperatur (25°C) für konfigurierbare Dauer (z.B. 30 min), danach zurück zu Comfort. |
-| **Away** | Abwesenheit | Niedriger Sollwert (z.B. 16°C). Manuell oder per Automation aktivierbar. |
-| **Vacation** | Urlaub / Frostschutz | Frostschutz-Temperatur (5°C), reduzierte Regelfrequenz. |
-
-**Technische Umsetzung:**
-- `ClimateEntityFeature.PRESET_MODE` in climate.py aktivieren.
-- Preset-Temperaturen über Options Flow konfigurierbar.
-- Boost mit Timer (auto-revert nach Ablauf).
-- Presets werden per `RestoreEntity` über Neustarts hinweg gespeichert.
+- [x] `ClimateEntityFeature.PRESET_MODE` aktiviert.
+- [x] 5 Presets: Comfort (Default), Eco (Offset), Boost (Timer), Away, Vacation (Frostschutz).
+- [x] Preset-Temperaturen über Options Flow konfigurierbar.
+- [x] Boost-Timer mit `async_call_later` + Auto-Revert zu Comfort.
+- [x] Preset wird per `RestoreEntity` über HA-Neustarts hinweg gespeichert (außer Boost → revert).
+- [x] `effective_setpoint_c` als neues Diagnose-Attribut.
+- [x] Übersetzungen (DE/EN) für alle Preset-Parameter.
+- [x] 23 Unit Tests (7 neue für PresetConfig + Setpoint-Berechnung).
 
 ## M4 – Externe Trigger
 
@@ -67,6 +63,16 @@
 ---
 
 ## Changelog
+
+### v0.5.0
+- **Feature:** Presets – Comfort, Eco, Boost, Away, Vacation.
+- Eco: konfigurierbarer Offset (Default −2°C) von der Komfort-Temperatur.
+- Boost: temporär max. Temperatur mit Auto-Revert-Timer (Default 30 min).
+- Away: feste niedrige Temperatur (Default 16°C).
+- Vacation: Frostschutz (Default 5°C).
+- Alle Preset-Temperaturen über Options Flow einstellbar.
+- `effective_setpoint_c` Diagnose-Attribut zeigt den tatsächlich genutzten Sollwert.
+- 23 Unit Tests (7 neue).
 
 ### v0.4.1
 - **Fix:** Integral Deadband mit Decay – verhindert Overshoot beim Aufheizen.

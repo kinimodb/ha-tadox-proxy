@@ -28,6 +28,21 @@ class CorrectionTuning:
 
 
 # ---------------------------------------------------------------------------
+# Preset defaults
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PresetConfig:
+    """Temperature settings for each preset mode."""
+
+    eco_offset_c: float = -2.0       # offset from comfort target (e.g. 21 → 19)
+    boost_target_c: float = 25.0     # fixed target during boost
+    boost_duration_min: int = 30     # auto-revert to comfort after this many minutes
+    away_target_c: float = 16.0      # fixed target when away
+    vacation_target_c: float = 5.0   # frost protection during vacation
+
+
+# ---------------------------------------------------------------------------
 # Full regulation config with safety rails
 # ---------------------------------------------------------------------------
 
@@ -36,6 +51,7 @@ class RegulationConfig:
     """All regulation parameters and safety limits."""
 
     tuning: CorrectionTuning = field(default_factory=CorrectionTuning)
+    presets: PresetConfig = field(default_factory=PresetConfig)
 
     # Absolute temperature limits for commands sent to Tado
     min_target_c: float = 5.0

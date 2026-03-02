@@ -23,10 +23,15 @@
     "step": {
       "init": {
         "title": "Proxy options",
-        "description": "Tune the regulation parameters and select the external temperature sensor.",
+        "description": "Tune the regulation parameters, configure preset temperatures, and select the external temperature sensor.",
         "data": {
           "correction_kp": "Proportional correction (Kp)",
           "correction_ki": "Integral correction (Ki)",
+          "eco_offset": "Eco offset from target (°C)",
+          "boost_target": "Boost target temperature (°C)",
+          "boost_duration": "Boost duration (minutes)",
+          "away_target": "Away target temperature (°C)",
+          "vacation_target": "Vacation target temperature (°C)",
           "external_temperature_entity_id": "External temperature sensor"
         }
       }

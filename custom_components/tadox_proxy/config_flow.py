@@ -12,6 +12,11 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     CONF_NAME,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_ECO_OFFSET,
+    CONF_BOOST_TARGET,
+    CONF_BOOST_DURATION,
+    CONF_AWAY_TARGET,
+    CONF_VACATION_TARGET,
 )
 from .parameters import RegulationConfig
 
@@ -84,7 +89,7 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
-    """Per-entry options (gear icon) for tuning & sensor selection."""
+    """Per-entry options (gear icon) for tuning, presets & sensor selection."""
 
     async def async_step_init(self, user_input=None):
         errors: dict[str, str] = {}
@@ -113,7 +118,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
 
         options_schema = vol.Schema(
             {
-                # Correction tuning
+                # --- Correction tuning ---
                 vol.Required(
                     "correction_kp",
                     default=current_options.get("correction_kp", defaults.tuning.kp),
@@ -123,7 +128,39 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     default=current_options.get("correction_ki", defaults.tuning.ki),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.1)),
 
-                # External sensor
+                # --- Preset temperatures ---
+                vol.Required(
+                    CONF_ECO_OFFSET,
+                    default=current_options.get(
+                        CONF_ECO_OFFSET, defaults.presets.eco_offset_c
+                    ),
+                ): vol.All(vol.Coerce(float), vol.Range(min=-5.0, max=0.0)),
+                vol.Required(
+                    CONF_BOOST_TARGET,
+                    default=current_options.get(
+                        CONF_BOOST_TARGET, defaults.presets.boost_target_c
+                    ),
+                ): vol.All(vol.Coerce(float), vol.Range(min=20.0, max=25.0)),
+                vol.Required(
+                    CONF_BOOST_DURATION,
+                    default=current_options.get(
+                        CONF_BOOST_DURATION, defaults.presets.boost_duration_min
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+                vol.Required(
+                    CONF_AWAY_TARGET,
+                    default=current_options.get(
+                        CONF_AWAY_TARGET, defaults.presets.away_target_c
+                    ),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=20.0)),
+                vol.Required(
+                    CONF_VACATION_TARGET,
+                    default=current_options.get(
+                        CONF_VACATION_TARGET, defaults.presets.vacation_target_c
+                    ),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=15.0)),
+
+                # --- External sensor ---
                 vol.Required(
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
                     default=current_ext_temp,
