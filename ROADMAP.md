@@ -2,12 +2,13 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.6.0)
+## Status (v0.7.0)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
 - **Phase:** Beta-Test – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
 - **Presets:** Comfort, Eco, Boost (mit Timer), Away, Vacation – alle als NumberEntität steuerbar.
+- **Externe Trigger:** Fensterkontakt + Präsenzsensor vollständig implementiert.
 
 ---
 
@@ -60,12 +61,16 @@
 - [x] Übersetzungen (DE/EN) für Number- und Switch-Entitäten.
 - [x] 23 Unit Tests weiterhin grün.
 
-## M4 – Externe Trigger
+## M4 – Externe Trigger (v0.7.0) ✅
 
 **Ziel:** Automatische Reaktion auf Umgebungsbedingungen.
 
-- [ ] **Fensterkontakt:** Sofort auf Frostschutz bei "offen", Restore bei "zu".
-- [ ] **Präsenz-Sensor:** Auto-Wechsel auf Away/Eco bei Abwesenheit.
+- [x] **Fensterkontakt:** HVAC OFF nach konfigurierbarer Verzögerung bei "offen", Restore bei "zu".
+- [x] **Präsenz-Sensor:** Auto-Wechsel auf Away-Preset nach konfigurierbarer Verzögerung, Restore bei Rückkehr.
+- [x] Beide Trigger als optionale Entity-Selektoren im Options Flow mit separaten Delay-Feldern.
+- [x] Fenster und Präsenz unabhängig: Fenster steuert HVAC-Modus, Präsenz steuert Preset.
+- [x] Diagnose-Attribute `window_open_active` + `presence_away_active`.
+- [x] Übersetzungen (DE/EN) für alle neuen Felder.
 
 ## M5 – Multi-Room & Community
 
@@ -78,6 +83,12 @@
 ---
 
 ## Changelog
+
+### v0.7.0
+- **Feature:** Fensterkontakt-Unterstützung – optionaler `binary_sensor.*` mit konfigurierbarer Verzögerung (0–3600s). Bei offenem Fenster wird HVAC nach Ablauf auf AUS gesetzt, bei Schließen automatisch wiederhergestellt.
+- **Feature:** Präsenzsensor-Unterstützung – optionaler `binary_sensor.*` mit konfigurierbarer Verzögerung (0–7200s). Bei Abwesenheit wird auf Away-Preset umgeschaltet, bei Rückkehr das vorherige Preset wiederhergestellt.
+- **Feature:** Diagnose-Attribute `window_open_active` + `presence_away_active`.
+- **Docs:** README vollständig neu geschrieben (Deutsch), alle Features dokumentiert.
 
 ### v0.6.0
 - **Bugfix:** Zieltemperatur im HA-UI spiegelt jetzt korrekt das aktive Preset wider.

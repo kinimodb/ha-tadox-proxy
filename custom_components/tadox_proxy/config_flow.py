@@ -18,6 +18,10 @@ from .const import (
     CONF_BOOST_DURATION,
     CONF_AWAY_TARGET,
     CONF_VACATION_TARGET,
+    CONF_WINDOW_SENSOR_ID,
+    CONF_WINDOW_DELAY_S,
+    CONF_PRESENCE_SENSOR_ID,
+    CONF_PRESENCE_AWAY_DELAY_S,
 )
 from .parameters import RegulationConfig
 
@@ -105,16 +109,18 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     errors["base"] = "temp_not_temperature"
 
             if not errors:
-                return self.async_create_entry(title="", data=user_input)
+                # Strip empty optional sensor values so they're stored as absent
+                cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
+                return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
-        current_options = self.config_entry.options
-        current_data = self.config_entry.data
+        opts = self.config_entry.options
+        data = self.config_entry.data
         defaults = RegulationConfig()
 
-        current_ext_temp = current_options.get(
+        current_ext_temp = opts.get(
             CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-            current_data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID),
+            data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID),
         )
 
         options_schema = vol.Schema(
@@ -122,49 +128,37 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                 # --- Correction tuning ---
                 vol.Required(
                     "correction_kp",
-                    default=current_options.get("correction_kp", defaults.tuning.kp),
+                    default=opts.get("correction_kp", defaults.tuning.kp),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0)),
                 vol.Required(
                     "correction_ki",
-                    default=current_options.get("correction_ki", defaults.tuning.ki),
+                    default=opts.get("correction_ki", defaults.tuning.ki),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.1)),
 
                 # --- Preset temperatures ---
                 vol.Required(
                     CONF_COMFORT_TARGET,
-                    default=current_options.get(
-                        CONF_COMFORT_TARGET, 20.0
-                    ),
+                    default=opts.get(CONF_COMFORT_TARGET, 20.0),
                 ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
                     CONF_ECO_TARGET,
-                    default=current_options.get(
-                        CONF_ECO_TARGET, defaults.presets.eco_target_c
-                    ),
+                    default=opts.get(CONF_ECO_TARGET, defaults.presets.eco_target_c),
                 ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
                     CONF_BOOST_TARGET,
-                    default=current_options.get(
-                        CONF_BOOST_TARGET, defaults.presets.boost_target_c
-                    ),
+                    default=opts.get(CONF_BOOST_TARGET, defaults.presets.boost_target_c),
                 ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
                     CONF_BOOST_DURATION,
-                    default=current_options.get(
-                        CONF_BOOST_DURATION, defaults.presets.boost_duration_min
-                    ),
+                    default=opts.get(CONF_BOOST_DURATION, defaults.presets.boost_duration_min),
                 ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
                 vol.Required(
                     CONF_AWAY_TARGET,
-                    default=current_options.get(
-                        CONF_AWAY_TARGET, defaults.presets.away_target_c
-                    ),
+                    default=opts.get(CONF_AWAY_TARGET, defaults.presets.away_target_c),
                 ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
                     CONF_VACATION_TARGET,
-                    default=current_options.get(
-                        CONF_VACATION_TARGET, defaults.presets.vacation_target_c
-                    ),
+                    default=opts.get(CONF_VACATION_TARGET, defaults.presets.vacation_target_c),
                 ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
 
                 # --- External sensor ---
@@ -174,6 +168,30 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
+
+                # --- Window sensor (optional) ---
+                vol.Optional(
+                    CONF_WINDOW_SENSOR_ID,
+                    default=opts.get(CONF_WINDOW_SENSOR_ID, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
+                ),
+                vol.Required(
+                    CONF_WINDOW_DELAY_S,
+                    default=opts.get(CONF_WINDOW_DELAY_S, 30),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
+
+                # --- Presence sensor (optional) ---
+                vol.Optional(
+                    CONF_PRESENCE_SENSOR_ID,
+                    default=opts.get(CONF_PRESENCE_SENSOR_ID, ""),
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
+                ),
+                vol.Required(
+                    CONF_PRESENCE_AWAY_DELAY_S,
+                    default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, 1800),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=7200)),
             }
         )
 

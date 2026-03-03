@@ -97,11 +97,12 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.6.0)
+## Aktueller Stand (v0.7.0)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
 - M3 (Presets: Comfort, Eco, Boost, Away, Vacation) ✅
 - M3.1 (Preset-Setpoint-Fix + Number/Switch-Entitäten) ✅
-- M4 (Externe Trigger: Fensterkontakt, Präsenz) – nächster Meilenstein
+- M4 (Externe Trigger: Fensterkontakt, Präsenzsensor) ✅
+- M5 (Multi-Room & Community) – nächster Meilenstein
 - Testraum läuft stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)

@@ -17,5 +17,13 @@ CONF_VACATION_TARGET = "vacation_target"
 # Optional behaviour flags (stored in options)
 CONF_FOLLOW_TADO_INPUT = "follow_tado_input"
 
+# Window sensor (binary_sensor) – optional external trigger
+CONF_WINDOW_SENSOR_ID = "window_sensor_id"
+CONF_WINDOW_DELAY_S = "window_delay_s"
+
+# Presence sensor (binary_sensor) – optional external trigger
+CONF_PRESENCE_SENSOR_ID = "presence_sensor_id"
+CONF_PRESENCE_AWAY_DELAY_S = "presence_away_delay_s"
+
 # Custom preset name (not a HA built-in)
 PRESET_VACATION = "vacation"

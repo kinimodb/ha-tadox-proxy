@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03 (v0.6.0)
+**Letzte Aktualisierung:** 2026-03 (v0.7.0)
 
 ---
 
@@ -51,16 +51,25 @@ Absenkungen (> 1°C Differenz).
 
 ### Presets (v0.5.0) + Entitäten (v0.6.0)
 
-5 Betriebsmodi: Comfort (Default), Eco (fest), Boost (Timer), Away, Vacation.
+6 Betriebsmodi: Comfort (Default), Eco (fest), Boost (Timer), Away, Vacation, None (Manuell).
 - **Eco** nutzt `eco_target_c` (feste Temperatur, Default 19°C). Seit v0.6.0 kein Offset mehr.
 - **Boost** setzt feste Max-Temperatur mit `async_call_later`-Timer, auto-revert zu Comfort.
 - **Away/Vacation** nutzen feste Temperaturen (16°C / 5°C).
+- **None (Manuell):** Aktiviert beim Slider-Verschieben – kein Preset aktiv, eigene Temperatur.
 - Preset wird über `RestoreEntity` persistiert, außer Boost (revert bei Neustart).
 - **v0.6.0:** 5 NumberEntitäten (Comfort, Eco, Boost, Away, Vacation) erlauben direkte Steuerung aus Dashboards/Automationen via `number.set_value`.
-- **v0.6.0:** SwitchEntität "Follow Tado Input" – erkennt physische Thermostat-Änderungen und übernimmt den Wert als neue Comfort-Temperatur.
+- **v0.6.0:** SwitchEntität "Follow Tado Input" – erkennt physische Thermostat-Änderungen via `async_track_state_change_event` auf `temperature`-Attribut der Tado-Entity.
 - **v0.6.0 Bugfix:** `target_temperature` gibt `_effective_setpoint()` zurück → UI zeigt immer den aktiven Zielwert.
-- **v0.6.0 Bugfix:** Slider-Nutzung während Preset → automatisch zu Comfort.
 - Alle Preset-Temperaturen: Range 5–30°C, via NumberEntität oder Options Flow.
+
+### Externe Trigger (v0.7.0)
+
+- **Fensterkontakt:** Optionaler `binary_sensor.*`. Bei "on" startet Timer (`CONF_WINDOW_DELAY_S`, Default 30s), nach Ablauf `_hvac_mode = HVACMode.OFF`. Bei "off" Restore auf gespeicherten Modus. Steuert **nur** HVAC-Modus.
+- **Präsenzsensor:** Optionaler `binary_sensor.*`. Bei "off" startet Timer (`CONF_PRESENCE_AWAY_DELAY_S`, Default 1800s), nach Ablauf `_preset_mode = PRESET_AWAY`. Bei "on" Restore auf gespeichertes Preset/Temperatur. Steuert **nur** Preset.
+- **Unabhängigkeit:** Fenster ↔ Preset-Modus interferieren nicht. Beide können gleichzeitig aktiv sein.
+- Listener registriert via `async_track_state_change_event` + `async_call_later` für Delays.
+- Diagnose-Attribute `window_open_active` + `presence_away_active`.
+- `OptionsFlowWithReload` sorgt bei Sensor-Konfiguration für korrekten Re-Register der Listener.
 
 ---
 
@@ -171,19 +180,18 @@ Wobei:
 
 ## Bekannte Einschränkungen
 
-1. **Keine externen Trigger** – Fensterkontakt, Präsenz noch nicht angebunden (M4).
-2. **Nur ein Testraum validiert** – Default-Parameter müssen in anderen Räumen geprüft werden.
-3. **Tado X spezifisch** – Nicht getestet mit anderen Tado-Modellen.
-4. **Batterie-Monitoring** – Kein direktes Feedback über Batterie-Zustand des TRV.
-5. **Follow Tado Input** – Schwellenwert (1.5°C, 120s Grace) könnte in Extremsituationen false positives produzieren; in der Praxis bisher nicht beobachtet.
+1. **Nur ein Testraum validiert** – Default-Parameter müssen in anderen Räumen geprüft werden.
+2. **Tado X spezifisch** – Nicht getestet mit anderen Tado-Modellen.
+3. **Batterie-Monitoring** – Kein direktes Feedback über Batterie-Zustand des TRV.
+4. **Follow Tado Input** – Schwellenwert (1.5°C, 30s Grace) könnte in Extremsituationen false positives produzieren; in der Praxis bisher nicht beobachtet.
 
 ---
 
-## Nächster Meilenstein: M4 – Externe Trigger
+## Nächster Meilenstein: M5 – Multi-Room & Community
 
-- Fensterkontakt: Sofort auf Frostschutz bei "offen", Restore bei "zu".
-- Präsenz-Sensor: Auto-Wechsel auf Away/Eco bei Abwesenheit.
-- Beide Trigger als konfigurierbare Entity-Selektoren im Options Flow.
+- Validierung der Default-Parameter in verschiedenen Raumtypen.
+- Dokumentation erweitern basierend auf Community-Erfahrungen.
+- Optional: Raum-Gruppierung (Zonen).
 
 ---
 
