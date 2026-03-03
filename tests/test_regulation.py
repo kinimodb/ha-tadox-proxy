@@ -453,7 +453,7 @@ class TestPresetConfig:
     def test_default_preset_values(self):
         """Default presets should have sensible values."""
         presets = PresetConfig()
-        assert presets.eco_offset_c == -2.0
+        assert presets.eco_target_c == 19.0
         assert presets.boost_target_c == 25.0
         assert presets.boost_duration_min == 30
         assert presets.away_target_c == 16.0
@@ -462,24 +462,22 @@ class TestPresetConfig:
     def test_preset_config_in_regulation_config(self):
         """RegulationConfig should carry PresetConfig defaults."""
         config = RegulationConfig()
-        assert config.presets.eco_offset_c == -2.0
+        assert config.presets.eco_target_c == 19.0
         assert config.presets.boost_target_c == 25.0
 
     def test_custom_preset_values(self):
         """Custom preset values should override defaults."""
-        presets = PresetConfig(eco_offset_c=-3.0, away_target_c=14.0)
+        presets = PresetConfig(eco_target_c=17.0, away_target_c=14.0)
         config = RegulationConfig(presets=presets)
-        assert config.presets.eco_offset_c == -3.0
+        assert config.presets.eco_target_c == 17.0
         assert config.presets.away_target_c == 14.0
         # Others stay default
         assert config.presets.boost_target_c == 25.0
 
-    def test_eco_setpoint_calculation(self):
-        """Eco mode should reduce the setpoint by eco_offset_c."""
-        presets = PresetConfig(eco_offset_c=-2.0)
-        comfort_target = 21.0
-        eco_target = comfort_target + presets.eco_offset_c
-        assert eco_target == 19.0
+    def test_eco_setpoint_is_fixed(self):
+        """Eco mode uses a fixed temperature independent of comfort target."""
+        presets = PresetConfig(eco_target_c=19.0)
+        assert presets.eco_target_c == 19.0
 
     def test_regulation_with_eco_setpoint(self):
         """Regulation engine should produce lower command for eco setpoint."""
@@ -495,7 +493,7 @@ class TestPresetConfig:
             state=state,
         )
 
-        # Eco: setpoint 19°C (21 - 2)
+        # Eco: fixed setpoint 19°C (independent of comfort)
         result_eco = reg.compute(
             setpoint_c=19.0,
             room_temp_c=20.0,

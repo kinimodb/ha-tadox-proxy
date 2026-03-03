@@ -12,7 +12,8 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     CONF_NAME,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-    CONF_ECO_OFFSET,
+    CONF_COMFORT_TARGET,
+    CONF_ECO_TARGET,
     CONF_BOOST_TARGET,
     CONF_BOOST_DURATION,
     CONF_AWAY_TARGET,
@@ -130,17 +131,23 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
 
                 # --- Preset temperatures ---
                 vol.Required(
-                    CONF_ECO_OFFSET,
+                    CONF_COMFORT_TARGET,
                     default=current_options.get(
-                        CONF_ECO_OFFSET, defaults.presets.eco_offset_c
+                        CONF_COMFORT_TARGET, 20.0
                     ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=-5.0, max=0.0)),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
+                vol.Required(
+                    CONF_ECO_TARGET,
+                    default=current_options.get(
+                        CONF_ECO_TARGET, defaults.presets.eco_target_c
+                    ),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
                     CONF_BOOST_TARGET,
                     default=current_options.get(
                         CONF_BOOST_TARGET, defaults.presets.boost_target_c
                     ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=20.0, max=25.0)),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
                     CONF_BOOST_DURATION,
                     default=current_options.get(
@@ -152,13 +159,13 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                     default=current_options.get(
                         CONF_AWAY_TARGET, defaults.presets.away_target_c
                     ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=20.0)),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
                     CONF_VACATION_TARGET,
                     default=current_options.get(
                         CONF_VACATION_TARGET, defaults.presets.vacation_target_c
                     ),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=15.0)),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
 
                 # --- External sensor ---
                 vol.Required(

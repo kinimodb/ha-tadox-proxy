@@ -23,7 +23,7 @@ from homeassistant.const import (
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -32,11 +32,13 @@ from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
     DOMAIN,
-    CONF_ECO_OFFSET,
+    CONF_COMFORT_TARGET,
+    CONF_ECO_TARGET,
     CONF_BOOST_TARGET,
     CONF_BOOST_DURATION,
     CONF_AWAY_TARGET,
     CONF_VACATION_TARGET,
+    CONF_FOLLOW_TADO_INPUT,
     PRESET_VACATION,
 )
 from .parameters import (
@@ -58,6 +60,12 @@ PRESET_LIST = [
     PRESET_AWAY,
     PRESET_VACATION,
 ]
+
+# Minimum difference between tado_setpoint and last_sent_setpoint to treat
+# as a physical thermostat change (avoid false positives from rate-limiting lag)
+_FOLLOW_THRESHOLD_C = 1.5
+# Minimum seconds since last command before a divergence is attributed to user
+_FOLLOW_GRACE_S = 120
 
 
 async def async_setup_entry(
@@ -105,7 +113,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # UI state
         self._hvac_mode = HVACMode.HEAT
-        self._target_temp = 20.0
+        self._target_temp = self._config_entry.options.get(
+            CONF_COMFORT_TARGET, 20.0
+        )
         self._preset_mode = PRESET_COMFORT
 
         # Boost timer
@@ -114,6 +124,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Timing
         self._last_regulation_ts = 0.0
         self._last_command_sent_ts = 0.0
+        self._last_sent_setpoint: float | None = None
 
         # Diagnostics
         self._last_result = None
@@ -129,12 +140,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             ki = opts.get("correction_ki", config.tuning.ki)
             config.tuning = CorrectionTuning(kp=kp, ki=ki)
             config.presets = PresetConfig(
-                eco_offset_c=opts.get(CONF_ECO_OFFSET, config.presets.eco_offset_c),
+                eco_target_c=opts.get(CONF_ECO_TARGET, config.presets.eco_target_c),
                 boost_target_c=opts.get(CONF_BOOST_TARGET, config.presets.boost_target_c),
                 boost_duration_min=opts.get(CONF_BOOST_DURATION, config.presets.boost_duration_min),
                 away_target_c=opts.get(CONF_AWAY_TARGET, config.presets.away_target_c),
                 vacation_target_c=opts.get(CONF_VACATION_TARGET, config.presets.vacation_target_c),
             )
+            # Ensure max_target_c is at least as high as boost_target_c
+            config.max_target_c = max(config.max_target_c, config.presets.boost_target_c)
         return config
 
     @property
@@ -170,6 +183,17 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 if self._preset_mode == PRESET_BOOST:
                     self._preset_mode = PRESET_COMFORT
 
+        # Options take priority over restored state for comfort target
+        # (number entity writes here, so options are the authoritative source)
+        opts_comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+        if opts_comfort is not None:
+            self._target_temp = float(opts_comfort)
+
+        # Listen for config entry option updates (from number/switch entities)
+        self.async_on_remove(
+            self._config_entry.add_update_listener(self._async_config_entry_updated)
+        )
+
         # Start periodic regulation
         self.async_on_remove(
             async_track_time_interval(
@@ -178,6 +202,48 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 datetime.timedelta(seconds=DEFAULT_CONTROL_INTERVAL_S),
             )
         )
+
+    async def _async_config_entry_updated(self, hass, entry) -> None:
+        """Called when config entry options change (e.g. from number entities)."""
+        self._config_entry = entry
+        self._config = self._build_config(entry)
+        self._regulator = FeedforwardPiRegulator(self._config)
+        comfort = entry.options.get(CONF_COMFORT_TARGET)
+        if comfort is not None:
+            self._target_temp = float(comfort)
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from coordinator; check for physical thermostat changes."""
+        if self._config_entry.options.get(CONF_FOLLOW_TADO_INPUT, False):
+            tado_setpoint = self.coordinator.data.get("tado_setpoint")
+            if (
+                tado_setpoint is not None
+                and self._last_sent_setpoint is not None
+                and abs(tado_setpoint - self._last_sent_setpoint) > _FOLLOW_THRESHOLD_C
+                and time.time() - self._last_command_sent_ts > _FOLLOW_GRACE_S
+            ):
+                # Physical thermostat was changed by the user
+                _LOGGER.info(
+                    "Following physical Tado input: %.1f°C (was %.1f°C)",
+                    tado_setpoint,
+                    self._last_sent_setpoint,
+                )
+                self._target_temp = tado_setpoint
+                self._preset_mode = PRESET_COMFORT
+                if self._boost_cancel is not None:
+                    self._boost_cancel()
+                    self._boost_cancel = None
+                # Persist updated comfort target so number entity stays in sync
+                new_opts = {
+                    **self._config_entry.options,
+                    CONF_COMFORT_TARGET: tado_setpoint,
+                }
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, options=new_opts
+                )
+        super()._handle_coordinator_update()
 
     async def _async_regulation_cycle_timer(self, _now) -> None:
         """Periodic timer callback."""
@@ -192,11 +258,23 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         await self._async_regulation_cycle(trigger="hvac_mode_change")
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set new target temperature."""
+        """Set new target temperature; switches to COMFORT if a preset was active."""
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
         self._target_temp = float(temp)
+
+        # Moving the slider always returns to COMFORT preset
+        if self._preset_mode != PRESET_COMFORT:
+            if self._boost_cancel is not None:
+                self._boost_cancel()
+                self._boost_cancel = None
+            self._preset_mode = PRESET_COMFORT
+
+        # Persist the comfort target in options so number entity stays in sync
+        new_opts = {**self._config_entry.options, CONF_COMFORT_TARGET: self._target_temp}
+        self.hass.config_entries.async_update_entry(self._config_entry, options=new_opts)
+
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="set_temperature")
 
@@ -249,7 +327,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if self._preset_mode == PRESET_COMFORT:
             return self._target_temp
         elif self._preset_mode == PRESET_ECO:
-            return self._target_temp + self._config.presets.eco_offset_c
+            return self._config.presets.eco_target_c
         elif self._preset_mode == PRESET_BOOST:
             return self._config.presets.boost_target_c
         elif self._preset_mode == PRESET_AWAY:
@@ -347,6 +425,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 },
                 blocking=True,
             )
+            self._last_sent_setpoint = target_c
         except Exception:
             _LOGGER.exception("Failed to send command to Tado")
 
@@ -361,8 +440,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the user-set target temperature."""
-        return self._target_temp
+        """Return the effective setpoint so HA always shows the active target."""
+        return self._effective_setpoint()
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -398,6 +477,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "correction_kp": self._config.tuning.kp,
             "correction_ki": self._config.tuning.ki,
             "effective_setpoint_c": self._effective_setpoint(),
+            "comfort_target_c": self._target_temp,
         }
 
         if self._last_result:
