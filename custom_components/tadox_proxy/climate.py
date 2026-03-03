@@ -43,6 +43,10 @@ from .const import (
     CONF_AWAY_TARGET,
     CONF_VACATION_TARGET,
     CONF_FOLLOW_TADO_INPUT,
+    CONF_WINDOW_SENSOR_ID,
+    CONF_WINDOW_DELAY_S,
+    CONF_PRESENCE_SENSOR_ID,
+    CONF_PRESENCE_AWAY_DELAY_S,
     PRESET_VACATION,
 )
 from .parameters import (
@@ -57,8 +61,8 @@ from .regulation import FeedforwardPiRegulator, RegulationState
 _LOGGER = logging.getLogger(__name__)
 
 # Ordered list of presets shown in the UI.
-# PRESET_NONE ("Manual") is listed last – it activates when the user
-# moves the temperature slider directly instead of selecting a preset.
+# PRESET_NONE ("Manuell") activates when the user moves the temperature
+# slider directly instead of selecting a named preset.
 PRESET_LIST = [
     PRESET_COMFORT,
     PRESET_ECO,
@@ -132,6 +136,17 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_command_sent_ts = 0.0
         self._last_sent_setpoint: float | None = None
 
+        # Window sensor state
+        self._window_open_active = False
+        self._window_timer_cancel: CALLBACK_TYPE | None = None
+        self._window_saved_hvac_mode: HVACMode | None = None
+
+        # Presence sensor state
+        self._presence_away_active = False
+        self._presence_timer_cancel: CALLBACK_TYPE | None = None
+        self._presence_saved_preset: str | None = None
+        self._presence_saved_temp: float | None = None
+
         # Diagnostics
         self._last_result = None
         self._last_reason = "startup"
@@ -190,20 +205,19 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     self._preset_mode = PRESET_COMFORT
 
         # If the active preset is COMFORT, the comfort_target in options is
-        # authoritative (may have been changed via the number entity while HA
-        # was down).  For PRESET_NONE (manual), the restored temperature wins.
+        # authoritative (may have changed via the number entity while HA was down).
+        # For PRESET_NONE (manual), the restored slider temperature wins.
         if self._preset_mode == PRESET_COMFORT:
             opts_comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
             if opts_comfort is not None:
                 self._target_temp = float(opts_comfort)
 
-        # Listen for config entry option updates (from number/switch entities)
+        # Config entry update listener (from number/switch entities)
         self.async_on_remove(
             self._config_entry.add_update_listener(self._async_config_entry_updated)
         )
 
-        # Listen for state changes on the source Tado entity so we can detect
-        # physical thermostat adjustments (when follow_tado_input is enabled).
+        # State change listener on source Tado entity (follow physical thermostat)
         source_entity = self._config_entry.data.get("source_entity_id")
         if source_entity:
             self.async_on_remove(
@@ -211,6 +225,28 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     self.hass,
                     [source_entity],
                     self._async_tado_state_changed,
+                )
+            )
+
+        # Window sensor listener
+        window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
+        if window_sensor:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [window_sensor],
+                    self._async_window_changed,
+                )
+            )
+
+        # Presence sensor listener
+        presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
+        if presence_sensor:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [presence_sensor],
+                    self._async_presence_changed,
                 )
             )
 
@@ -236,14 +272,17 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 self._target_temp = float(comfort)
         self.async_write_ha_state()
 
+    # ------------------------------------------------------------------
+    # Follow physical thermostat
+    # ------------------------------------------------------------------
+
     @callback
     def _async_tado_state_changed(self, event) -> None:
         """Detect physical thermostat changes and follow them if enabled."""
         if not self._config_entry.options.get(CONF_FOLLOW_TADO_INPUT, False):
             return
 
-        # Only react after we have sent at least one command (so we know our
-        # baseline) and the state's temperature attribute actually changed.
+        # Only react after we have sent at least one command (so we know our baseline).
         if self._last_sent_setpoint is None:
             return
 
@@ -262,13 +301,11 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         except (ValueError, TypeError):
             return
 
-        # Ignore if the change matches (or is very close to) our last sent
-        # command – this is just Tado confirming our own request.
+        # Ignore if the change matches our last sent command.
         if abs(tado_setpoint - self._last_sent_setpoint) <= _FOLLOW_THRESHOLD_C:
             return
 
-        # Ignore if we recently sent a command (grace period to avoid
-        # acting on delayed confirmations of our own changes).
+        # Ignore during the grace period after our last command.
         if time.time() - self._last_command_sent_ts < _FOLLOW_GRACE_S:
             return
 
@@ -278,11 +315,120 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             self._last_sent_setpoint,
         )
         self._target_temp = tado_setpoint
-        self._preset_mode = PRESET_NONE  # manual override
+        self._preset_mode = PRESET_NONE
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
         self.async_write_ha_state()
+
+    # ------------------------------------------------------------------
+    # Window sensor
+    # ------------------------------------------------------------------
+
+    @callback
+    def _async_window_changed(self, event) -> None:
+        """Handle window sensor state changes."""
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state in ("unavailable", "unknown"):
+            return
+
+        if new_state.state == "on":  # window opened
+            if self._window_timer_cancel:
+                self._window_timer_cancel()
+            delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
+            self._window_timer_cancel = async_call_later(
+                self.hass, delay, self._async_window_action
+            )
+            _LOGGER.debug("Window opened – action in %ds", delay)
+        else:  # window closed
+            if self._window_timer_cancel:
+                self._window_timer_cancel()
+                self._window_timer_cancel = None
+            if self._window_open_active:
+                self._restore_window_state()
+
+    async def _async_window_action(self, _now) -> None:
+        """Switch HVAC off after window-open delay."""
+        self._window_timer_cancel = None
+        self._window_saved_hvac_mode = self._hvac_mode
+        self._hvac_mode = HVACMode.OFF
+        self._window_open_active = True
+        _LOGGER.info("Window open: switching HVAC OFF")
+        self.async_write_ha_state()
+        await self._async_regulation_cycle(trigger="window_open")
+
+    def _restore_window_state(self) -> None:
+        """Restore HVAC mode after window is closed."""
+        if self._window_saved_hvac_mode is not None:
+            self._hvac_mode = self._window_saved_hvac_mode
+        self._window_open_active = False
+        self._window_saved_hvac_mode = None
+        _LOGGER.info("Window closed: restoring HVAC mode")
+        self.hass.async_create_task(
+            self._async_regulation_cycle(trigger="window_closed")
+        )
+        self.async_write_ha_state()
+
+    # ------------------------------------------------------------------
+    # Presence sensor
+    # ------------------------------------------------------------------
+
+    @callback
+    def _async_presence_changed(self, event) -> None:
+        """Handle presence sensor state changes."""
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state in ("unavailable", "unknown"):
+            return
+
+        if new_state.state == "off":  # nobody home
+            if self._presence_timer_cancel:
+                self._presence_timer_cancel()
+            delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 1800)
+            self._presence_timer_cancel = async_call_later(
+                self.hass, delay, self._async_presence_away_action
+            )
+            _LOGGER.debug("Presence away – AWAY preset in %ds", delay)
+        else:  # someone home
+            if self._presence_timer_cancel:
+                self._presence_timer_cancel()
+                self._presence_timer_cancel = None
+            if self._presence_away_active:
+                self._restore_presence_state()
+
+    async def _async_presence_away_action(self, _now) -> None:
+        """Switch to AWAY preset after presence-away delay."""
+        self._presence_timer_cancel = None
+        self._presence_saved_preset = self._preset_mode
+        self._presence_saved_temp = self._target_temp
+        self._preset_mode = PRESET_AWAY
+        self._presence_away_active = True
+        _LOGGER.info("Presence away: switching to AWAY preset")
+        self.async_write_ha_state()
+        await self._async_regulation_cycle(trigger="presence_away")
+
+    def _restore_presence_state(self) -> None:
+        """Restore preset after presence returns."""
+        if self._presence_saved_preset is not None:
+            self._preset_mode = self._presence_saved_preset
+            # If restoring COMFORT, take the current comfort_target from options
+            # (it may have been changed via number entity while away).
+            if self._preset_mode == PRESET_COMFORT:
+                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+                self._target_temp = float(comfort) if comfort is not None else self._target_temp
+            elif self._presence_saved_temp is not None:
+                self._target_temp = self._presence_saved_temp
+        self._presence_away_active = False
+        self._presence_saved_preset = None
+        self._presence_saved_temp = None
+        _LOGGER.info("Presence home: restoring previous preset")
+        self.hass.async_create_task(
+            self._async_regulation_cycle(trigger="presence_home")
+        )
+        self.async_write_ha_state()
+
+    # ------------------------------------------------------------------
+    # Standard climate controls
+    # ------------------------------------------------------------------
 
     async def _async_regulation_cycle_timer(self, _now) -> None:
         """Periodic timer callback."""
@@ -292,6 +438,11 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Set new target HVAC mode."""
         if hvac_mode not in self._attr_hvac_modes:
             return
+        # Manual HVAC change clears any active window-open state so the user's
+        # intention is respected.
+        if self._window_open_active:
+            self._window_open_active = False
+            self._window_saved_hvac_mode = None
         self._hvac_mode = hvac_mode
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="hvac_mode_change")
@@ -299,7 +450,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature; enters manual (PRESET_NONE) mode.
 
-        Moving the slider is treated as a temporary manual override.  It does
+        Moving the slider is treated as a temporary manual override. It does
         NOT change the stored comfort target – use the Comfort number entity
         or the options flow for that.
         """
@@ -364,17 +515,11 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     # ------------------------------------------------------------------
 
     def _effective_setpoint(self) -> float:
-        """Calculate the effective setpoint based on HVAC mode and preset.
-
-        Returns the temperature the regulation engine should target.
-        """
+        """Calculate the effective setpoint based on HVAC mode and preset."""
         if self._hvac_mode == HVACMode.OFF:
             return FROST_PROTECT_C
 
         if self._preset_mode in (PRESET_COMFORT, PRESET_NONE):
-            # Both COMFORT and manual (PRESET_NONE) use _target_temp as the
-            # setpoint; they differ only in whether the comfort_target option
-            # is authoritative.
             return self._target_temp
         elif self._preset_mode == PRESET_ECO:
             return self._config.presets.eco_target_c
@@ -434,7 +579,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if diff < self._config.min_change_threshold_c:
             reason = "already_at_target"
         elif is_rate_limited:
-            # Allow immediate decrease (e.g. user lowered setpoint significantly)
             is_urgent_decrease = result.target_for_tado_c < current_tado_setpoint - 1.0
             if is_urgent_decrease:
                 should_send = True
@@ -528,6 +672,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "correction_ki": self._config.tuning.ki,
             "effective_setpoint_c": self._effective_setpoint(),
             "comfort_target_c": self._config_entry.options.get(CONF_COMFORT_TARGET, 20.0),
+            "window_open_active": self._window_open_active,
+            "presence_away_active": self._presence_away_active,
         }
 
         if self._last_result:

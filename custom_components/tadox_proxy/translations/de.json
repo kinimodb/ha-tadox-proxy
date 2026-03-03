@@ -33,7 +33,11 @@
           "boost_duration": "Boost-Dauer (Minuten)",
           "away_target": "Abwesend-Zieltemperatur (°C)",
           "vacation_target": "Urlaub-Zieltemperatur (°C)",
-          "external_temperature_entity_id": "Externer Temperatursensor"
+          "external_temperature_entity_id": "Externer Temperatursensor",
+          "window_sensor_id": "Fenstersensor",
+          "window_delay_s": "Verzögerung Fenstererkennung (Sekunden)",
+          "presence_sensor_id": "Präsenzsensor",
+          "presence_away_delay_s": "Verzögerung Abwesenheit (Sekunden)"
         }
       }
     },
