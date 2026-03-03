@@ -43,6 +43,22 @@
     }
   },
   "entity": {
+    "climate": {
+      "tadox_proxy": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "none": "Manual",
+              "comfort": "Comfort",
+              "eco": "Eco",
+              "boost": "Boost",
+              "away": "Away",
+              "vacation": "Vacation"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "comfort_target": {
         "name": "Comfort temperature"

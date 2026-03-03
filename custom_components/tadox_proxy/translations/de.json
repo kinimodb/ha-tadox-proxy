@@ -27,7 +27,7 @@
         "data": {
           "correction_kp": "Proportionale Korrektur (Kp)",
           "correction_ki": "Integrale Korrektur (Ki)",
-          "comfort_target": "Comfort-Zieltemperatur (°C)",
+          "comfort_target": "Komfort-Zieltemperatur (°C)",
           "eco_target": "Eco-Zieltemperatur (°C)",
           "boost_target": "Boost-Zieltemperatur (°C)",
           "boost_duration": "Boost-Dauer (Minuten)",
@@ -43,9 +43,25 @@
     }
   },
   "entity": {
+    "climate": {
+      "tadox_proxy": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "none": "Manuell",
+              "comfort": "Komfort",
+              "eco": "Eco",
+              "boost": "Boost",
+              "away": "Abwesend",
+              "vacation": "Urlaub"
+            }
+          }
+        }
+      }
+    },
     "number": {
       "comfort_target": {
-        "name": "Comfort-Temperatur"
+        "name": "Komfort-Temperatur"
       },
       "eco_target": {
         "name": "Eco-Temperatur"
