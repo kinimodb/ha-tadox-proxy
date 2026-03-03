@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2025-03 (v0.5.0)
+**Letzte Aktualisierung:** 2026-03 (v0.6.0)
 
 ---
 
@@ -49,14 +49,18 @@ Tado X TRVs laufen auf Batterie. Häufige Befehle (jede 60s) würden die Batteri
 schnell leeren. Daher: min. 180s zwischen Befehlen, mit Bypass für dringende
 Absenkungen (> 1°C Differenz).
 
-### Presets (v0.5.0)
+### Presets (v0.5.0) + Entitäten (v0.6.0)
 
-5 Betriebsmodi: Comfort (Default), Eco (Offset), Boost (Timer), Away, Vacation.
-- **Eco** nutzt `target_temp + eco_offset_c` (negative Zahl → Absenkung).
+5 Betriebsmodi: Comfort (Default), Eco (fest), Boost (Timer), Away, Vacation.
+- **Eco** nutzt `eco_target_c` (feste Temperatur, Default 19°C). Seit v0.6.0 kein Offset mehr.
 - **Boost** setzt feste Max-Temperatur mit `async_call_later`-Timer, auto-revert zu Comfort.
 - **Away/Vacation** nutzen feste Temperaturen (16°C / 5°C).
 - Preset wird über `RestoreEntity` persistiert, außer Boost (revert bei Neustart).
-- Alle Preset-Temperaturen über Options Flow konfigurierbar.
+- **v0.6.0:** 5 NumberEntitäten (Comfort, Eco, Boost, Away, Vacation) erlauben direkte Steuerung aus Dashboards/Automationen via `number.set_value`.
+- **v0.6.0:** SwitchEntität "Follow Tado Input" – erkennt physische Thermostat-Änderungen und übernimmt den Wert als neue Comfort-Temperatur.
+- **v0.6.0 Bugfix:** `target_temperature` gibt `_effective_setpoint()` zurück → UI zeigt immer den aktiven Zielwert.
+- **v0.6.0 Bugfix:** Slider-Nutzung während Preset → automatisch zu Comfort.
+- Alle Preset-Temperaturen: Range 5–30°C, via NumberEntität oder Options Flow.
 
 ---
 
@@ -64,12 +68,14 @@ Absenkungen (> 1°C Differenz).
 
 ```
 custom_components/tadox_proxy/
-├── __init__.py        # DataUpdateCoordinator (pollt alle 60s)
-├── climate.py         # ClimateEntity mit Regulation Loop + Presets
+├── __init__.py        # DataUpdateCoordinator (pollt alle 60s), Platforms: climate, number, switch
+├── climate.py         # ClimateEntity mit Regulation Loop + Presets + Config-Listener
+├── number.py          # 5 NumberEntitäten für Preset-Temperaturen (v0.6.0)
+├── switch.py          # SwitchEntität "Follow Tado Input" (v0.6.0)
 ├── config_flow.py     # Setup + Options Flow (Kp, Ki, Presets, Sensor)
 ├── const.py           # DOMAIN + Config-Keys + PRESET_VACATION
 ├── diagnostics.py     # HA Diagnostik-Export
-├── manifest.json      # HACS/HA Metadata (v0.5.0)
+├── manifest.json      # HACS/HA Metadata (v0.6.0)
 ├── parameters.py      # Zentrale Parameter-Defaults (RegulationConfig + PresetConfig)
 ├── regulation.py      # Feedforward + PI Engine (FeedforwardPiRegulator)
 ├── strings.json       # UI-Strings (Fallback)
@@ -79,7 +85,7 @@ custom_components/tadox_proxy/
 
 tests/
 ├── __init__.py
-└── test_regulation.py # 24 Unit Tests (importiert ohne HA-Dependency)
+└── test_regulation.py # 23 Unit Tests (importiert ohne HA-Dependency)
 ```
 
 ### Abhängigkeits-Kette
@@ -127,7 +133,7 @@ Wobei:
 | Integral Limits | ±2.0°C | parameters.py |
 | Min Command Interval | 180s | parameters.py |
 | Min Change Threshold | 0.3°C | parameters.py |
-| Target Range | 5–25°C | parameters.py |
+| Target Range | 5–30°C (dynamisch ≥ boost_target) | parameters.py / _build_config() |
 | Frost Protection | 5°C | parameters.py |
 | Update Interval | 60s | __init__.py / parameters.py |
 
@@ -135,11 +141,13 @@ Wobei:
 
 | Parameter | Wert | Datei |
 |-----------|------|-------|
-| Eco Offset | −2.0°C | parameters.py (PresetConfig) |
-| Boost Target | 25.0°C | parameters.py (PresetConfig) |
-| Boost Duration | 30 min | parameters.py (PresetConfig) |
-| Away Target | 16.0°C | parameters.py (PresetConfig) |
-| Vacation Target | 5.0°C | parameters.py (PresetConfig) |
+| Comfort Target | 20.0°C (Default) | entry.options / NumberEntität |
+| Eco Target | 19.0°C | parameters.py (PresetConfig), NumberEntität |
+| Boost Target | 25.0°C | parameters.py (PresetConfig), NumberEntität |
+| Boost Duration | 30 min | parameters.py (PresetConfig), Options Flow |
+| Away Target | 16.0°C | parameters.py (PresetConfig), NumberEntität |
+| Vacation Target | 5.0°C | parameters.py (PresetConfig), NumberEntität |
+| Target Range | 5–30°C | alle Preset-Temperaturen |
 
 ---
 
@@ -167,6 +175,7 @@ Wobei:
 2. **Nur ein Testraum validiert** – Default-Parameter müssen in anderen Räumen geprüft werden.
 3. **Tado X spezifisch** – Nicht getestet mit anderen Tado-Modellen.
 4. **Batterie-Monitoring** – Kein direktes Feedback über Batterie-Zustand des TRV.
+5. **Follow Tado Input** – Schwellenwert (1.5°C, 120s Grace) könnte in Extremsituationen false positives produzieren; in der Praxis bisher nicht beobachtet.
 
 ---
 
@@ -174,6 +183,7 @@ Wobei:
 
 - Fensterkontakt: Sofort auf Frostschutz bei "offen", Restore bei "zu".
 - Präsenz-Sensor: Auto-Wechsel auf Away/Eco bei Abwesenheit.
+- Beide Trigger als konfigurierbare Entity-Selektoren im Options Flow.
 
 ---
 

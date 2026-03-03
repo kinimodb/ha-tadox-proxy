@@ -41,6 +41,8 @@ python -m pytest tests/ -v
 | `parameters.py` | Alle Defaults (RegulationConfig, PresetConfig, CorrectionTuning) | Bei neuen Parametern oder Default-Änderungen |
 | `regulation.py` | Feedforward + PI Engine | Bei Regelungs-Änderungen |
 | `climate.py` | HA ClimateEntity, Presets, Boost-Timer, State Restore | Bei UI/HA-Features |
+| `number.py` | NumberEntity für Preset-Temperaturen (Comfort, Eco, Boost, Away, Vacation) | Bei neuen Preset-Parametern als Entitäten |
+| `switch.py` | SwitchEntity für optionale Verhaltensflags (z.B. Follow Tado Input) | Bei neuen Toggle-Features |
 | `config_flow.py` | Setup + Options Flow | Bei neuen konfigurierbaren Parametern |
 | `const.py` | DOMAIN, Config-Keys, Custom Preset Names | Bei neuen Config-Keys |
 | `strings.json` + `translations/` | UI-Texte (EN + DE) | Bei neuen UI-Elementen |
@@ -72,10 +74,34 @@ refactor: kurze Beschreibung # Code-Umbau ohne Funktionsänderung
 - **Rate Limiting** (180s): Batterieschonung für Tado X TRVs.
 - **Anti-Windup**: Dual (Sättigungs-Block + Deadband-Gating mit Decay).
 
-## Aktueller Stand (v0.5.0)
+## Lieferung am Ende einer Feature-Session
+
+Nach vollständiger Implementierung (Tests grün, Commit, Push):
+1. **Merge-Anleitung** ausgeben: Step-by-step, welche GitHub-Schritte nötig sind (PR erstellen, Review, Merge, Release).
+2. **Release-Beschreibung** (Deutsch) nach folgendem Format ausgeben – copy-pasteable:
+
+```
+## v0.X.Y – Kurztitel
+
+### Neues
+- Stichpunkt 1
+- Stichpunkt 2
+
+### Fixes
+- Stichpunkt
+
+### Breaking Changes (falls vorhanden)
+- Was sich ändert und was Nutzer tun müssen
+
+### Installation
+Über HACS → Integration → Tado X Proxy → Update.
+```
+
+## Aktueller Stand (v0.6.0)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
 - M3 (Presets: Comfort, Eco, Boost, Away, Vacation) ✅
+- M3.1 (Preset-Setpoint-Fix + Number/Switch-Entitäten) ✅
 - M4 (Externe Trigger: Fensterkontakt, Präsenz) – nächster Meilenstein
 - Testraum läuft stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)

@@ -2,12 +2,12 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.5.0)
+## Status (v0.6.0)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
-- **Technik:** Python `async`, HA DataUpdateCoordinator.
+- **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
 - **Phase:** Beta-Test – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
-- **Presets:** Comfort, Eco, Boost (mit Timer), Away, Vacation.
+- **Presets:** Comfort, Eco, Boost (mit Timer), Away, Vacation – alle als NumberEntität steuerbar.
 
 ---
 
@@ -37,13 +37,28 @@
 **Ziel:** Verschiedene Betriebsmodi für den Alltag.
 
 - [x] `ClimateEntityFeature.PRESET_MODE` aktiviert.
-- [x] 5 Presets: Comfort (Default), Eco (Offset), Boost (Timer), Away, Vacation (Frostschutz).
+- [x] 5 Presets: Comfort (Default), Eco, Boost (Timer), Away, Vacation (Frostschutz).
 - [x] Preset-Temperaturen über Options Flow konfigurierbar.
 - [x] Boost-Timer mit `async_call_later` + Auto-Revert zu Comfort.
 - [x] Preset wird per `RestoreEntity` über HA-Neustarts hinweg gespeichert (außer Boost → revert).
 - [x] `effective_setpoint_c` als neues Diagnose-Attribut.
 - [x] Übersetzungen (DE/EN) für alle Preset-Parameter.
 - [x] 23 Unit Tests (7 neue für PresetConfig + Setpoint-Berechnung).
+
+## M3.1 – Preset-Entitäten & Bugfix (v0.6.0) ✅
+
+**Ziel:** Preset-Temperaturen als eigenständige HA-Entitäten, bugfreie UI-Darstellung.
+
+- [x] **Bugfix:** `target_temperature` zeigt jetzt immer den aktiv gültigen Sollwert (inkl. Preset).
+- [x] Slider-Nutzung während aktivem Preset wechselt automatisch zu Comfort.
+- [x] Eco: feste Temperatur statt Offset von Comfort (Breaking Change).
+- [x] 5 NumberEntitäten (Comfort, Eco, Boost, Away, Vacation) – per Dashboard/Automation steuerbar.
+- [x] SwitchEntität "Physischem Thermostat folgen" – übernimmt Temperatur bei physischer Änderung.
+- [x] Config-Entry-Listener: NumberEntitäten aktualisieren Climate-Entity sofort ohne Full-Reload.
+- [x] `max_target_c` dynamisch ≥ `boost_target_c` (Boost > 25°C möglich).
+- [x] Alle Preset-Temperaturen: Range 5–30°C.
+- [x] Übersetzungen (DE/EN) für Number- und Switch-Entitäten.
+- [x] 23 Unit Tests weiterhin grün.
 
 ## M4 – Externe Trigger
 
@@ -63,6 +78,14 @@
 ---
 
 ## Changelog
+
+### v0.6.0
+- **Bugfix:** Zieltemperatur im HA-UI spiegelt jetzt korrekt das aktive Preset wider.
+- **Bugfix:** Slider-Nutzung während aktivem Preset kehrt automatisch zu Comfort zurück.
+- **Feature:** 5 neue NumberEntitäten (Comfort-, Eco-, Boost-, Away-, Urlaub-Temperatur) – steuerbar per Dashboard, Automation und Service `number.set_value`.
+- **Feature:** Switch "Physischem Thermostat folgen" – HA übernimmt Temperaturänderungen am physischen Tado-Gerät.
+- **Feature:** Boost-Temperatur kann jetzt > 25°C konfiguriert werden (max. 30°C).
+- **Breaking:** Eco nutzt jetzt eine feste Zieltemperatur (Default 19°C) statt eines Offsets von der Comfort-Temperatur. Bestehende `eco_offset`-Einstellungen gehen verloren.
 
 ### v0.5.0
 - **Feature:** Presets – Comfort, Eco, Boost, Away, Vacation.

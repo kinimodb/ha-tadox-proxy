@@ -27,7 +27,8 @@
         "data": {
           "correction_kp": "Proportionale Korrektur (Kp)",
           "correction_ki": "Integrale Korrektur (Ki)",
-          "eco_offset": "Eco-Absenkung vom Ziel (°C)",
+          "comfort_target": "Comfort-Zieltemperatur (°C)",
+          "eco_target": "Eco-Zieltemperatur (°C)",
           "boost_target": "Boost-Zieltemperatur (°C)",
           "boost_duration": "Boost-Dauer (Minuten)",
           "away_target": "Abwesend-Zieltemperatur (°C)",
@@ -39,6 +40,30 @@
     "error": {
       "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
       "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
+    }
+  },
+  "entity": {
+    "number": {
+      "comfort_target": {
+        "name": "Comfort-Temperatur"
+      },
+      "eco_target": {
+        "name": "Eco-Temperatur"
+      },
+      "boost_target": {
+        "name": "Boost-Temperatur"
+      },
+      "away_target": {
+        "name": "Abwesend-Temperatur"
+      },
+      "vacation_target": {
+        "name": "Urlaub-Temperatur"
+      }
+    },
+    "switch": {
+      "follow_tado_input": {
+        "name": "Physischem Thermostat folgen"
+      }
     }
   }
 }
