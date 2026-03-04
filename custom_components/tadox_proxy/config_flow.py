@@ -29,49 +29,75 @@ def _is_temperature_sensor_state(state) -> bool:
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """UI setup for the integration (initial setup)."""
+    """UI setup for the integration (initial setup).
+
+    Split into two steps to avoid HA frontend issues with multiple
+    EntitySelectors on the same form.
+    """
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialise flow storage for multi-step data."""
+        self._source_entity_id: str | None = None
+
+    # ---- Step 1: select source climate entity ----
 
     async def async_step_user(self, user_input=None):
         errors: dict[str, str] = {}
 
         if user_input is not None:
             source_entity_id = user_input[CONF_SOURCE_ENTITY_ID]
-            ext_temp_entity_id = user_input[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID]
-            name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
-
             source_state = self.hass.states.get(source_entity_id)
             if source_state is None:
                 errors["base"] = "entity_not_found"
             elif not source_entity_id.startswith("climate."):
                 errors["base"] = "not_a_climate_entity"
             else:
-                temp_state = self.hass.states.get(ext_temp_entity_id)
-                if temp_state is None:
-                    errors["base"] = "temp_entity_not_found"
-                elif not ext_temp_entity_id.startswith("sensor."):
-                    errors["base"] = "temp_not_a_sensor"
-                elif not _is_temperature_sensor_state(temp_state):
-                    errors["base"] = "temp_not_temperature"
-                else:
-                    await self.async_set_unique_id(source_entity_id)
-                    self._abort_if_unique_id_configured()
-
-                    return self.async_create_entry(
-                        title=name,
-                        data={
-                            CONF_SOURCE_ENTITY_ID: source_entity_id,
-                            CONF_NAME: name,
-                            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
-                        },
-                    )
+                self._source_entity_id = source_entity_id
+                return await self.async_step_sensor()
 
         schema = vol.Schema(
             {
                 vol.Required(CONF_SOURCE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="climate")
                 ),
+            }
+        )
+
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    # ---- Step 2: select external sensor + name ----
+
+    async def async_step_sensor(self, user_input=None):
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            ext_temp_entity_id = user_input[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID]
+            name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
+
+            temp_state = self.hass.states.get(ext_temp_entity_id)
+            if temp_state is None:
+                errors["base"] = "temp_entity_not_found"
+            elif not ext_temp_entity_id.startswith("sensor."):
+                errors["base"] = "temp_not_a_sensor"
+            elif not _is_temperature_sensor_state(temp_state):
+                errors["base"] = "temp_not_temperature"
+            else:
+                await self.async_set_unique_id(self._source_entity_id)
+                self._abort_if_unique_id_configured()
+
+                return self.async_create_entry(
+                    title=name,
+                    data={
+                        CONF_SOURCE_ENTITY_ID: self._source_entity_id,
+                        CONF_NAME: name,
+                        CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
+                    },
+                )
+
+        schema = vol.Schema(
+            {
                 vol.Required(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
@@ -79,7 +105,7 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="sensor", data_schema=schema, errors=errors)
 
     @staticmethod
     @callback
