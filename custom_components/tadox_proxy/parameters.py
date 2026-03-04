@@ -39,7 +39,7 @@ class PresetConfig:
     boost_target_c: float = 25.0     # fixed target during boost
     boost_duration_min: int = 30     # auto-revert to comfort after this many minutes
     away_target_c: float = 16.0      # fixed target when away
-    vacation_target_c: float = 5.0   # frost protection during vacation
+    frost_protection_target_c: float = 5.0   # frost protection temperature
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03 (v0.7.0)
+**Letzte Aktualisierung:** 2026-03 (v0.8.0)
 
 ---
 
@@ -51,22 +51,23 @@ Absenkungen (> 1°C Differenz).
 
 ### Presets (v0.5.0) + Entitäten (v0.6.0)
 
-6 Betriebsmodi: Comfort (Default), Eco (fest), Boost (Timer), Away, Vacation, None (Manuell).
+6 Betriebsmodi: Comfort (Default), Eco (fest), Boost (Timer), Away, Frost Protection, None (Manuell).
 - **Eco** nutzt `eco_target_c` (feste Temperatur, Default 19°C). Seit v0.6.0 kein Offset mehr.
 - **Boost** setzt feste Max-Temperatur mit `async_call_later`-Timer, auto-revert zu Comfort.
-- **Away/Vacation** nutzen feste Temperaturen (16°C / 5°C).
+- **Away** nutzt feste Temperatur (16°C). **Frost Protection** nutzt 5°C.
 - **None (Manuell):** Aktiviert beim Slider-Verschieben – kein Preset aktiv, eigene Temperatur.
 - Preset wird über `RestoreEntity` persistiert, außer Boost (revert bei Neustart).
-- **v0.6.0:** 5 NumberEntitäten (Comfort, Eco, Boost, Away, Vacation) erlauben direkte Steuerung aus Dashboards/Automationen via `number.set_value`.
+- **v0.6.0:** 5 NumberEntitäten (Boost, Comfort, Eco, Away, Frost Protection) erlauben direkte Steuerung aus Dashboards/Automationen via `number.set_value`. Sortierung: warm→kalt.
 - **v0.6.0:** SwitchEntität "Follow Tado Input" – erkennt physische Thermostat-Änderungen via `async_track_state_change_event` auf `temperature`-Attribut der Tado-Entity.
 - **v0.6.0 Bugfix:** `target_temperature` gibt `_effective_setpoint()` zurück → UI zeigt immer den aktiven Zielwert.
+- **v0.8.0:** Vacation → Frost Protection umbenannt. Icons: Frostschutz=Schneeflocke, Manuell=Hand.
 - Alle Preset-Temperaturen: Range 5–30°C, via NumberEntität oder Options Flow.
 
 ### Externe Trigger (v0.7.0)
 
-- **Fensterkontakt:** Optionaler `binary_sensor.*`. Bei "on" startet Timer (`CONF_WINDOW_DELAY_S`, Default 30s), nach Ablauf `_hvac_mode = HVACMode.OFF`. Bei "off" Restore auf gespeicherten Modus. Steuert **nur** HVAC-Modus.
-- **Präsenzsensor:** Optionaler `binary_sensor.*`. Bei "off" startet Timer (`CONF_PRESENCE_AWAY_DELAY_S`, Default 1800s), nach Ablauf `_preset_mode = PRESET_AWAY`. Bei "on" Restore auf gespeichertes Preset/Temperatur. Steuert **nur** Preset.
-- **Unabhängigkeit:** Fenster ↔ Preset-Modus interferieren nicht. Beide können gleichzeitig aktiv sein.
+- **Fensterkontakt:** Optionaler `binary_sensor.*`. Bei "on" startet Timer (`CONF_WINDOW_DELAY_S`, Default 30s), nach Ablauf `_preset_mode = PRESET_FROST_PROTECTION`. Bei "off" Restore auf gespeichertes Preset/Temperatur. Steuert Preset (Frostschutz).
+- **Präsenzsensor:** Optionaler `binary_sensor.*`. Bei "off" startet Timer (`CONF_PRESENCE_AWAY_DELAY_S`, Default 1800s), nach Ablauf `_preset_mode = PRESET_AWAY`. Bei "on" Restore auf gespeichertes Preset/Temperatur. Steuert Preset (Abwesend).
+- **Unabhängigkeit:** Fenster und Präsenz steuern beide Presets, aber unabhängig. Beide können gleichzeitig aktiv sein.
 - Listener registriert via `async_track_state_change_event` + `async_call_later` für Delays.
 - Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - `OptionsFlowWithReload` sorgt bei Sensor-Konfiguration für korrekten Re-Register der Listener.
@@ -82,9 +83,9 @@ custom_components/tadox_proxy/
 ├── number.py          # 5 NumberEntitäten für Preset-Temperaturen (v0.6.0)
 ├── switch.py          # SwitchEntität "Follow Tado Input" (v0.6.0)
 ├── config_flow.py     # Setup + Options Flow (Kp, Ki, Presets, Sensor)
-├── const.py           # DOMAIN + Config-Keys + PRESET_VACATION
+├── const.py           # DOMAIN + Config-Keys + PRESET_FROST_PROTECTION
 ├── diagnostics.py     # HA Diagnostik-Export
-├── manifest.json      # HACS/HA Metadata (v0.6.0)
+├── manifest.json      # HACS/HA Metadata (v0.8.0)
 ├── parameters.py      # Zentrale Parameter-Defaults (RegulationConfig + PresetConfig)
 ├── regulation.py      # Feedforward + PI Engine (FeedforwardPiRegulator)
 ├── strings.json       # UI-Strings (Fallback)
@@ -155,7 +156,7 @@ Wobei:
 | Boost Target | 25.0°C | parameters.py (PresetConfig), NumberEntität |
 | Boost Duration | 30 min | parameters.py (PresetConfig), Options Flow |
 | Away Target | 16.0°C | parameters.py (PresetConfig), NumberEntität |
-| Vacation Target | 5.0°C | parameters.py (PresetConfig), NumberEntität |
+| Frost Protection Target | 5.0°C | parameters.py (PresetConfig), NumberEntität |
 | Target Range | 5–30°C | alle Preset-Temperaturen |
 
 ---

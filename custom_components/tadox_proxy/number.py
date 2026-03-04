@@ -21,7 +21,7 @@ from .const import (
     CONF_ECO_TARGET,
     CONF_BOOST_TARGET,
     CONF_AWAY_TARGET,
-    CONF_VACATION_TARGET,
+    CONF_FROST_PROTECTION_TARGET,
 )
 from .parameters import PresetConfig
 
@@ -37,6 +37,11 @@ class PresetNumberDescription:
 
 _PRESET_NUMBERS: tuple[PresetNumberDescription, ...] = (
     PresetNumberDescription(
+        conf_key=CONF_BOOST_TARGET,
+        default=PresetConfig.boost_target_c,
+        translation_key="boost_target",
+    ),
+    PresetNumberDescription(
         conf_key=CONF_COMFORT_TARGET,
         default=20.0,
         translation_key="comfort_target",
@@ -47,19 +52,14 @@ _PRESET_NUMBERS: tuple[PresetNumberDescription, ...] = (
         translation_key="eco_target",
     ),
     PresetNumberDescription(
-        conf_key=CONF_BOOST_TARGET,
-        default=PresetConfig.boost_target_c,
-        translation_key="boost_target",
-    ),
-    PresetNumberDescription(
         conf_key=CONF_AWAY_TARGET,
         default=PresetConfig.away_target_c,
         translation_key="away_target",
     ),
     PresetNumberDescription(
-        conf_key=CONF_VACATION_TARGET,
-        default=PresetConfig.vacation_target_c,
-        translation_key="vacation_target",
+        conf_key=CONF_FROST_PROTECTION_TARGET,
+        default=PresetConfig.frost_protection_target_c,
+        translation_key="frost_protection_target",
     ),
 )
 

@@ -2,13 +2,13 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.7.0)
+## Status (v0.8.0)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
 - **Phase:** Beta-Test – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
-- **Presets:** Comfort, Eco, Boost (mit Timer), Away, Vacation – alle als NumberEntität steuerbar.
-- **Externe Trigger:** Fensterkontakt + Präsenzsensor vollständig implementiert.
+- **Presets:** Comfort, Eco, Boost (mit Timer), Away, Frostschutz – alle als NumberEntität steuerbar.
+- **Externe Trigger:** Fensterkontakt (→ Frostschutz) + Präsenzsensor (→ Abwesend) vollständig implementiert.
 
 ---
 
@@ -38,7 +38,7 @@
 **Ziel:** Verschiedene Betriebsmodi für den Alltag.
 
 - [x] `ClimateEntityFeature.PRESET_MODE` aktiviert.
-- [x] 5 Presets: Comfort (Default), Eco, Boost (Timer), Away, Vacation (Frostschutz).
+- [x] 5 Presets: Comfort (Default), Eco, Boost (Timer), Away, Frostschutz.
 - [x] Preset-Temperaturen über Options Flow konfigurierbar.
 - [x] Boost-Timer mit `async_call_later` + Auto-Revert zu Comfort.
 - [x] Preset wird per `RestoreEntity` über HA-Neustarts hinweg gespeichert (außer Boost → revert).
@@ -53,7 +53,7 @@
 - [x] **Bugfix:** `target_temperature` zeigt jetzt immer den aktiv gültigen Sollwert (inkl. Preset).
 - [x] Slider-Nutzung während aktivem Preset wechselt automatisch zu Comfort.
 - [x] Eco: feste Temperatur statt Offset von Comfort (Breaking Change).
-- [x] 5 NumberEntitäten (Comfort, Eco, Boost, Away, Vacation) – per Dashboard/Automation steuerbar.
+- [x] 5 NumberEntitäten (Boost, Comfort, Eco, Away, Frostschutz) – per Dashboard/Automation steuerbar.
 - [x] SwitchEntität "Physischem Thermostat folgen" – übernimmt Temperatur bei physischer Änderung.
 - [x] Config-Entry-Listener: NumberEntitäten aktualisieren Climate-Entity sofort ohne Full-Reload.
 - [x] `max_target_c` dynamisch ≥ `boost_target_c` (Boost > 25°C möglich).
@@ -65,10 +65,10 @@
 
 **Ziel:** Automatische Reaktion auf Umgebungsbedingungen.
 
-- [x] **Fensterkontakt:** HVAC OFF nach konfigurierbarer Verzögerung bei "offen", Restore bei "zu".
+- [x] **Fensterkontakt:** Wechsel auf Frostschutz-Preset nach konfigurierbarer Verzögerung bei "offen", Restore bei "zu".
 - [x] **Präsenz-Sensor:** Auto-Wechsel auf Away-Preset nach konfigurierbarer Verzögerung, Restore bei Rückkehr.
 - [x] Beide Trigger als optionale Entity-Selektoren im Options Flow mit separaten Delay-Feldern.
-- [x] Fenster und Präsenz unabhängig: Fenster steuert HVAC-Modus, Präsenz steuert Preset.
+- [x] Fenster und Präsenz unabhängig: Fenster steuert Preset (Frostschutz), Präsenz steuert Preset (Abwesend).
 - [x] Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - [x] Übersetzungen (DE/EN) für alle neuen Felder.
 
@@ -84,8 +84,15 @@
 
 ## Changelog
 
+### v0.8.0
+- **Breaking:** Preset "Urlaub/Vacation" umbenannt in "Frostschutz/Frost protection". Config-Key: `frost_protection_target` (vorher `vacation_target`). Bestehende Einstellungen müssen ggf. neu gesetzt werden.
+- **Feature:** Fensterkontakt wechselt bei Öffnung auf **Frostschutz-Preset** (vorher: HVAC AUS). Temperatur wird auf Frostschutz-Niveau gesenkt statt komplett abzuschalten.
+- **Feature:** Preset-Icons: Frostschutz = Schneeflocke (`mdi:snowflake`), Manuell = Hand (`mdi:hand-back-right`).
+- **Feature:** Entitäten-Sortierung warm→kalt: Boost, Komfort, Eco, Abwesend, Frostschutz.
+- **Docs:** Alle Dokumentation aktualisiert (README, ROADMAP, CONTEXT, CLAUDE.md).
+
 ### v0.7.0
-- **Feature:** Fensterkontakt-Unterstützung – optionaler `binary_sensor.*` mit konfigurierbarer Verzögerung (0–3600s). Bei offenem Fenster wird HVAC nach Ablauf auf AUS gesetzt, bei Schließen automatisch wiederhergestellt.
+- **Feature:** Fensterkontakt-Unterstützung – optionaler `binary_sensor.*` mit konfigurierbarer Verzögerung (0–3600s). Bei offenem Fenster wird auf Frostschutz-Preset gewechselt, bei Schließen automatisch wiederhergestellt.
 - **Feature:** Präsenzsensor-Unterstützung – optionaler `binary_sensor.*` mit konfigurierbarer Verzögerung (0–7200s). Bei Abwesenheit wird auf Away-Preset umgeschaltet, bei Rückkehr das vorherige Preset wiederhergestellt.
 - **Feature:** Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - **Docs:** README vollständig neu geschrieben (Deutsch), alle Features dokumentiert.
@@ -99,11 +106,11 @@
 - **Breaking:** Eco nutzt jetzt eine feste Zieltemperatur (Default 19°C) statt eines Offsets von der Comfort-Temperatur. Bestehende `eco_offset`-Einstellungen gehen verloren.
 
 ### v0.5.0
-- **Feature:** Presets – Comfort, Eco, Boost, Away, Vacation.
+- **Feature:** Presets – Comfort, Eco, Boost, Away, Frostschutz.
 - Eco: konfigurierbarer Offset (Default −2°C) von der Komfort-Temperatur.
 - Boost: temporär max. Temperatur mit Auto-Revert-Timer (Default 30 min).
 - Away: feste niedrige Temperatur (Default 16°C).
-- Vacation: Frostschutz (Default 5°C).
+- Frostschutz: Minimale Temperatur (Default 5°C).
 - Alle Preset-Temperaturen über Options Flow einstellbar.
 - `effective_setpoint_c` Diagnose-Attribut zeigt den tatsächlich genutzten Sollwert.
 - 23 Unit Tests (7 neue).

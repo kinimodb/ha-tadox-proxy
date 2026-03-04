@@ -32,7 +32,7 @@
           "boost_target": "Boost-Zieltemperatur (°C)",
           "boost_duration": "Boost-Dauer (Minuten)",
           "away_target": "Abwesend-Zieltemperatur (°C)",
-          "vacation_target": "Urlaub-Zieltemperatur (°C)",
+          "frost_protection_target": "Frostschutz-Temperatur (°C)",
           "external_temperature_entity_id": "Externer Temperatursensor",
           "window_sensor_id": "Fenstersensor",
           "window_delay_s": "Verzögerung Fenstererkennung (Sekunden)",
@@ -57,7 +57,7 @@
               "eco": "Eco",
               "boost": "Boost",
               "away": "Abwesend",
-              "vacation": "Urlaub"
+              "frost_protection": "Frostschutz"
             }
           }
         }
@@ -76,8 +76,8 @@
       "away_target": {
         "name": "Abwesend-Temperatur"
       },
-      "vacation_target": {
-        "name": "Urlaub-Temperatur"
+      "frost_protection_target": {
+        "name": "Frostschutz-Temperatur"
       }
     },
     "switch": {

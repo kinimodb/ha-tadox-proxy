@@ -67,7 +67,7 @@ Der Proxy-Thermostat kennt sechs Betriebsmodi:
 | **Eco** | Feste Eco-Temperatur (konfigurierbar, Standard: 19 °C) |
 | **Boost** | Kurzzeitiges Hochheizen auf Boost-Temperatur, dann automatisch zurück |
 | **Abwesend** | Reduzierte Temperatur für kurze Abwesenheit |
-| **Urlaub** | Minimale Temperatur für längere Abwesenheit (Frostschutz) |
+| **Frostschutz** | Minimale Temperatur für Frostschutz (z.B. bei Fensteröffnung oder langer Abwesenheit) |
 | **Manuell** | Freie Temperaturwahl über den Slider – kein Preset aktiv |
 
 Der **Manuell**-Modus wird automatisch aktiviert, wenn der Temperatur-Slider verschoben
@@ -91,7 +91,7 @@ in Automationen verwendet werden:
 | `number.*_eco_temperature` | Eco-Zieltemperatur | 19.0 °C |
 | `number.*_boost_temperature` | Boost-Zieltemperatur | 25.0 °C |
 | `number.*_away_temperature` | Abwesend-Zieltemperatur | 16.0 °C |
-| `number.*_vacation_temperature` | Urlaub-Zieltemperatur | 5.0 °C |
+| `number.*_frost_protection_temperature` | Frostschutz-Temperatur | 5.0 °C |
 
 Alle Entitäten sind im Bereich 5–30 °C in 0.5-°C-Schritten einstellbar.
 
@@ -115,8 +115,8 @@ Ein optionaler Binärsensor (z. B. Fensterkontakt) kann konfiguriert werden.
 Wenn das Fenster geöffnet wird (`state: on`):
 
 1. Ein konfigurierbarer Timer startet (Standard: 30 Sekunden).
-2. Nach Ablauf: HVAC wird auf **AUS** gesetzt – kein Heizen.
-3. Beim Schließen des Fensters: HVAC wird auf den vorherigen Zustand **zurückgesetzt**.
+2. Nach Ablauf: Wechsel auf das **Frostschutz**-Preset – Temperatur wird auf Frostschutz-Niveau gesenkt.
+3. Beim Schließen des Fensters: Vorheriges Preset wird automatisch **wiederhergestellt**.
 
 Wenn das Fenster vor Ablauf des Timers wieder geschlossen wird, wird der Timer
 abgebrochen – kein Eingriff in die Heizung.
@@ -147,8 +147,8 @@ Wenn jemand vor Ablauf des Timers zurückkommt, wird der Timer abgebrochen.
 Das Attribut `presence_away_active` zeigt den aktuellen Zustand an.
 
 > Fenster- und Präsenzsensor sind **unabhängig voneinander**: Das Fenster steuert
-> den HVAC-Modus (Heizen/Aus), der Präsenzsensor steuert das Preset
-> (Abwesend/Vorheriges). Beide können gleichzeitig aktiv sein.
+> das Preset (Frostschutz), der Präsenzsensor steuert das Preset
+> (Abwesend). Beide können gleichzeitig aktiv sein.
 
 ---
 

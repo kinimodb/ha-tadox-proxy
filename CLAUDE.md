@@ -41,7 +41,7 @@ python -m pytest tests/ -v
 | `parameters.py` | Alle Defaults (RegulationConfig, PresetConfig, CorrectionTuning) | Bei neuen Parametern oder Default-Änderungen |
 | `regulation.py` | Feedforward + PI Engine | Bei Regelungs-Änderungen |
 | `climate.py` | HA ClimateEntity, Presets, Boost-Timer, State Restore | Bei UI/HA-Features |
-| `number.py` | NumberEntity für Preset-Temperaturen (Comfort, Eco, Boost, Away, Vacation) | Bei neuen Preset-Parametern als Entitäten |
+| `number.py` | NumberEntity für Preset-Temperaturen (Boost, Comfort, Eco, Away, Frostschutz) | Bei neuen Preset-Parametern als Entitäten |
 | `switch.py` | SwitchEntity für optionale Verhaltensflags (z.B. Follow Tado Input) | Bei neuen Toggle-Features |
 | `config_flow.py` | Setup + Options Flow | Bei neuen konfigurierbaren Parametern |
 | `const.py` | DOMAIN, Config-Keys, Custom Preset Names | Bei neuen Config-Keys |
@@ -97,12 +97,13 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.7.0)
+## Aktueller Stand (v0.8.0)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
-- M3 (Presets: Comfort, Eco, Boost, Away, Vacation) ✅
+- M3 (Presets: Comfort, Eco, Boost, Away, Frostschutz) ✅
 - M3.1 (Preset-Setpoint-Fix + Number/Switch-Entitäten) ✅
-- M4 (Externe Trigger: Fensterkontakt, Präsenzsensor) ✅
+- M4 (Externe Trigger: Fensterkontakt → Frostschutz, Präsenzsensor → Away) ✅
+- M4.1 (UX-Polish: Frostschutz-Umbenennung, Icons, Sortierung) ✅
 - M5 (Multi-Room & Community) – nächster Meilenstein
 - Testraum läuft stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
