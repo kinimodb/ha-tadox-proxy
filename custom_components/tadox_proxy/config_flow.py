@@ -12,12 +12,6 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     CONF_NAME,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-    CONF_COMFORT_TARGET,
-    CONF_ECO_TARGET,
-    CONF_BOOST_TARGET,
-    CONF_BOOST_DURATION,
-    CONF_AWAY_TARGET,
-    CONF_FROST_PROTECTION_TARGET,
     CONF_WINDOW_SENSOR_ID,
     CONF_WINDOW_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -111,10 +105,30 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 # Strip empty optional sensor values so they're stored as absent
                 cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
-                # Schedule reload so new sensor listeners are registered
-                self.hass.async_create_task(
-                    self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                # NOTE: Do NOT reload here. async_create_entry must return first
+                # so HA persists the new options. The climate entity picks up
+                # changes via its config_entry update listener. A reload is only
+                # needed when sensor entity IDs change (listener re-registration).
+                # We use async_call_later(0.5) so the entry write is committed
+                # before the reload starts.
+                entry_id = self.config_entry.entry_id
+                old_opts = self.config_entry.options
+                sensor_keys = (
+                    CONF_WINDOW_SENSOR_ID,
+                    CONF_PRESENCE_SENSOR_ID,
+                    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
                 )
+                sensors_changed = any(
+                    cleaned.get(k) != old_opts.get(k) for k in sensor_keys
+                )
+                if sensors_changed:
+                    from homeassistant.helpers.event import async_call_later
+
+                    async def _deferred_reload(_now) -> None:
+                        await self.hass.config_entries.async_reload(entry_id)
+
+                    async_call_later(self.hass, 0.5, _deferred_reload)
+
                 return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
@@ -138,32 +152,6 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     "correction_ki",
                     default=opts.get("correction_ki", defaults.tuning.ki),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.1)),
-
-                # --- Preset temperatures ---
-                vol.Required(
-                    CONF_COMFORT_TARGET,
-                    default=opts.get(CONF_COMFORT_TARGET, 20.0),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
-                vol.Required(
-                    CONF_ECO_TARGET,
-                    default=opts.get(CONF_ECO_TARGET, defaults.presets.eco_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
-                vol.Required(
-                    CONF_BOOST_TARGET,
-                    default=opts.get(CONF_BOOST_TARGET, defaults.presets.boost_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
-                vol.Required(
-                    CONF_BOOST_DURATION,
-                    default=opts.get(CONF_BOOST_DURATION, defaults.presets.boost_duration_min),
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
-                vol.Required(
-                    CONF_AWAY_TARGET,
-                    default=opts.get(CONF_AWAY_TARGET, defaults.presets.away_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
-                vol.Required(
-                    CONF_FROST_PROTECTION_TARGET,
-                    default=opts.get(CONF_FROST_PROTECTION_TARGET, defaults.presets.frost_protection_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
 
                 # --- External sensor ---
                 vol.Required(
