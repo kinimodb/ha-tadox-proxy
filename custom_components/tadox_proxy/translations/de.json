@@ -2,10 +2,16 @@
   "config": {
     "step": {
       "user": {
-        "title": "Tado X Proxy Thermostat",
-        "description": "Wähle die Quell-Climate-Entity, einen externen Temperatursensor und einen Namen für das Proxy-Thermostat.",
+        "title": "Tado X Proxy – Quelle",
+        "description": "Wähle die Quell-Climate-Entity (dein Tado X Thermostat).",
         "data": {
-          "source_entity_id": "Quell-Climate-Entity",
+          "source_entity_id": "Quell-Climate-Entity"
+        }
+      },
+      "sensor": {
+        "title": "Tado X Proxy – Sensor & Name",
+        "description": "Wähle einen externen Temperatursensor und einen Namen für das Proxy-Thermostat.",
+        "data": {
           "external_temperature_entity_id": "Externer Temperatursensor",
           "name": "Name"
         }
