@@ -72,7 +72,7 @@
 - [x] Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - [x] Übersetzungen (DE/EN) für alle neuen Felder.
 
-## M4.1 – UX-Polish & Bugfixes (v0.8.1) ✅
+## M4.1 – UX-Polish & Bugfixes (v0.8.2) ✅
 
 **Ziel:** Stabilität und UX-Verbesserungen nach Beta-Feedback.
 
@@ -96,7 +96,7 @@
 
 ## Changelog
 
-### v0.8.1
+### v0.8.2
 - **Bugfix:** Options-Flow-Reload Race-Condition behoben – Fenster-/Präsenz-Sensoren funktionieren jetzt sofort nach Einrichtung.
 - **Bugfix:** Initiale Sensor-Evaluierung ohne Delay – nach Restart/Reload wird offenes Fenster/Abwesenheit sofort übernommen.
 - **Bugfix:** Boost-Rückkehr zum korrekten vorherigen Preset (nicht mehr immer Comfort). Re-Boost behält Original bei.

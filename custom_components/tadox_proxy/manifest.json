@@ -1,7 +1,7 @@
 {
   "domain": "tadox_proxy",
   "name": "Tado X Proxy Thermostat",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "config_flow": true,
   "platforms": ["climate", "number", "switch"],
   "iot_class": "local_push",

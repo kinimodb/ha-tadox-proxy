@@ -61,7 +61,7 @@ Absenkungen (> 1°C Differenz).
 - **v0.6.0:** SwitchEntität "Follow Tado Input" – erkennt physische Thermostat-Änderungen via `async_track_state_change_event` auf `temperature`-Attribut der Tado-Entity.
 - **v0.6.0 Bugfix:** `target_temperature` gibt `_effective_setpoint()` zurück → UI zeigt immer den aktiven Zielwert.
 - **v0.8.0:** Vacation → Frost Protection umbenannt. Icons: Frostschutz=Schneeflocke, Manuell=Hand.
-- **v0.8.1:** Icons für alle 6 Presets (Sofa, Blatt, Flamme, Pfeil, Schneeflocke, Hand). Boost-Rückkehr zum korrekten vorherigen Preset (nicht mehr immer Comfort). Number/Switch als `EntityCategory.CONFIG`.
+- **v0.8.2:** Icons für alle 6 Presets (Sofa, Blatt, Flamme, Pfeil, Schneeflocke, Hand). Boost-Rückkehr zum korrekten vorherigen Preset (nicht mehr immer Comfort). Number/Switch als `EntityCategory.CONFIG`.
 - Alle Preset-Temperaturen: Range 5–30°C, via NumberEntität oder Options Flow.
 
 ### Externe Trigger (v0.7.0)
