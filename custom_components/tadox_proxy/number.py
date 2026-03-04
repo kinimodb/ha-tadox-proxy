@@ -1,4 +1,4 @@
-"""Number entities for Tado X Proxy preset temperatures."""
+"""Number entities for Tado X Proxy preset temperatures and boost duration."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,6 +20,7 @@ from .const import (
     CONF_COMFORT_TARGET,
     CONF_ECO_TARGET,
     CONF_BOOST_TARGET,
+    CONF_BOOST_DURATION,
     CONF_AWAY_TARGET,
     CONF_FROST_PROTECTION_TARGET,
 )
@@ -35,12 +36,8 @@ class PresetNumberDescription:
     translation_key: str
 
 
+# Ordered: most-used first (Comfort, Eco, Away, Boost, Frost Protection)
 _PRESET_NUMBERS: tuple[PresetNumberDescription, ...] = (
-    PresetNumberDescription(
-        conf_key=CONF_BOOST_TARGET,
-        default=PresetConfig.boost_target_c,
-        translation_key="boost_target",
-    ),
     PresetNumberDescription(
         conf_key=CONF_COMFORT_TARGET,
         default=20.0,
@@ -57,6 +54,11 @@ _PRESET_NUMBERS: tuple[PresetNumberDescription, ...] = (
         translation_key="away_target",
     ),
     PresetNumberDescription(
+        conf_key=CONF_BOOST_TARGET,
+        default=PresetConfig.boost_target_c,
+        translation_key="boost_target",
+    ),
+    PresetNumberDescription(
         conf_key=CONF_FROST_PROTECTION_TARGET,
         default=PresetConfig.frost_protection_target_c,
         translation_key="frost_protection_target",
@@ -71,10 +73,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up Tado X Proxy number entities."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
+    entities: list[NumberEntity] = [
         PresetTemperatureNumber(coordinator, entry, desc)
         for desc in _PRESET_NUMBERS
-    )
+    ]
+    entities.append(BoostDurationNumber(coordinator, entry))
+    async_add_entities(entities)
 
 
 class PresetTemperatureNumber(CoordinatorEntity, NumberEntity):
@@ -111,5 +115,43 @@ class PresetTemperatureNumber(CoordinatorEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Persist the new preset temperature to config entry options."""
         new_opts = {**self._entry.options, self._desc.conf_key: value}
+        self.hass.config_entries.async_update_entry(self._entry, options=new_opts)
+        self.async_write_ha_state()
+
+
+class BoostDurationNumber(CoordinatorEntity, NumberEntity):
+    """Number entity for the boost timer duration in minutes."""
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "min"
+    _attr_mode = NumberMode.BOX
+    _attr_native_min_value = 1
+    _attr_native_max_value = 120
+    _attr_native_step = 1
+    _attr_translation_key = "boost_duration"
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        """Initialize the boost duration number entity."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{CONF_BOOST_DURATION}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info so this entity appears on the same device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+        )
+
+    @property
+    def native_value(self) -> float:
+        """Return the current boost duration from options."""
+        return self._entry.options.get(
+            CONF_BOOST_DURATION, PresetConfig.boost_duration_min
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Persist the new boost duration to config entry options."""
+        new_opts = {**self._entry.options, CONF_BOOST_DURATION: int(value)}
         self.hass.config_entries.async_update_entry(self._entry, options=new_opts)
         self.async_write_ha_state()
