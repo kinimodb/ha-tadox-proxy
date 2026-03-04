@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -25,11 +26,12 @@ class FollowTadoInputSwitch(CoordinatorEntity, SwitchEntity):
     """Switch that enables following physical Tado thermostat input.
 
     When on, the proxy detects if the user manually changes the setpoint
-    on the physical Tado device and adopts that temperature as the new
-    comfort target, reverting to COMFORT preset automatically.
+    on the physical Tado device and adopts that temperature, switching
+    to manual (PRESET_NONE) mode.
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_translation_key = "follow_tado_input"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:

@@ -11,6 +11,7 @@ from homeassistant.components.number import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -85,6 +86,7 @@ class PresetTemperatureNumber(CoordinatorEntity, NumberEntity):
     """A number entity representing one preset target temperature."""
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_mode = NumberMode.BOX
@@ -123,6 +125,7 @@ class BoostDurationNumber(CoordinatorEntity, NumberEntity):
     """Number entity for the boost timer duration in minutes."""
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
     _attr_native_unit_of_measurement = "min"
     _attr_mode = NumberMode.BOX
     _attr_native_min_value = 1

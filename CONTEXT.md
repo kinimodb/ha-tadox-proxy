@@ -61,6 +61,7 @@ Absenkungen (> 1°C Differenz).
 - **v0.6.0:** SwitchEntität "Follow Tado Input" – erkennt physische Thermostat-Änderungen via `async_track_state_change_event` auf `temperature`-Attribut der Tado-Entity.
 - **v0.6.0 Bugfix:** `target_temperature` gibt `_effective_setpoint()` zurück → UI zeigt immer den aktiven Zielwert.
 - **v0.8.0:** Vacation → Frost Protection umbenannt. Icons: Frostschutz=Schneeflocke, Manuell=Hand.
+- **v0.8.1:** Icons für alle 6 Presets (Sofa, Blatt, Flamme, Pfeil, Schneeflocke, Hand). Boost-Rückkehr zum korrekten vorherigen Preset (nicht mehr immer Comfort). Number/Switch als `EntityCategory.CONFIG`.
 - Alle Preset-Temperaturen: Range 5–30°C, via NumberEntität oder Options Flow.
 
 ### Externe Trigger (v0.7.0)
@@ -70,7 +71,8 @@ Absenkungen (> 1°C Differenz).
 - **Unabhängigkeit:** Fenster und Präsenz steuern beide Presets, aber unabhängig. Beide können gleichzeitig aktiv sein.
 - Listener registriert via `async_track_state_change_event` + `async_call_later` für Delays.
 - Diagnose-Attribute `window_open_active` + `presence_away_active`.
-- `OptionsFlowWithReload` sorgt bei Sensor-Konfiguration für korrekten Re-Register der Listener.
+- Update-Listener in `__init__.py` erkennt Sensor-ID-Änderungen und triggert Reload NACH Options-Persistierung (keine Race Condition).
+- Bei Startup/Reload: Initiale Sensor-Evaluierung ohne Delay – offenes Fenster/Abwesenheit wird sofort übernommen.
 
 ---
 

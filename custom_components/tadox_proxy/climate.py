@@ -177,11 +177,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def icon(self) -> str | None:
         """Return a distinct icon based on the active preset mode."""
-        if self._preset_mode == PRESET_FROST_PROTECTION:
-            return "mdi:snowflake"
-        if self._preset_mode == PRESET_NONE:
-            return "mdi:hand-back-right"
-        return None
+        icons = {
+            PRESET_COMFORT: "mdi:sofa",
+            PRESET_ECO: "mdi:leaf",
+            PRESET_BOOST: "mdi:fire",
+            PRESET_AWAY: "mdi:account-arrow-right",
+            PRESET_FROST_PROTECTION: "mdi:snowflake",
+            PRESET_NONE: "mdi:hand-back-right",
+        }
+        return icons.get(self._preset_mode)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -353,32 +357,40 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     @callback
     def _evaluate_initial_window_state(self, entity_id: str) -> None:
-        """Check window sensor on startup; start delay timer if already open."""
+        """Check window sensor on startup; act immediately if already open.
+
+        After a restart/reload the window may have been open for a long time,
+        so we skip the delay and switch to frost protection right away.
+        """
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
             return
         if state.state == "on":  # window is already open
-            delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
-            self._window_timer_cancel = async_call_later(
-                self.hass, delay, self._async_window_action
-            )
             _LOGGER.info(
-                "Window sensor already open on startup – action in %ds", delay
+                "Window sensor already open on startup – activating frost protection now"
+            )
+            # Act immediately (delay = 0) – the window has been open since
+            # before our startup so the delay period has long passed.
+            self._window_timer_cancel = async_call_later(
+                self.hass, 0, self._async_window_action
             )
 
     @callback
     def _evaluate_initial_presence_state(self, entity_id: str) -> None:
-        """Check presence sensor on startup; start delay timer if nobody home."""
+        """Check presence sensor on startup; act immediately if nobody home.
+
+        After a restart/reload nobody may have been home for a long time,
+        so we skip the delay and switch to AWAY right away.
+        """
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
             return
         if state.state == "off":  # nobody home
-            delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 1800)
-            self._presence_timer_cancel = async_call_later(
-                self.hass, delay, self._async_presence_away_action
-            )
             _LOGGER.info(
-                "Presence sensor already away on startup – AWAY in %ds", delay
+                "Presence sensor already away on startup – activating AWAY now"
+            )
+            self._presence_timer_cancel = async_call_later(
+                self.hass, 0, self._async_presence_away_action
             )
 
     # ------------------------------------------------------------------
@@ -555,7 +567,20 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
 
         old_preset = self._preset_mode
-        self._preset_mode = preset_mode
+
+        # When entering BOOST: save the return-to preset BEFORE cancelling
+        # any existing boost timer.  If we're re-boosting (boost during
+        # boost), preserve the ORIGINAL pre-boost preset instead of saving
+        # "boost" as the return target.
+        if preset_mode == PRESET_BOOST:
+            if old_preset != PRESET_BOOST:
+                # Fresh boost – remember where to go back to.
+                saved_preset = old_preset
+                saved_temp = self._target_temp
+            else:
+                # Re-boost – keep the original saved preset.
+                saved_preset = self._pre_boost_preset
+                saved_temp = self._pre_boost_temp
 
         # Cancel any running boost timer
         if self._boost_cancel is not None:
@@ -564,22 +589,26 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             self._pre_boost_preset = None
             self._pre_boost_temp = None
 
+        self._preset_mode = preset_mode
+
         # When switching to COMFORT, restore the stored comfort target
         if preset_mode == PRESET_COMFORT:
             comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
             if comfort is not None:
                 self._target_temp = float(comfort)
 
-        # Start boost timer if entering boost mode – remember previous preset
+        # Start boost timer if entering boost mode
         if preset_mode == PRESET_BOOST:
-            self._pre_boost_preset = old_preset
-            self._pre_boost_temp = self._target_temp
+            self._pre_boost_preset = saved_preset
+            self._pre_boost_temp = saved_temp
             duration_s = self._config.presets.boost_duration_min * 60
             self._boost_cancel = async_call_later(
                 self.hass, duration_s, self._async_boost_expired
             )
             _LOGGER.info(
-                "Boost started for %d min", self._config.presets.boost_duration_min
+                "Boost started for %d min (return to: %s)",
+                self._config.presets.boost_duration_min,
+                self._pre_boost_preset,
             )
 
         _LOGGER.debug("Preset changed: %s → %s", old_preset, preset_mode)
@@ -589,10 +618,16 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     async def _async_boost_expired(self, _now) -> None:
         """Called when the boost timer expires – revert to previous preset."""
         self._boost_cancel = None
-        restore_preset = self._pre_boost_preset or PRESET_COMFORT
+        restore_preset = self._pre_boost_preset
         restore_temp = self._pre_boost_temp
         self._pre_boost_preset = None
         self._pre_boost_temp = None
+
+        # Guard: if there's no saved preset (shouldn't happen), default to
+        # COMFORT.  Also prevent restoring back to BOOST (infinite loop).
+        if not restore_preset or restore_preset == PRESET_BOOST:
+            restore_preset = PRESET_COMFORT
+
         _LOGGER.info("Boost expired, reverting to %s", restore_preset)
         # Restore saved temperature before calling set_preset_mode so that
         # PRESET_NONE (manual) gets the correct slider value back.

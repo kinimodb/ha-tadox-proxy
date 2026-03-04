@@ -105,30 +105,9 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 # Strip empty optional sensor values so they're stored as absent
                 cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
-                # NOTE: Do NOT reload here. async_create_entry must return first
-                # so HA persists the new options. The climate entity picks up
-                # changes via its config_entry update listener. A reload is only
-                # needed when sensor entity IDs change (listener re-registration).
-                # We use async_call_later(0.5) so the entry write is committed
-                # before the reload starts.
-                entry_id = self.config_entry.entry_id
-                old_opts = self.config_entry.options
-                sensor_keys = (
-                    CONF_WINDOW_SENSOR_ID,
-                    CONF_PRESENCE_SENSOR_ID,
-                    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-                )
-                sensors_changed = any(
-                    cleaned.get(k) != old_opts.get(k) for k in sensor_keys
-                )
-                if sensors_changed:
-                    from homeassistant.helpers.event import async_call_later
-
-                    async def _deferred_reload(_now) -> None:
-                        await self.hass.config_entries.async_reload(entry_id)
-
-                    async_call_later(self.hass, 0.5, _deferred_reload)
-
+                # NOTE: No reload scheduling here. The update listener in
+                # __init__.py detects sensor-ID changes and reloads AFTER
+                # HA has persisted the new options – no race condition.
                 return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
