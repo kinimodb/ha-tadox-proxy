@@ -72,6 +72,18 @@
 - [x] Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - [x] Übersetzungen (DE/EN) für alle neuen Felder.
 
+## M4.1 – UX-Polish & Bugfixes (v0.8.1) ✅
+
+**Ziel:** Stabilität und UX-Verbesserungen nach Beta-Feedback.
+
+- [x] **Bugfix:** Options-Flow-Reload Race-Condition behoben – Update-Listener in `__init__.py` statt fragiles `async_call_later(0.5)` in config_flow.
+- [x] **Bugfix:** Fenster-/Präsenz-Sensoren funktionieren jetzt sofort nach Einrichtung (kein doppeltes Speichern mehr nötig).
+- [x] **Bugfix:** Initiale Sensor-Evaluierung ohne Delay – nach Restart/Reload wird der aktuelle Zustand sofort übernommen.
+- [x] **Bugfix:** Boost-Rückkehr zum korrekten vorherigen Preset (statt immer Comfort). Re-Boost während Boost behält Original-Preset bei.
+- [x] **Feature:** Icons für alle Presets: Comfort=Sofa, Eco=Blatt, Boost=Flamme, Away=Pfeil, Frostschutz=Schneeflocke, Manuell=Hand.
+- [x] **Feature:** Number- und Switch-Entitäten als `EntityCategory.CONFIG` – korrekte Gruppierung im HA Device-Panel.
+- [x] **Fix:** Falscher Docstring in switch.py korrigiert (Follow-Tado → PRESET_NONE, nicht COMFORT).
+
 ## M5 – Multi-Room & Community
 
 **Ziel:** Erweiterung und Community-Feedback.
@@ -83,6 +95,13 @@
 ---
 
 ## Changelog
+
+### v0.8.1
+- **Bugfix:** Options-Flow-Reload Race-Condition behoben – Fenster-/Präsenz-Sensoren funktionieren jetzt sofort nach Einrichtung.
+- **Bugfix:** Initiale Sensor-Evaluierung ohne Delay – nach Restart/Reload wird offenes Fenster/Abwesenheit sofort übernommen.
+- **Bugfix:** Boost-Rückkehr zum korrekten vorherigen Preset (nicht mehr immer Comfort). Re-Boost behält Original bei.
+- **Feature:** Icons für alle 6 Presets (Sofa, Blatt, Flamme, Pfeil, Schneeflocke, Hand).
+- **Feature:** Number-/Switch-Entitäten als `EntityCategory.CONFIG` – korrekte Gruppierung im Device-Panel.
 
 ### v0.8.0
 - **Breaking:** Preset "Urlaub/Vacation" umbenannt in "Frostschutz/Frost protection". Config-Key: `frost_protection_target` (vorher `vacation_target`). Bestehende Einstellungen müssen ggf. neu gesetzt werden.
