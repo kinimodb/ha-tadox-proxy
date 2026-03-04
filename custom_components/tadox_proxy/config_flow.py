@@ -151,7 +151,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                 vol.Required(
                     CONF_BOOST_DURATION,
                     default=opts.get(CONF_BOOST_DURATION, defaults.presets.boost_duration_min),
-                ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120)),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
                 vol.Required(
                     CONF_AWAY_TARGET,
                     default=opts.get(CONF_AWAY_TARGET, defaults.presets.away_target_c),
@@ -172,7 +172,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                 # --- Window sensor (optional) ---
                 vol.Optional(
                     CONF_WINDOW_SENSOR_ID,
-                    default=opts.get(CONF_WINDOW_SENSOR_ID, ""),
+                    description={"suggested_value": opts.get(CONF_WINDOW_SENSOR_ID)},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="binary_sensor")
                 ),
@@ -184,7 +184,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
                 # --- Presence sensor (optional) ---
                 vol.Optional(
                     CONF_PRESENCE_SENSOR_ID,
-                    default=opts.get(CONF_PRESENCE_SENSOR_ID, ""),
+                    description={"suggested_value": opts.get(CONF_PRESENCE_SENSOR_ID)},
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="binary_sensor")
                 ),
