@@ -74,10 +74,10 @@ PRESET_LIST = [
 
 # Threshold: tado_setpoint must differ from _last_sent_setpoint by more
 # than this before we treat it as a user-initiated physical change.
-_FOLLOW_THRESHOLD_C = 1.5
+_FOLLOW_THRESHOLD_C = 0.5
 # Grace period after our last sent command during which we ignore divergence
-# (Tado may still be acknowledging the command).
-_FOLLOW_GRACE_S = 30
+# (Tado may still be acknowledging the command via Thread/cloud).
+_FOLLOW_GRACE_S = 20
 
 
 async def async_setup_entry(
@@ -172,6 +172,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         return config
 
     @property
+    def icon(self) -> str | None:
+        """Return a distinct icon based on the active preset mode."""
+        if self._preset_mode == PRESET_VACATION:
+            return "mdi:palm-tree"
+        if self._preset_mode == PRESET_NONE:
+            return "mdi:thermometer"
+        return None
+
+    @property
     def device_info(self) -> DeviceInfo:
         """Return device information for the proxy."""
         return DeviceInfo(
@@ -211,6 +220,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             opts_comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
             if opts_comfort is not None:
                 self._target_temp = float(opts_comfort)
+
+        # Initialize baseline for follow-tado from current tado setpoint so
+        # the feature works immediately without waiting for the first regulation.
+        tado_sp = self.coordinator.data.get("tado_setpoint")
+        if tado_sp is not None and self._last_sent_setpoint is None:
+            self._last_sent_setpoint = tado_sp
 
         # Config entry update listener (from number/switch entities)
         self.async_on_remove(
@@ -320,6 +335,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             self._boost_cancel()
             self._boost_cancel = None
         self.async_write_ha_state()
+        # Trigger immediate regulation so the new target takes effect fast.
+        self.hass.async_create_task(
+            self._async_regulation_cycle(trigger="follow_tado")
+        )
 
     # ------------------------------------------------------------------
     # Window sensor
