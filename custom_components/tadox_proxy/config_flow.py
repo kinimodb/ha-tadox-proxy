@@ -93,7 +93,7 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return TadoxProxyOptionsFlow()
 
 
-class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
+class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
     """Per-entry options (gear icon) for tuning, presets & sensor selection."""
 
     async def async_step_init(self, user_input=None):
@@ -111,6 +111,10 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlowWithReload):
             if not errors:
                 # Strip empty optional sensor values so they're stored as absent
                 cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
+                # Schedule reload so new sensor listeners are registered
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                )
                 return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
