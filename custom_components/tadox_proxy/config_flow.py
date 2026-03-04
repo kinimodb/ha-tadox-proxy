@@ -17,7 +17,7 @@ from .const import (
     CONF_BOOST_TARGET,
     CONF_BOOST_DURATION,
     CONF_AWAY_TARGET,
-    CONF_VACATION_TARGET,
+    CONF_FROST_PROTECTION_TARGET,
     CONF_WINDOW_SENSOR_ID,
     CONF_WINDOW_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -161,8 +161,8 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     default=opts.get(CONF_AWAY_TARGET, defaults.presets.away_target_c),
                 ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
                 vol.Required(
-                    CONF_VACATION_TARGET,
-                    default=opts.get(CONF_VACATION_TARGET, defaults.presets.vacation_target_c),
+                    CONF_FROST_PROTECTION_TARGET,
+                    default=opts.get(CONF_FROST_PROTECTION_TARGET, defaults.presets.frost_protection_target_c),
                 ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
 
                 # --- External sensor ---

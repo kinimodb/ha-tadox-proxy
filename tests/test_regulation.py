@@ -457,7 +457,7 @@ class TestPresetConfig:
         assert presets.boost_target_c == 25.0
         assert presets.boost_duration_min == 30
         assert presets.away_target_c == 16.0
-        assert presets.vacation_target_c == 5.0
+        assert presets.frost_protection_target_c == 5.0
 
     def test_preset_config_in_regulation_config(self):
         """RegulationConfig should carry PresetConfig defaults."""
@@ -525,8 +525,8 @@ class TestPresetConfig:
         assert result.target_for_tado_c == 25.0
         assert result.is_saturated is True
 
-    def test_regulation_with_vacation_setpoint(self):
-        """Vacation uses frost protection → minimal heating."""
+    def test_regulation_with_frost_protection_setpoint(self):
+        """Frost protection preset → minimal heating."""
         reg = make_regulator()
         state = RegulationState()
 

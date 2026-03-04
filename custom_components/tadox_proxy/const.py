@@ -12,7 +12,7 @@ CONF_ECO_TARGET = "eco_target"
 CONF_BOOST_TARGET = "boost_target"
 CONF_BOOST_DURATION = "boost_duration"
 CONF_AWAY_TARGET = "away_target"
-CONF_VACATION_TARGET = "vacation_target"
+CONF_FROST_PROTECTION_TARGET = "frost_protection_target"
 
 # Optional behaviour flags (stored in options)
 CONF_FOLLOW_TADO_INPUT = "follow_tado_input"
@@ -26,4 +26,4 @@ CONF_PRESENCE_SENSOR_ID = "presence_sensor_id"
 CONF_PRESENCE_AWAY_DELAY_S = "presence_away_delay_s"
 
 # Custom preset name (not a HA built-in)
-PRESET_VACATION = "vacation"
+PRESET_FROST_PROTECTION = "frost_protection"

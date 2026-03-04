@@ -41,13 +41,13 @@ from .const import (
     CONF_BOOST_TARGET,
     CONF_BOOST_DURATION,
     CONF_AWAY_TARGET,
-    CONF_VACATION_TARGET,
+    CONF_FROST_PROTECTION_TARGET,
     CONF_FOLLOW_TADO_INPUT,
     CONF_WINDOW_SENSOR_ID,
     CONF_WINDOW_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_PRESENCE_AWAY_DELAY_S,
-    PRESET_VACATION,
+    PRESET_FROST_PROTECTION,
 )
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
@@ -68,7 +68,7 @@ PRESET_LIST = [
     PRESET_ECO,
     PRESET_BOOST,
     PRESET_AWAY,
-    PRESET_VACATION,
+    PRESET_FROST_PROTECTION,
     PRESET_NONE,
 ]
 
@@ -139,7 +139,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Window sensor state
         self._window_open_active = False
         self._window_timer_cancel: CALLBACK_TYPE | None = None
-        self._window_saved_hvac_mode: HVACMode | None = None
+        self._window_saved_preset: str | None = None
+        self._window_saved_temp: float | None = None
 
         # Presence sensor state
         self._presence_away_active = False
@@ -165,7 +166,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 boost_target_c=opts.get(CONF_BOOST_TARGET, config.presets.boost_target_c),
                 boost_duration_min=opts.get(CONF_BOOST_DURATION, config.presets.boost_duration_min),
                 away_target_c=opts.get(CONF_AWAY_TARGET, config.presets.away_target_c),
-                vacation_target_c=opts.get(CONF_VACATION_TARGET, config.presets.vacation_target_c),
+                frost_protection_target_c=opts.get(CONF_FROST_PROTECTION_TARGET, config.presets.frost_protection_target_c),
             )
             # Ensure max_target_c is at least as high as boost_target_c
             config.max_target_c = max(config.max_target_c, config.presets.boost_target_c)
@@ -174,10 +175,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def icon(self) -> str | None:
         """Return a distinct icon based on the active preset mode."""
-        if self._preset_mode == PRESET_VACATION:
-            return "mdi:palm-tree"
+        if self._preset_mode == PRESET_FROST_PROTECTION:
+            return "mdi:snowflake"
         if self._preset_mode == PRESET_NONE:
-            return "mdi:thermometer"
+            return "mdi:hand-back-right"
         return None
 
     @property
@@ -367,22 +368,29 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 self._restore_window_state()
 
     async def _async_window_action(self, _now) -> None:
-        """Switch HVAC off after window-open delay."""
+        """Switch to frost protection preset after window-open delay."""
         self._window_timer_cancel = None
-        self._window_saved_hvac_mode = self._hvac_mode
-        self._hvac_mode = HVACMode.OFF
+        self._window_saved_preset = self._preset_mode
+        self._window_saved_temp = self._target_temp
+        self._preset_mode = PRESET_FROST_PROTECTION
         self._window_open_active = True
-        _LOGGER.info("Window open: switching HVAC OFF")
+        _LOGGER.info("Window open: switching to frost protection")
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="window_open")
 
     def _restore_window_state(self) -> None:
-        """Restore HVAC mode after window is closed."""
-        if self._window_saved_hvac_mode is not None:
-            self._hvac_mode = self._window_saved_hvac_mode
+        """Restore preset after window is closed."""
+        if self._window_saved_preset is not None:
+            self._preset_mode = self._window_saved_preset
+            if self._preset_mode == PRESET_COMFORT:
+                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+                self._target_temp = float(comfort) if comfort is not None else self._target_temp
+            elif self._window_saved_temp is not None:
+                self._target_temp = self._window_saved_temp
         self._window_open_active = False
-        self._window_saved_hvac_mode = None
-        _LOGGER.info("Window closed: restoring HVAC mode")
+        self._window_saved_preset = None
+        self._window_saved_temp = None
+        _LOGGER.info("Window closed: restoring previous preset")
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="window_closed")
         )
@@ -461,7 +469,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # intention is respected.
         if self._window_open_active:
             self._window_open_active = False
-            self._window_saved_hvac_mode = None
+            self._window_saved_preset = None
+            self._window_saved_temp = None
         self._hvac_mode = hvac_mode
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="hvac_mode_change")
@@ -546,8 +555,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return self._config.presets.boost_target_c
         elif self._preset_mode == PRESET_AWAY:
             return self._config.presets.away_target_c
-        elif self._preset_mode == PRESET_VACATION:
-            return self._config.presets.vacation_target_c
+        elif self._preset_mode == PRESET_FROST_PROTECTION:
+            return self._config.presets.frost_protection_target_c
 
         return self._target_temp
 
