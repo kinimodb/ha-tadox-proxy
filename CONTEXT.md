@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03-05 (v0.8.1)
+**Letzte Aktualisierung:** 2026-03-05 (v0.8.12)
 
 ---
 
@@ -72,6 +72,18 @@ Absenkungen (> 1°C Differenz).
 - Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - **v0.8.1 Fix:** Options-Reload wird jetzt über einen `update_listener` in `__init__.py` ausgelöst, der NACH dem Speichern der Options feuert. Vorher gab es eine Race Condition, bei der der Reload mit veralteten Options startete → Sensor-Listener wurden nicht korrekt registriert.
 
+### iOS EntitySelector-Bug (v0.8.2–v0.8.12)
+
+**Problem:** Die `ha-entity-picker` Web Component crasht im iOS Companion App WebView mit `ReferenceError: elementId`. Das betrifft sowohl den Config Flow als auch den Options Flow – überall wo `EntitySelector` verwendet wird.
+
+**Getestete Lösungsansätze (alle verworfen):**
+
+1. **Entity-Registry-Validierung entfernen (v0.8.2–v0.8.4):** Backend-Checks entfernt, da EntitySelector im Frontend validiert. Hat den iOS-Crash nicht behoben, da das Problem in der Web Component selbst liegt.
+2. **Two-Step Config Flow (v0.8.5):** Config Flow in zwei Schritte aufgeteilt (erst Entity, dann Sensor). Revertiert – gleicher Crash, da immer noch `ha-entity-picker` gerendert wird.
+3. **SelectSelector-Dropdown (v0.8.12):** Alle 5 EntitySelector durch `SelectSelector(mode=DROPDOWN)` ersetzt mit dynamischen Optionen aus `hass.states`. Funktioniert technisch, aber verliert die Suchfunktion/Entity-Icons des EntitySelectors. Vom Nutzer abgelehnt – UX-Nachteil zu groß.
+
+**Entscheidung:** Workaround akzeptiert – Konfiguration über den Browser statt iOS App. Der Bug liegt im HA-Frontend (`ha-entity-picker`), nicht in unserem Code. Issue bleibt offen für zukünftige HA-Updates.
+
 ---
 
 ## Datei-Architektur
@@ -85,7 +97,7 @@ custom_components/tadox_proxy/
 ├── config_flow.py     # Setup + Options Flow (Kp, Ki, Presets, Sensor)
 ├── const.py           # DOMAIN + Config-Keys + PRESET_FROST_PROTECTION
 ├── diagnostics.py     # HA Diagnostik-Export
-├── manifest.json      # HACS/HA Metadata (v0.8.0)
+├── manifest.json      # HACS/HA Metadata (v0.8.12)
 ├── parameters.py      # Zentrale Parameter-Defaults (RegulationConfig + PresetConfig)
 ├── regulation.py      # Feedforward + PI Engine (FeedforwardPiRegulator)
 ├── strings.json       # UI-Strings (Fallback)
@@ -185,6 +197,7 @@ Wobei:
 2. **Tado X spezifisch** – Nicht getestet mit anderen Tado-Modellen.
 3. **Batterie-Monitoring** – Kein direktes Feedback über Batterie-Zustand des TRV.
 4. **Follow Tado Input** – Schwellenwert (1.5°C, 30s Grace) könnte in Extremsituationen false positives produzieren; in der Praxis bisher nicht beobachtet.
+5. **iOS Companion App** – EntitySelector (`ha-entity-picker`) crasht im iOS WebView. Konfiguration muss über den Browser erfolgen. Siehe "iOS EntitySelector-Bug" Abschnitt oben.
 
 ---
 
