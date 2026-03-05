@@ -5,7 +5,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.helpers import entity_registry as er, selector
+from homeassistant.helpers import selector
 
 from .const import (
     DOMAIN,
@@ -39,25 +39,20 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ext_temp_entity_id = user_input[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID]
             name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
 
-            # Validate via entity registry (reliable even before states load)
-            registry = er.async_get(self.hass)
+            # EntitySelector already validates entity existence on the frontend.
+            # Redundant backend registry checks caused false negatives in the
+            # HA Companion App where a WebView bug can delay selector init.
+            await self.async_set_unique_id(source_entity_id)
+            self._abort_if_unique_id_configured()
 
-            if registry.async_get(source_entity_id) is None:
-                errors["base"] = "entity_not_found"
-            elif registry.async_get(ext_temp_entity_id) is None:
-                errors["base"] = "temp_entity_not_found"
-            else:
-                await self.async_set_unique_id(source_entity_id)
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(
-                    title=name,
-                    data={
-                        CONF_SOURCE_ENTITY_ID: source_entity_id,
-                        CONF_NAME: name,
-                        CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
-                    },
-                )
+            return self.async_create_entry(
+                title=name,
+                data={
+                    CONF_SOURCE_ENTITY_ID: source_entity_id,
+                    CONF_NAME: name,
+                    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
+                },
+            )
 
         schema = vol.Schema(
             {
@@ -83,22 +78,12 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
     """Per-entry options (gear icon) for tuning, presets & sensor selection."""
 
     async def async_step_init(self, user_input=None):
-        errors: dict[str, str] = {}
-
         if user_input is not None:
-            # Validate external temp sensor via entity registry
-            ext_temp_entity_id = user_input.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
-            if ext_temp_entity_id:
-                registry = er.async_get(self.hass)
-                if registry.async_get(ext_temp_entity_id) is None:
-                    errors["base"] = "temp_entity_not_found"
-
-            if not errors:
-                # Strip empty optional sensor values so they're stored as absent
-                cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
-                # Reload is triggered by the update_listener in __init__.py
-                # AFTER HA has persisted the new options, avoiding stale data.
-                return self.async_create_entry(title="", data=cleaned)
+            # Strip empty optional sensor values so they're stored as absent
+            cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
+            # Reload is triggered by the update_listener in __init__.py
+            # AFTER HA has persisted the new options, avoiding stale data.
+            return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
         opts = self.config_entry.options
@@ -196,5 +181,4 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=options_schema,
-            errors=errors,
         )
