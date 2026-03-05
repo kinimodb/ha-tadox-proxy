@@ -3,11 +3,17 @@
     "step": {
       "user": {
         "title": "Tado X Proxy Thermostat",
-        "description": "Select the source climate entity, an external temperature sensor, and a name for the proxy thermostat.",
+        "description": "Select the source climate entity and a name for the proxy thermostat.",
         "data": {
           "source_entity_id": "Source climate entity",
-          "external_temperature_entity_id": "External temperature sensor",
           "name": "Name"
+        }
+      },
+      "sensors": {
+        "title": "Temperature sensor",
+        "description": "Select the external temperature sensor used for room temperature measurement.",
+        "data": {
+          "external_temperature_entity_id": "External temperature sensor"
         }
       }
     },
@@ -22,8 +28,8 @@
   "options": {
     "step": {
       "init": {
-        "title": "Proxy options",
-        "description": "Tune the regulation parameters, configure preset temperatures, and select the external temperature sensor.",
+        "title": "Regulation & presets",
+        "description": "Tune the regulation parameters and configure preset temperatures.",
         "data": {
           "correction_kp": "Proportional correction (Kp)",
           "correction_ki": "Integral correction (Ki)",
@@ -32,7 +38,13 @@
           "boost_target": "Boost target temperature (°C)",
           "boost_duration": "Boost duration (minutes)",
           "away_target": "Away target temperature (°C)",
-          "frost_protection_target": "Frost protection temperature (°C)",
+          "frost_protection_target": "Frost protection temperature (°C)"
+        }
+      },
+      "sensors": {
+        "title": "Sensors",
+        "description": "Select the external temperature sensor and optional window/presence sensors.",
+        "data": {
           "external_temperature_entity_id": "External temperature sensor",
           "window_sensor_id": "Window sensor",
           "window_delay_s": "Window open delay (seconds)",
