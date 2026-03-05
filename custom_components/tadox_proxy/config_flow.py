@@ -12,12 +12,7 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     CONF_NAME,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-    CONF_COMFORT_TARGET,
-    CONF_ECO_TARGET,
-    CONF_BOOST_TARGET,
     CONF_BOOST_DURATION,
-    CONF_AWAY_TARGET,
-    CONF_FROST_PROTECTION_TARGET,
     CONF_WINDOW_SENSOR_ID,
     CONF_WINDOW_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -107,31 +102,11 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     default=opts.get("correction_ki", defaults.tuning.ki),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.1)),
 
-                # --- Preset temperatures ---
-                vol.Required(
-                    CONF_COMFORT_TARGET,
-                    default=opts.get(CONF_COMFORT_TARGET, 20.0),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
-                vol.Required(
-                    CONF_ECO_TARGET,
-                    default=opts.get(CONF_ECO_TARGET, defaults.presets.eco_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
-                vol.Required(
-                    CONF_BOOST_TARGET,
-                    default=opts.get(CONF_BOOST_TARGET, defaults.presets.boost_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
+                # --- Boost duration ---
                 vol.Required(
                     CONF_BOOST_DURATION,
                     default=opts.get(CONF_BOOST_DURATION, defaults.presets.boost_duration_min),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
-                vol.Required(
-                    CONF_AWAY_TARGET,
-                    default=opts.get(CONF_AWAY_TARGET, defaults.presets.away_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
-                vol.Required(
-                    CONF_FROST_PROTECTION_TARGET,
-                    default=opts.get(CONF_FROST_PROTECTION_TARGET, defaults.presets.frost_protection_target_c),
-                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
 
                 # --- External sensor ---
                 vol.Required(

@@ -130,6 +130,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # Boost timer
         self._boost_cancel: CALLBACK_TYPE | None = None
+        self._boost_saved_preset: str = PRESET_COMFORT
+        self._boost_saved_temp: float | None = None
 
         # Timing
         self._last_regulation_ts = 0.0
@@ -175,11 +177,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     @property
     def icon(self) -> str | None:
         """Return a distinct icon based on the active preset mode."""
-        if self._preset_mode == PRESET_FROST_PROTECTION:
-            return "mdi:snowflake"
-        if self._preset_mode == PRESET_NONE:
-            return "mdi:hand-back-right"
-        return None
+        icons = {
+            PRESET_COMFORT: "mdi:sofa",
+            PRESET_ECO: "mdi:leaf",
+            PRESET_BOOST: "mdi:rocket-launch",
+            PRESET_AWAY: "mdi:home-export-outline",
+            PRESET_FROST_PROTECTION: "mdi:snowflake",
+            PRESET_NONE: "mdi:hand-back-right",
+        }
+        return icons.get(self._preset_mode)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -254,6 +260,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     self._async_window_changed,
                 )
             )
+            # Evaluate current state after restart
+            window_state = self.hass.states.get(window_sensor)
+            if window_state and window_state.state == "on":
+                delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
+                self._window_timer_cancel = async_call_later(
+                    self.hass, delay, self._async_window_action
+                )
+                _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
 
         # Presence sensor listener
         presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
@@ -265,6 +279,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     self._async_presence_changed,
                 )
             )
+            # Evaluate current state after restart
+            presence_state = self.hass.states.get(presence_sensor)
+            if presence_state and presence_state.state == "off":
+                delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 1800)
+                self._presence_timer_cancel = async_call_later(
+                    self.hass, delay, self._async_presence_away_action
+                )
+                _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
 
         # Start periodic regulation
         self.async_on_remove(
@@ -370,8 +392,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     async def _async_window_action(self, _now) -> None:
         """Switch to frost protection preset after window-open delay."""
         self._window_timer_cancel = None
-        self._window_saved_preset = self._preset_mode
-        self._window_saved_temp = self._target_temp
+        # If boost is active, cancel it and save the pre-boost preset
+        if self._boost_cancel is not None:
+            self._boost_cancel()
+            self._boost_cancel = None
+            self._window_saved_preset = self._boost_saved_preset
+            self._window_saved_temp = self._boost_saved_temp
+        else:
+            self._window_saved_preset = self._preset_mode
+            self._window_saved_temp = self._target_temp
         self._preset_mode = PRESET_FROST_PROTECTION
         self._window_open_active = True
         _LOGGER.info("Window open: switching to frost protection")
@@ -425,8 +454,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     async def _async_presence_away_action(self, _now) -> None:
         """Switch to AWAY preset after presence-away delay."""
         self._presence_timer_cancel = None
-        self._presence_saved_preset = self._preset_mode
-        self._presence_saved_temp = self._target_temp
+        # If boost is active, cancel it and save the pre-boost preset
+        if self._boost_cancel is not None:
+            self._boost_cancel()
+            self._boost_cancel = None
+            self._presence_saved_preset = self._boost_saved_preset
+            self._presence_saved_temp = self._boost_saved_temp
+        else:
+            self._presence_saved_preset = self._preset_mode
+            self._presence_saved_temp = self._target_temp
         self._preset_mode = PRESET_AWAY
         self._presence_away_active = True
         _LOGGER.info("Presence away: switching to AWAY preset")
@@ -520,6 +556,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # Start boost timer if entering boost mode
         if preset_mode == PRESET_BOOST:
+            self._boost_saved_preset = old_preset
+            self._boost_saved_temp = self._target_temp
             duration_s = self._config.presets.boost_duration_min * 60
             self._boost_cancel = async_call_later(
                 self.hass, duration_s, self._async_boost_expired
@@ -533,10 +571,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         await self._async_regulation_cycle(trigger="preset_change")
 
     async def _async_boost_expired(self, _now) -> None:
-        """Called when the boost timer expires – revert to comfort."""
+        """Called when the boost timer expires – revert to previous preset."""
         self._boost_cancel = None
-        _LOGGER.info("Boost expired, reverting to comfort")
-        await self.async_set_preset_mode(PRESET_COMFORT)
+        restore_preset = self._boost_saved_preset
+        if restore_preset == PRESET_NONE and self._boost_saved_temp is not None:
+            self._target_temp = self._boost_saved_temp
+        _LOGGER.info("Boost expired, reverting to %s", restore_preset)
+        await self.async_set_preset_mode(restore_preset)
 
     # ------------------------------------------------------------------
     # Effective setpoint calculation

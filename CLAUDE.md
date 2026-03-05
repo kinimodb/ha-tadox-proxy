@@ -97,7 +97,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.8.12)
+## Aktueller Stand (v0.8.13)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
@@ -112,9 +112,9 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 
 1. ~~**Options Flow Reload Race Condition** – behoben in v0.8.1~~
 2. **iOS Companion App: EntitySelector-Crash** – Die `ha-entity-picker` Web Component verursacht einen `ReferenceError: elementId` im iOS WebView. Das ist ein bekannter HA-Frontend-Bug (nicht unser Code). **Workaround:** Konfiguration über den Browser statt die iOS App durchführen. Mehrere Lösungsansätze wurden getestet (Registry-Validierung entfernen, Two-Step-Flow, SelectSelector-Dropdown) – keiner war zufriedenstellend. Betrifft Config Flow und Options Flow.
-3. **Sensor-State nach Restart nicht evaluiert** – Nach Neustart wird der aktuelle Zustand von Fenster-/Präsenzsensoren nicht geprüft, nur auf zukünftige Änderungen reagiert.
-4. **Nach Boost: Wechsel in Komfort statt vorheriges Preset** – Boost sollte zum vorherigen Preset zurückkehren, nicht immer zu Komfort.
-5. **Boost-Timer bei Away nicht gecancelt** – Wenn Präsenz-Away während Boost aktiviert wird, läuft der Timer weiter und überschreibt später das Away-Preset.
-6. **Frostschutz/Manuell Icons** – nur teilweise umgesetzt (nur in `icon` property, nicht in HA-Preset-Icons).
+3. ~~**Sensor-State nach Restart nicht evaluiert** – behoben in v0.8.13~~
+4. ~~**Nach Boost: Wechsel in Komfort statt vorheriges Preset** – behoben in v0.8.13~~
+5. ~~**Boost-Timer bei Away nicht gecancelt** – behoben in v0.8.13~~
+6. ~~**Preset-Icons unvollständig** – behoben in v0.8.13 (alle 6 Presets haben Icons)~~
 7. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
-8. **Preset-Temps doppelt konfigurierbar** – sowohl in Options Flow als auch in Number-Entitäten. Entscheidung ausstehend ob Options Flow Preset-Temps entfernt werden sollen.
+8. ~~**Preset-Temps doppelt konfigurierbar** – behoben in v0.8.13 (nur noch über NumberEntitäten)~~
