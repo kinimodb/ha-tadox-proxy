@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03 (v0.8.0)
+**Letzte Aktualisierung:** 2026-03-05 (v0.8.1)
 
 ---
 
@@ -70,7 +70,7 @@ Absenkungen (> 1°C Differenz).
 - **Unabhängigkeit:** Fenster und Präsenz steuern beide Presets, aber unabhängig. Beide können gleichzeitig aktiv sein.
 - Listener registriert via `async_track_state_change_event` + `async_call_later` für Delays.
 - Diagnose-Attribute `window_open_active` + `presence_away_active`.
-- `OptionsFlowWithReload` sorgt bei Sensor-Konfiguration für korrekten Re-Register der Listener.
+- **v0.8.1 Fix:** Options-Reload wird jetzt über einen `update_listener` in `__init__.py` ausgelöst, der NACH dem Speichern der Options feuert. Vorher gab es eine Race Condition, bei der der Reload mit veralteten Options startete → Sensor-Listener wurden nicht korrekt registriert.
 
 ---
 

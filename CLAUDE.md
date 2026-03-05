@@ -97,7 +97,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.8.0)
+## Aktueller Stand (v0.8.1)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
@@ -107,3 +107,15 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 - M4.1 (UX-Polish: Frostschutz-Umbenennung, Icons, Sortierung) ✅
 - M5 (Multi-Room & Community) – nächster Meilenstein
 - Testraum läuft stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
+
+## Bekannte offene Bugs (Priorisiert)
+
+1. ~~**Options Flow Reload Race Condition** – behoben in v0.8.1~~
+2. **Config Flow: Temperatursensor nicht sofort akzeptiert** – Entity-Selector zeigt beim ersten Versuch Fehler, zweiter Versuch klappt.
+3. **Options Flow: Fenster-/Präsenzsensor nicht sofort akzeptiert** – ähnlich wie #2 im Options Flow.
+4. **Sensor-State nach Restart nicht evaluiert** – Nach Neustart wird der aktuelle Zustand von Fenster-/Präsenzsensoren nicht geprüft, nur auf zukünftige Änderungen reagiert.
+5. **Nach Boost: Wechsel in Komfort statt vorheriges Preset** – Boost sollte zum vorherigen Preset zurückkehren, nicht immer zu Komfort.
+6. **Boost-Timer bei Away nicht gecancelt** – Wenn Präsenz-Away während Boost aktiviert wird, läuft der Timer weiter und überschreibt später das Away-Preset.
+7. **Frostschutz/Manuell Icons** – nur teilweise umgesetzt (nur in `icon` property, nicht in HA-Preset-Icons).
+8. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
+9. **Preset-Temps doppelt konfigurierbar** – sowohl in Options Flow als auch in Number-Entitäten. Entscheidung ausstehend ob Options Flow Preset-Temps entfernt werden sollen.

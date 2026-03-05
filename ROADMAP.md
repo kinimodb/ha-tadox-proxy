@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.8.0)
+## Status (v0.8.1)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -83,6 +83,9 @@
 ---
 
 ## Changelog
+
+### v0.8.1
+- **Bugfix:** Race Condition beim Options-Flow-Reload behoben. Der Reload wurde bisher gestartet BEVOR die neuen Options gespeichert waren → Integration lud mit veralteten Werten neu → Fenster-/Präsenzsensoren funktionierten erst nach erneutem Speichern. Jetzt wird der Reload über einen `update_listener` in `__init__.py` ausgelöst, der garantiert NACH dem Speichern feuert.
 
 ### v0.8.0
 - **Breaking:** Preset "Urlaub/Vacation" umbenannt in "Frostschutz/Frost protection". Config-Key: `frost_protection_target` (vorher `vacation_target`). Bestehende Einstellungen müssen ggf. neu gesetzt werden.

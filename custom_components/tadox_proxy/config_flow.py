@@ -111,10 +111,8 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 # Strip empty optional sensor values so they're stored as absent
                 cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
-                # Schedule reload so new sensor listeners are registered
-                self.hass.async_create_task(
-                    self.hass.config_entries.async_reload(self.config_entry.entry_id)
-                )
+                # Reload is triggered by the update_listener in __init__.py
+                # AFTER HA has persisted the new options, avoiding stale data.
                 return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
