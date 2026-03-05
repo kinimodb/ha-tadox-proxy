@@ -26,25 +26,6 @@ from .const import (
 from .parameters import RegulationConfig
 
 
-def _entity_options(
-    hass, domain: str, device_class: str | None = None
-) -> list[selector.SelectOptionDict]:
-    """Build SelectSelector options from entities matching domain/device_class."""
-    options: list[selector.SelectOptionDict] = []
-    for state in hass.states.async_all(domain):
-        if device_class and state.attributes.get("device_class") != device_class:
-            continue
-        friendly = state.attributes.get("friendly_name", state.entity_id)
-        options.append(
-            selector.SelectOptionDict(
-                value=state.entity_id,
-                label=f"{friendly} ({state.entity_id})",
-            )
-        )
-    options.sort(key=lambda o: o["label"].lower())
-    return options
-
-
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """UI setup for the integration (initial setup)."""
 
@@ -58,40 +39,28 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ext_temp_entity_id = user_input[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID]
             name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
 
-            # Validate entity existence (SelectSelector has no built-in check)
-            if not self.hass.states.get(source_entity_id):
-                errors[CONF_SOURCE_ENTITY_ID] = "entity_not_found"
-            if not self.hass.states.get(ext_temp_entity_id):
-                errors[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID] = "temp_entity_not_found"
+            # EntitySelector already validates entity existence on the frontend.
+            # Redundant backend registry checks caused false negatives in the
+            # HA Companion App where a WebView bug can delay selector init.
+            await self.async_set_unique_id(source_entity_id)
+            self._abort_if_unique_id_configured()
 
-            if not errors:
-                await self.async_set_unique_id(source_entity_id)
-                self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=name,
+                data={
+                    CONF_SOURCE_ENTITY_ID: source_entity_id,
+                    CONF_NAME: name,
+                    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
+                },
+            )
 
-                return self.async_create_entry(
-                    title=name,
-                    data={
-                        CONF_SOURCE_ENTITY_ID: source_entity_id,
-                        CONF_NAME: name,
-                        CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
-                    },
-                )
-
-        # Use SelectSelector instead of EntitySelector to avoid iOS WebView
-        # crash (ReferenceError: elementId in ha-entity-picker component).
         schema = vol.Schema(
             {
-                vol.Required(CONF_SOURCE_ENTITY_ID): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_entity_options(self.hass, "climate"),
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+                vol.Required(CONF_SOURCE_ENTITY_ID): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="climate")
                 ),
-                vol.Required(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_entity_options(self.hass, "sensor", "temperature"),
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+                vol.Required(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
                 vol.Required(CONF_NAME, default="Tado X Proxy"): str,
             }
@@ -109,20 +78,12 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
     """Per-entry options (gear icon) for tuning, presets & sensor selection."""
 
     async def async_step_init(self, user_input=None):
-        errors: dict[str, str] = {}
-
         if user_input is not None:
-            # Validate required external temp sensor
-            ext_temp = user_input.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, "")
-            if ext_temp and not self.hass.states.get(ext_temp):
-                errors[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID] = "temp_entity_not_found"
-
-            if not errors:
-                # Strip empty optional sensor values so they're stored as absent
-                cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
-                # Reload is triggered by the update_listener in __init__.py
-                # AFTER HA has persisted the new options, avoiding stale data.
-                return self.async_create_entry(title="", data=cleaned)
+            # Strip empty optional sensor values so they're stored as absent
+            cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
+            # Reload is triggered by the update_listener in __init__.py
+            # AFTER HA has persisted the new options, avoiding stale data.
+            return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
         opts = self.config_entry.options
@@ -134,14 +95,6 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID),
         )
 
-        # Build optional sensor option lists with a "none" choice
-        binary_sensor_options = [
-            selector.SelectOptionDict(value="", label="---"),
-            *_entity_options(self.hass, "binary_sensor"),
-        ]
-
-        # Use SelectSelector instead of EntitySelector to avoid iOS WebView
-        # crash (ReferenceError: elementId in ha-entity-picker component).
         options_schema = vol.Schema(
             {
                 # --- Correction tuning ---
@@ -184,22 +137,13 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
                     default=current_ext_temp,
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_entity_options(self.hass, "sensor", "temperature"),
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
 
                 # --- Window sensor (optional) ---
-                vol.Optional(
-                    CONF_WINDOW_SENSOR_ID,
-                    default=opts.get(CONF_WINDOW_SENSOR_ID, ""),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=binary_sensor_options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+                vol.Optional(CONF_WINDOW_SENSOR_ID): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
                 ),
                 vol.Required(
                     CONF_WINDOW_DELAY_S,
@@ -207,14 +151,8 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
 
                 # --- Presence sensor (optional) ---
-                vol.Optional(
-                    CONF_PRESENCE_SENSOR_ID,
-                    default=opts.get(CONF_PRESENCE_SENSOR_ID, ""),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=binary_sensor_options,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
+                vol.Optional(CONF_PRESENCE_SENSOR_ID): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="binary_sensor")
                 ),
                 vol.Required(
                     CONF_PRESENCE_AWAY_DELAY_S,
@@ -223,8 +161,24 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             }
         )
 
+        # Use add_suggested_values_to_schema for optional entity selectors.
+        # Unlike manual description={"suggested_value": None}, this method
+        # only sets suggested_value when a value actually exists, preventing
+        # the EntitySelector frontend from receiving a confusing None value.
+        suggested: dict[str, str] = {}
+        window_sensor = opts.get(CONF_WINDOW_SENSOR_ID)
+        if window_sensor:
+            suggested[CONF_WINDOW_SENSOR_ID] = window_sensor
+        presence_sensor = opts.get(CONF_PRESENCE_SENSOR_ID)
+        if presence_sensor:
+            suggested[CONF_PRESENCE_SENSOR_ID] = presence_sensor
+
+        if suggested:
+            options_schema = self.add_suggested_values_to_schema(
+                options_schema, suggested
+            )
+
         return self.async_show_form(
             step_id="init",
             data_schema=options_schema,
-            errors=errors,
         )
