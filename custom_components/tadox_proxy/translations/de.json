@@ -3,17 +3,11 @@
     "step": {
       "user": {
         "title": "Tado X Proxy Thermostat",
-        "description": "Wähle einen Namen für das Proxy-Thermostat.",
-        "data": {
-          "name": "Name"
-        }
-      },
-      "entities": {
-        "title": "Entity-Auswahl",
-        "description": "Wähle die Quell-Climate-Entity und einen externen Temperatursensor.",
+        "description": "Wähle die Quell-Climate-Entity, einen externen Temperatursensor und einen Namen für das Proxy-Thermostat.",
         "data": {
           "source_entity_id": "Quell-Climate-Entity",
-          "external_temperature_entity_id": "Externer Temperatursensor"
+          "external_temperature_entity_id": "Externer Temperatursensor",
+          "name": "Name"
         }
       }
     },

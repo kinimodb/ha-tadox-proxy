@@ -27,47 +27,29 @@ from .parameters import RegulationConfig
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """UI setup for the integration (initial setup).
-
-    Split into two steps so the HA Companion App WebView has time to
-    fully initialise the EntitySelector JS component before it is
-    rendered.  Step 1 collects the name (plain text), step 2 the
-    entity selectors.
-    """
+    """UI setup for the integration (initial setup)."""
 
     VERSION = 1
 
-    def __init__(self) -> None:
-        self._name: str = "Tado X Proxy"
-
     async def async_step_user(self, user_input=None):
-        """Step 1: collect the proxy name (no EntitySelector)."""
-        if user_input is not None:
-            self._name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
-            return await self.async_step_entities()
+        errors: dict[str, str] = {}
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_NAME, default="Tado X Proxy"): str,
-            }
-        )
-
-        return self.async_show_form(step_id="user", data_schema=schema)
-
-    async def async_step_entities(self, user_input=None):
-        """Step 2: select source climate entity and temperature sensor."""
         if user_input is not None:
             source_entity_id = user_input[CONF_SOURCE_ENTITY_ID]
             ext_temp_entity_id = user_input[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID]
+            name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
 
+            # EntitySelector already validates entity existence on the frontend.
+            # Redundant backend registry checks caused false negatives in the
+            # HA Companion App where a WebView bug can delay selector init.
             await self.async_set_unique_id(source_entity_id)
             self._abort_if_unique_id_configured()
 
             return self.async_create_entry(
-                title=self._name,
+                title=name,
                 data={
                     CONF_SOURCE_ENTITY_ID: source_entity_id,
-                    CONF_NAME: self._name,
+                    CONF_NAME: name,
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
                 },
             )
@@ -80,10 +62,11 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
+                vol.Required(CONF_NAME, default="Tado X Proxy"): str,
             }
         )
 
-        return self.async_show_form(step_id="entities", data_schema=schema)
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     @staticmethod
     @callback
