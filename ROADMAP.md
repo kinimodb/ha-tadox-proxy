@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.8.1)
+## Status (v0.8.12)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -83,6 +83,12 @@
 ---
 
 ## Changelog
+
+### v0.8.12
+- **Bugfix:** Options Flow Reload Race Condition behoben (v0.8.1). Der Reload wird jetzt über einen `update_listener` in `__init__.py` ausgelöst, der garantiert NACH dem Speichern feuert.
+- **Bugfix:** Redundante Backend-Entity-Registry-Validierung aus Config/Options Flow entfernt. EntitySelector validiert bereits im Frontend; die Backend-Checks verursachten false negatives in der Companion App.
+- **Bekannt:** iOS Companion App EntitySelector-Crash (`ReferenceError: elementId` in `ha-entity-picker`) bleibt offen – das ist ein HA-Frontend-Bug, kein Tado X Proxy-Bug. Workaround: Konfiguration im Browser durchführen. Mehrere Lösungsansätze wurden evaluiert (Two-Step Config Flow, SelectSelector-Dropdown) – alle verworfen wegen UX-Nachteilen.
+- **Docs:** Alle Dokumentation aktualisiert für saubere Übergabe.
 
 ### v0.8.1
 - **Bugfix:** Race Condition beim Options-Flow-Reload behoben. Der Reload wurde bisher gestartet BEVOR die neuen Options gespeichert waren → Integration lud mit veralteten Werten neu → Fenster-/Präsenzsensoren funktionierten erst nach erneutem Speichern. Jetzt wird der Reload über einen `update_listener` in `__init__.py` ausgelöst, der garantiert NACH dem Speichern feuert.

@@ -191,6 +191,12 @@ Die Proxy-Entität stellt folgende Attribute bereit (sichtbar unter **Entwickler
 
 ---
 
+## Bekannte Einschränkungen
+
+- **iOS Companion App:** Die Konfiguration (Entity-Auswahl) funktioniert in der iOS Companion App nicht zuverlässig – ein HA-Frontend-Bug in der `ha-entity-picker`-Komponente verursacht einen Crash. **Workaround:** Die Erst-Konfiguration und die Optionen über den Browser (nicht die App) öffnen.
+
+---
+
 ## Lizenz
 
 MIT License – siehe [LICENSE](LICENSE)

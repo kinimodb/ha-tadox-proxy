@@ -97,7 +97,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.8.1)
+## Aktueller Stand (v0.8.12)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
@@ -111,11 +111,10 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 ## Bekannte offene Bugs (Priorisiert)
 
 1. ~~**Options Flow Reload Race Condition** – behoben in v0.8.1~~
-2. **Config Flow: Temperatursensor nicht sofort akzeptiert** – Entity-Selector zeigt beim ersten Versuch Fehler, zweiter Versuch klappt.
-3. **Options Flow: Fenster-/Präsenzsensor nicht sofort akzeptiert** – ähnlich wie #2 im Options Flow.
-4. **Sensor-State nach Restart nicht evaluiert** – Nach Neustart wird der aktuelle Zustand von Fenster-/Präsenzsensoren nicht geprüft, nur auf zukünftige Änderungen reagiert.
-5. **Nach Boost: Wechsel in Komfort statt vorheriges Preset** – Boost sollte zum vorherigen Preset zurückkehren, nicht immer zu Komfort.
-6. **Boost-Timer bei Away nicht gecancelt** – Wenn Präsenz-Away während Boost aktiviert wird, läuft der Timer weiter und überschreibt später das Away-Preset.
-7. **Frostschutz/Manuell Icons** – nur teilweise umgesetzt (nur in `icon` property, nicht in HA-Preset-Icons).
-8. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
-9. **Preset-Temps doppelt konfigurierbar** – sowohl in Options Flow als auch in Number-Entitäten. Entscheidung ausstehend ob Options Flow Preset-Temps entfernt werden sollen.
+2. **iOS Companion App: EntitySelector-Crash** – Die `ha-entity-picker` Web Component verursacht einen `ReferenceError: elementId` im iOS WebView. Das ist ein bekannter HA-Frontend-Bug (nicht unser Code). **Workaround:** Konfiguration über den Browser statt die iOS App durchführen. Mehrere Lösungsansätze wurden getestet (Registry-Validierung entfernen, Two-Step-Flow, SelectSelector-Dropdown) – keiner war zufriedenstellend. Betrifft Config Flow und Options Flow.
+3. **Sensor-State nach Restart nicht evaluiert** – Nach Neustart wird der aktuelle Zustand von Fenster-/Präsenzsensoren nicht geprüft, nur auf zukünftige Änderungen reagiert.
+4. **Nach Boost: Wechsel in Komfort statt vorheriges Preset** – Boost sollte zum vorherigen Preset zurückkehren, nicht immer zu Komfort.
+5. **Boost-Timer bei Away nicht gecancelt** – Wenn Präsenz-Away während Boost aktiviert wird, läuft der Timer weiter und überschreibt später das Away-Preset.
+6. **Frostschutz/Manuell Icons** – nur teilweise umgesetzt (nur in `icon` property, nicht in HA-Preset-Icons).
+7. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
+8. **Preset-Temps doppelt konfigurierbar** – sowohl in Options Flow als auch in Number-Entitäten. Entscheidung ausstehend ob Options Flow Preset-Temps entfernt werden sollen.
