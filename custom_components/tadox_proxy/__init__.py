@@ -9,42 +9,16 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import (
-    DOMAIN,
-    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-    CONF_WINDOW_SENSOR_ID,
-    CONF_PRESENCE_SENSOR_ID,
-)
+from .const import DOMAIN, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID
 
 _LOGGER = logging.getLogger(__name__)
 
 # List the platforms that you want to support.
 PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.NUMBER, Platform.SWITCH]
 
-# Keys whose change requires a full reload (listener re-registration).
-_SENSOR_KEYS = (
-    CONF_WINDOW_SENSOR_ID,
-    CONF_PRESENCE_SENSOR_ID,
-    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
-)
-
-
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the integration when sensor entity IDs change.
-
-    This listener fires AFTER HA has persisted the new options, so the
-    reload always sees the correct values – no timing hacks needed.
-    """
-    stored = hass.data[DOMAIN].get(f"{entry.entry_id}_sensor_snapshot")
-    current = {k: entry.options.get(k) for k in _SENSOR_KEYS}
-    if stored != current:
-        _LOGGER.info("Sensor config changed – reloading integration")
-        await hass.config_entries.async_reload(entry.entry_id)
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tado X Proxy from a config entry."""
-
+    
     # 1. Ensure DOMAIN dict exists in hass.data
     hass.data.setdefault(DOMAIN, {})
 
@@ -112,23 +86,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 6. Store coordinator
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    # 7. Snapshot current sensor IDs for change detection in the update listener.
-    hass.data[DOMAIN][f"{entry.entry_id}_sensor_snapshot"] = {
-        k: entry.options.get(k) for k in _SENSOR_KEYS
-    }
-
-    # 8. Register update listener – fires after HA persists new options.
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-
-    # 9. Load the platforms
+    # 7. Load the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    
+    # Note: No update listener needed here, OptionsFlowWithReload handles reload automatically.
 
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        hass.data[DOMAIN].pop(entry.entry_id, None)
-        hass.data[DOMAIN].pop(f"{entry.entry_id}_sensor_snapshot", None)
+        hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok

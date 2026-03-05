@@ -12,6 +12,12 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     CONF_NAME,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_COMFORT_TARGET,
+    CONF_ECO_TARGET,
+    CONF_BOOST_TARGET,
+    CONF_BOOST_DURATION,
+    CONF_AWAY_TARGET,
+    CONF_FROST_PROTECTION_TARGET,
     CONF_WINDOW_SENSOR_ID,
     CONF_WINDOW_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -29,75 +35,49 @@ def _is_temperature_sensor_state(state) -> bool:
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """UI setup for the integration (initial setup).
-
-    Split into two steps to avoid HA frontend issues with multiple
-    EntitySelectors on the same form.
-    """
+    """UI setup for the integration (initial setup)."""
 
     VERSION = 1
-
-    def __init__(self) -> None:
-        """Initialise flow storage for multi-step data."""
-        self._source_entity_id: str | None = None
-
-    # ---- Step 1: select source climate entity ----
 
     async def async_step_user(self, user_input=None):
         errors: dict[str, str] = {}
 
         if user_input is not None:
             source_entity_id = user_input[CONF_SOURCE_ENTITY_ID]
+            ext_temp_entity_id = user_input[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID]
+            name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
+
             source_state = self.hass.states.get(source_entity_id)
             if source_state is None:
                 errors["base"] = "entity_not_found"
             elif not source_entity_id.startswith("climate."):
                 errors["base"] = "not_a_climate_entity"
             else:
-                self._source_entity_id = source_entity_id
-                return await self.async_step_sensor()
+                temp_state = self.hass.states.get(ext_temp_entity_id)
+                if temp_state is None:
+                    errors["base"] = "temp_entity_not_found"
+                elif not ext_temp_entity_id.startswith("sensor."):
+                    errors["base"] = "temp_not_a_sensor"
+                elif not _is_temperature_sensor_state(temp_state):
+                    errors["base"] = "temp_not_temperature"
+                else:
+                    await self.async_set_unique_id(source_entity_id)
+                    self._abort_if_unique_id_configured()
+
+                    return self.async_create_entry(
+                        title=name,
+                        data={
+                            CONF_SOURCE_ENTITY_ID: source_entity_id,
+                            CONF_NAME: name,
+                            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
+                        },
+                    )
 
         schema = vol.Schema(
             {
                 vol.Required(CONF_SOURCE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="climate")
                 ),
-            }
-        )
-
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
-
-    # ---- Step 2: select external sensor + name ----
-
-    async def async_step_sensor(self, user_input=None):
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            ext_temp_entity_id = user_input[CONF_EXTERNAL_TEMPERATURE_ENTITY_ID]
-            name = (user_input.get(CONF_NAME) or "").strip() or "Tado X Proxy"
-
-            temp_state = self.hass.states.get(ext_temp_entity_id)
-            if temp_state is None:
-                errors["base"] = "temp_entity_not_found"
-            elif not ext_temp_entity_id.startswith("sensor."):
-                errors["base"] = "temp_not_a_sensor"
-            elif not _is_temperature_sensor_state(temp_state):
-                errors["base"] = "temp_not_temperature"
-            else:
-                await self.async_set_unique_id(self._source_entity_id)
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(
-                    title=name,
-                    data={
-                        CONF_SOURCE_ENTITY_ID: self._source_entity_id,
-                        CONF_NAME: name,
-                        CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
-                    },
-                )
-
-        schema = vol.Schema(
-            {
                 vol.Required(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
@@ -105,7 +85,7 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-        return self.async_show_form(step_id="sensor", data_schema=schema, errors=errors)
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     @staticmethod
     @callback
@@ -131,9 +111,10 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 # Strip empty optional sensor values so they're stored as absent
                 cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
-                # NOTE: No reload scheduling here. The update listener in
-                # __init__.py detects sensor-ID changes and reloads AFTER
-                # HA has persisted the new options – no race condition.
+                # Schedule reload so new sensor listeners are registered
+                self.hass.async_create_task(
+                    self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                )
                 return self.async_create_entry(title="", data=cleaned)
 
         # Load current values (options > data > defaults)
@@ -157,6 +138,32 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     "correction_ki",
                     default=opts.get("correction_ki", defaults.tuning.ki),
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.1)),
+
+                # --- Preset temperatures ---
+                vol.Required(
+                    CONF_COMFORT_TARGET,
+                    default=opts.get(CONF_COMFORT_TARGET, 20.0),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
+                vol.Required(
+                    CONF_ECO_TARGET,
+                    default=opts.get(CONF_ECO_TARGET, defaults.presets.eco_target_c),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
+                vol.Required(
+                    CONF_BOOST_TARGET,
+                    default=opts.get(CONF_BOOST_TARGET, defaults.presets.boost_target_c),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
+                vol.Required(
+                    CONF_BOOST_DURATION,
+                    default=opts.get(CONF_BOOST_DURATION, defaults.presets.boost_duration_min),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
+                vol.Required(
+                    CONF_AWAY_TARGET,
+                    default=opts.get(CONF_AWAY_TARGET, defaults.presets.away_target_c),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
+                vol.Required(
+                    CONF_FROST_PROTECTION_TARGET,
+                    default=opts.get(CONF_FROST_PROTECTION_TARGET, defaults.presets.frost_protection_target_c),
+                ): vol.All(vol.Coerce(float), vol.Range(min=5.0, max=30.0)),
 
                 # --- External sensor ---
                 vol.Required(
