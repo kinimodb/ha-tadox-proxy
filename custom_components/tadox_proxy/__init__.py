@@ -88,10 +88,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 7. Load the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
-    # Note: No update listener needed here, OptionsFlowWithReload handles reload automatically.
+
+    # 8. Reload integration when options change (e.g. from the options flow).
+    # This listener fires AFTER HA has persisted the new options, so the
+    # reload always sees the up-to-date values.
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the integration when options are changed."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
