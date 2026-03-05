@@ -23,16 +23,11 @@
     "step": {
       "init": {
         "title": "Proxy options",
-        "description": "Tune the regulation parameters, configure preset temperatures, and select the external temperature sensor.",
+        "description": "Tune the regulation parameters, configure boost duration, and select sensors.",
         "data": {
           "correction_kp": "Proportional correction (Kp)",
           "correction_ki": "Integral correction (Ki)",
-          "comfort_target": "Comfort target temperature (°C)",
-          "eco_target": "Eco target temperature (°C)",
-          "boost_target": "Boost target temperature (°C)",
           "boost_duration": "Boost duration (minutes)",
-          "away_target": "Away target temperature (°C)",
-          "frost_protection_target": "Frost protection temperature (°C)",
           "external_temperature_entity_id": "External temperature sensor",
           "window_sensor_id": "Window sensor",
           "window_delay_s": "Window open delay (seconds)",

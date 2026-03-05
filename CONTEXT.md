@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03-05 (v0.8.12)
+**Letzte Aktualisierung:** 2026-03-05 (v0.8.13)
 
 ---
 
@@ -53,7 +53,7 @@ Absenkungen (> 1°C Differenz).
 
 6 Betriebsmodi: Comfort (Default), Eco (fest), Boost (Timer), Away, Frost Protection, None (Manuell).
 - **Eco** nutzt `eco_target_c` (feste Temperatur, Default 19°C). Seit v0.6.0 kein Offset mehr.
-- **Boost** setzt feste Max-Temperatur mit `async_call_later`-Timer, auto-revert zu Comfort.
+- **Boost** setzt feste Max-Temperatur mit `async_call_later`-Timer, auto-revert zum vorherigen Preset (seit v0.8.13; speichert Preset+Temperatur vor Boost-Aktivierung).
 - **Away** nutzt feste Temperatur (16°C). **Frost Protection** nutzt 5°C.
 - **None (Manuell):** Aktiviert beim Slider-Verschieben – kein Preset aktiv, eigene Temperatur.
 - Preset wird über `RestoreEntity` persistiert, außer Boost (revert bei Neustart).
@@ -61,7 +61,9 @@ Absenkungen (> 1°C Differenz).
 - **v0.6.0:** SwitchEntität "Follow Tado Input" – erkennt physische Thermostat-Änderungen via `async_track_state_change_event` auf `temperature`-Attribut der Tado-Entity.
 - **v0.6.0 Bugfix:** `target_temperature` gibt `_effective_setpoint()` zurück → UI zeigt immer den aktiven Zielwert.
 - **v0.8.0:** Vacation → Frost Protection umbenannt. Icons: Frostschutz=Schneeflocke, Manuell=Hand.
-- Alle Preset-Temperaturen: Range 5–30°C, via NumberEntität oder Options Flow.
+- **v0.8.13:** Preset-Icons vollständig: Comfort=Sofa, Eco=Blatt, Boost=Rakete, Away=Haus-Export, Frostschutz=Schneeflocke, Manuell=Hand.
+- **v0.8.13:** Boost-Timer wird bei Fenster/Präsenz-Trigger gecancelt; Pre-Boost-Preset wird korrekt gespeichert.
+- Alle Preset-Temperaturen: Range 5–30°C, ausschließlich via NumberEntität (seit v0.8.13 aus Options Flow entfernt).
 
 ### Externe Trigger (v0.7.0)
 
@@ -69,6 +71,7 @@ Absenkungen (> 1°C Differenz).
 - **Präsenzsensor:** Optionaler `binary_sensor.*`. Bei "off" startet Timer (`CONF_PRESENCE_AWAY_DELAY_S`, Default 1800s), nach Ablauf `_preset_mode = PRESET_AWAY`. Bei "on" Restore auf gespeichertes Preset/Temperatur. Steuert Preset (Abwesend).
 - **Unabhängigkeit:** Fenster und Präsenz steuern beide Presets, aber unabhängig. Beide können gleichzeitig aktiv sein.
 - Listener registriert via `async_track_state_change_event` + `async_call_later` für Delays.
+- **v0.8.13:** Nach Listener-Registrierung wird der aktuelle Sensor-State evaluiert. Falls Fenster offen oder Präsenz abwesend → Delay-Timer wird sofort gestartet.
 - Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - **v0.8.1 Fix:** Options-Reload wird jetzt über einen `update_listener` in `__init__.py` ausgelöst, der NACH dem Speichern der Options feuert. Vorher gab es eine Race Condition, bei der der Reload mit veralteten Options startete → Sensor-Listener wurden nicht korrekt registriert.
 

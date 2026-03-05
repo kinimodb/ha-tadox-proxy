@@ -23,16 +23,11 @@
     "step": {
       "init": {
         "title": "Proxy-Optionen",
-        "description": "Regelparameter anpassen, Preset-Temperaturen konfigurieren und externen Temperatursensor auswählen.",
+        "description": "Regelparameter anpassen, Boost-Dauer konfigurieren und Sensoren auswählen.",
         "data": {
           "correction_kp": "Proportionale Korrektur (Kp)",
           "correction_ki": "Integrale Korrektur (Ki)",
-          "comfort_target": "Komfort-Zieltemperatur (°C)",
-          "eco_target": "Eco-Zieltemperatur (°C)",
-          "boost_target": "Boost-Zieltemperatur (°C)",
           "boost_duration": "Boost-Dauer (Minuten)",
-          "away_target": "Abwesend-Zieltemperatur (°C)",
-          "frost_protection_target": "Frostschutz-Temperatur (°C)",
           "external_temperature_entity_id": "Externer Temperatursensor",
           "window_sensor_id": "Fenstersensor",
           "window_delay_s": "Verzögerung Fenstererkennung (Sekunden)",

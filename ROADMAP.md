@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.8.12)
+## Status (v0.8.13)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -39,8 +39,8 @@
 
 - [x] `ClimateEntityFeature.PRESET_MODE` aktiviert.
 - [x] 5 Presets: Comfort (Default), Eco, Boost (Timer), Away, Frostschutz.
-- [x] Preset-Temperaturen über Options Flow konfigurierbar.
-- [x] Boost-Timer mit `async_call_later` + Auto-Revert zu Comfort.
+- [x] Preset-Temperaturen über NumberEntitäten konfigurierbar (aus Options Flow entfernt in v0.8.13).
+- [x] Boost-Timer mit `async_call_later` + Auto-Revert zum vorherigen Preset.
 - [x] Preset wird per `RestoreEntity` über HA-Neustarts hinweg gespeichert (außer Boost → revert).
 - [x] `effective_setpoint_c` als neues Diagnose-Attribut.
 - [x] Übersetzungen (DE/EN) für alle Preset-Parameter.
@@ -83,6 +83,13 @@
 ---
 
 ## Changelog
+
+### v0.8.13
+- **Bugfix:** Boost kehrt jetzt zum vorherigen Preset zurück statt immer zu Komfort.
+- **Bugfix:** Boost-Timer wird bei Präsenz-Away und Fenster-Öffnung korrekt gecancelt (verhindert Mode-Flip).
+- **Bugfix:** Sensor-State (Fenster/Präsenz) wird nach HA-Restart/Reload initial evaluiert – kein Warten auf nächste Änderung mehr nötig.
+- **Feature:** Preset-Icons vollständig: Komfort (Sofa), Eco (Blatt), Boost (Rakete), Abwesend (Haus-Export), Frostschutz (Schneeflocke), Manuell (Hand).
+- **Cleanup:** Preset-Temperaturen aus Options Flow entfernt – Konfiguration ausschließlich über NumberEntitäten (Steuerelemente). Bestehende Werte bleiben erhalten.
 
 ### v0.8.12
 - **Bugfix:** Options Flow Reload Race Condition behoben (v0.8.1). Der Reload wird jetzt über einen `update_listener` in `__init__.py` ausgelöst, der garantiert NACH dem Speichern feuert.
