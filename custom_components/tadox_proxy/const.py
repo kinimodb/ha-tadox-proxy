@@ -28,3 +28,8 @@ CONF_PRESENCE_AWAY_DELAY_S = "presence_away_delay_s"
 
 # Custom preset name (not a HA built-in)
 PRESET_FROST_PROTECTION = "frost_protection"
+
+# Behavioural thresholds (stored in options, override BehaviourConfig defaults)
+CONF_FOLLOW_THRESHOLD_C = "follow_threshold_c"
+CONF_FOLLOW_GRACE_S = "follow_grace_s"
+CONF_URGENT_DECREASE_THRESHOLD_C = "urgent_decrease_threshold_c"
