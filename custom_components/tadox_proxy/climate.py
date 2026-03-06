@@ -756,7 +756,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "correction_kp": self._config.tuning.kp,
             "correction_ki": self._config.tuning.ki,
             "effective_setpoint_c": self._effective_setpoint(),
-            "comfort_target_c": self._config_entry.options.get(CONF_COMFORT_TARGET, 20.0),
             "window_open_active": self._window_ctrl.is_active,
             "window_close_delay_active": self._window_ctrl.close_delay_active,
             "presence_away_active": self._presence_ctrl.is_active,
