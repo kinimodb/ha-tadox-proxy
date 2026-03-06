@@ -556,8 +556,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # Start boost timer if entering boost mode
         if preset_mode == PRESET_BOOST:
-            self._boost_saved_preset = old_preset
-            self._boost_saved_temp = self._target_temp
+            # Only update the saved preset if we're not already in boost,
+            # otherwise keep the original pre-boost preset to avoid a loop
+            # where boost restores into boost indefinitely.
+            if old_preset != PRESET_BOOST:
+                self._boost_saved_preset = old_preset
+                self._boost_saved_temp = self._target_temp
             duration_s = self._config.presets.boost_duration_min * 60
             self._boost_cancel = async_call_later(
                 self.hass, duration_s, self._async_boost_expired
