@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03-05 (v0.8.13)
+**Letzte Aktualisierung:** 2026-03-06 (v0.9.0)
 
 ---
 
@@ -67,12 +67,13 @@ Absenkungen (> 1°C Differenz).
 
 ### Externe Trigger (v0.7.0)
 
-- **Fensterkontakt:** Optionaler `binary_sensor.*`. Bei "on" startet Timer (`CONF_WINDOW_DELAY_S`, Default 30s), nach Ablauf `_preset_mode = PRESET_FROST_PROTECTION`. Bei "off" Restore auf gespeichertes Preset/Temperatur. Steuert Preset (Frostschutz).
+- **Fensterkontakt:** Optionaler `binary_sensor.*`. Bei "on" startet Timer (`CONF_WINDOW_DELAY_S`, Default 30s), nach Ablauf `_preset_mode = PRESET_FROST_PROTECTION`. Bei "off" startet Close-Delay-Timer (`CONF_WINDOW_CLOSE_DELAY_S`, Default 120s), nach Ablauf Restore auf gespeichertes Preset/Temperatur. Bei Close-Delay=0: sofortige Wiederherstellung (rückwärtskompatibel). Steuert Preset (Frostschutz).
 - **Präsenzsensor:** Optionaler `binary_sensor.*`. Bei "off" startet Timer (`CONF_PRESENCE_AWAY_DELAY_S`, Default 1800s), nach Ablauf `_preset_mode = PRESET_AWAY`. Bei "on" Restore auf gespeichertes Preset/Temperatur. Steuert Preset (Abwesend).
 - **Unabhängigkeit:** Fenster und Präsenz steuern beide Presets, aber unabhängig. Beide können gleichzeitig aktiv sein.
 - Listener registriert via `async_track_state_change_event` + `async_call_later` für Delays.
 - **v0.8.13:** Nach Listener-Registrierung wird der aktuelle Sensor-State evaluiert. Falls Fenster offen oder Präsenz abwesend → Delay-Timer wird sofort gestartet.
-- Diagnose-Attribute `window_open_active` + `presence_away_active`.
+- **v0.9.0:** Window Close Delay – nach Fensterschließen wartet der Proxy konfigurierbar (0–600s, Default 120s) bevor das Preset wiederhergestellt wird. Verhindert Heiz-Bursts nach Stoßlüften. Bei Reopen während Close-Delay bleibt der Proxy im Frostschutz ohne erneuten Open-Delay. Manueller Preset-/Temperaturwechsel cancelt den Close-Timer.
+- Diagnose-Attribute `window_open_active` + `window_close_delay_active` + `presence_away_active`.
 - **v0.8.1 Fix:** Options-Reload wird jetzt über einen `update_listener` in `__init__.py` ausgelöst, der NACH dem Speichern der Options feuert. Vorher gab es eine Race Condition, bei der der Reload mit veralteten Options startete → Sensor-Listener wurden nicht korrekt registriert.
 
 ### iOS EntitySelector-Bug (v0.8.2–v0.8.12)

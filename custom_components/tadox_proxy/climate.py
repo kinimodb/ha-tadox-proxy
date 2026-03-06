@@ -45,6 +45,7 @@ from .const import (
     CONF_FOLLOW_TADO_INPUT,
     CONF_WINDOW_SENSOR_ID,
     CONF_WINDOW_DELAY_S,
+    CONF_WINDOW_CLOSE_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_PRESENCE_AWAY_DELAY_S,
     PRESET_FROST_PROTECTION,
@@ -141,6 +142,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Window sensor state
         self._window_open_active = False
         self._window_timer_cancel: CALLBACK_TYPE | None = None
+        self._window_close_timer_cancel: CALLBACK_TYPE | None = None
         self._window_saved_preset: str | None = None
         self._window_saved_temp: float | None = None
 
@@ -375,6 +377,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
 
         if new_state.state == "on":  # window opened
+            # If close-delay timer is running, window reopened during delay
+            # → cancel close timer and stay in frost protection (no open delay)
+            if self._window_close_timer_cancel:
+                self._window_close_timer_cancel()
+                self._window_close_timer_cancel = None
+                _LOGGER.debug("Window reopened during close delay – staying in frost protection")
+                return
+
             if self._window_timer_cancel:
                 self._window_timer_cancel()
             delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
@@ -386,8 +396,20 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             if self._window_timer_cancel:
                 self._window_timer_cancel()
                 self._window_timer_cancel = None
+            if self._window_close_timer_cancel:
+                self._window_close_timer_cancel()
+                self._window_close_timer_cancel = None
             if self._window_open_active:
-                self._restore_window_state()
+                close_delay = self._config_entry.options.get(
+                    CONF_WINDOW_CLOSE_DELAY_S, 120
+                )
+                if close_delay > 0:
+                    self._window_close_timer_cancel = async_call_later(
+                        self.hass, close_delay, self._async_window_close_action
+                    )
+                    _LOGGER.debug("Window closed – restoring in %ds", close_delay)
+                else:
+                    self._restore_window_state()
 
     async def _async_window_action(self, _now) -> None:
         """Switch to frost protection preset after window-open delay."""
@@ -406,6 +428,11 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         _LOGGER.info("Window open: switching to frost protection")
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="window_open")
+
+    async def _async_window_close_action(self, _now) -> None:
+        """Restore previous preset after window-close delay expired."""
+        self._window_close_timer_cancel = None
+        self._restore_window_state()
 
     def _restore_window_state(self) -> None:
         """Restore preset after window is closed."""
@@ -504,6 +531,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Manual HVAC change clears any active window-open state so the user's
         # intention is respected.
         if self._window_open_active:
+            if self._window_close_timer_cancel:
+                self._window_close_timer_cancel()
+                self._window_close_timer_cancel = None
             self._window_open_active = False
             self._window_saved_preset = None
             self._window_saved_temp = None
@@ -523,6 +553,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
         self._target_temp = float(temp)
 
+        # Cancel window close delay if user manually changes temperature
+        if self._window_close_timer_cancel:
+            self._window_close_timer_cancel()
+            self._window_close_timer_cancel = None
+            self._window_open_active = False
+            self._window_saved_preset = None
+            self._window_saved_temp = None
+
         # Any direct temperature change activates manual mode and cancels
         # any running boost timer.
         if self._preset_mode != PRESET_NONE:
@@ -539,6 +577,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if preset_mode not in PRESET_LIST:
             _LOGGER.warning("Unknown preset mode: %s", preset_mode)
             return
+
+        # Cancel window close delay if user manually changes preset
+        if self._window_close_timer_cancel:
+            self._window_close_timer_cancel()
+            self._window_close_timer_cancel = None
+            self._window_open_active = False
+            self._window_saved_preset = None
+            self._window_saved_temp = None
+            _LOGGER.info("Window close delay cancelled – user changed preset to %s", preset_mode)
 
         old_preset = self._preset_mode
         self._preset_mode = preset_mode
@@ -746,6 +793,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "effective_setpoint_c": self._effective_setpoint(),
             "comfort_target_c": self._config_entry.options.get(CONF_COMFORT_TARGET, 20.0),
             "window_open_active": self._window_open_active,
+            "window_close_delay_active": self._window_close_timer_cancel is not None,
             "presence_away_active": self._presence_away_active,
         }
 

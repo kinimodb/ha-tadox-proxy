@@ -2,13 +2,14 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.8.13)
+## Status (v0.9.0)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
 - **Phase:** Beta-Test – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
 - **Presets:** Comfort, Eco, Boost (mit Timer), Away, Frostschutz – alle als NumberEntität steuerbar.
 - **Externe Trigger:** Fensterkontakt (→ Frostschutz) + Präsenzsensor (→ Abwesend) vollständig implementiert.
+- **Window Close Delay:** Konfigurierbarer Restore-Delay nach Fensterschließen verhindert aggressive Heiz-Bursts.
 
 ---
 
@@ -65,7 +66,7 @@
 
 **Ziel:** Automatische Reaktion auf Umgebungsbedingungen.
 
-- [x] **Fensterkontakt:** Wechsel auf Frostschutz-Preset nach konfigurierbarer Verzögerung bei "offen", Restore bei "zu".
+- [x] **Fensterkontakt:** Wechsel auf Frostschutz-Preset nach konfigurierbarer Verzögerung bei "offen", Restore bei "zu" mit konfigurierbarem Close-Delay.
 - [x] **Präsenz-Sensor:** Auto-Wechsel auf Away-Preset nach konfigurierbarer Verzögerung, Restore bei Rückkehr.
 - [x] Beide Trigger als optionale Entity-Selektoren im Options Flow mit separaten Delay-Feldern.
 - [x] Fenster und Präsenz unabhängig: Fenster steuert Preset (Frostschutz), Präsenz steuert Preset (Abwesend).
@@ -83,6 +84,11 @@
 ---
 
 ## Changelog
+
+### v0.9.0
+- **Feature:** Window Close Delay – konfigurierbarer Restore-Delay (0–600s, Standard: 120s) nach dem Schließen des Fensters. Verhindert aggressive Heiz-Bursts nach dem Stoßlüften, da die thermische Masse die Raumtemperatur teilweise von selbst ausgleicht.
+- **Feature:** Neues Diagnose-Attribut `window_close_delay_active`.
+- **Edge Cases:** Window-Reopen während Close-Delay bleibt im Frostschutz (kein erneuter Open-Delay). Manueller Preset-/Temperaturwechsel während Close-Delay cancelt den Timer.
 
 ### v0.8.13
 - **Bugfix:** Boost kehrt jetzt zum vorherigen Preset zurück statt immer zu Komfort.

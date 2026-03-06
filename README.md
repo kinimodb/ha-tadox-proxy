@@ -121,11 +121,20 @@ Wenn das Fenster geöffnet wird (`state: on`):
 Wenn das Fenster vor Ablauf des Timers wieder geschlossen wird, wird der Timer
 abgebrochen – kein Eingriff in die Heizung.
 
+**Nach dem Schließen:** Ein konfigurierbarer **Close-Delay** (Standard: 120 Sekunden)
+wartet ab, bevor das vorherige Preset wiederhergestellt wird. Das verhindert einen
+aggressiven Heiz-Burst nach dem Stoßlüften – die thermische Masse der Wände und
+Möbel gleicht die Raumtemperatur innerhalb weniger Minuten teilweise von selbst aus.
+
+Wird das Fenster während des Close-Delays erneut geöffnet, bleibt der Proxy im
+Frostschutz-Modus (ohne erneuten Open-Delay).
+
 **Konfiguration** (in den Optionen der Integration):
 - *Fenstersensor*: `binary_sensor.*` (optional)
-- *Verzögerung Fenstererkennung*: 0–3600 Sekunden
+- *Verzögerung Fenstererkennung*: 0–3600 Sekunden (Wartezeit vor Frostschutz)
+- *Verzögerung Fenster-Schließen*: 0–600 Sekunden (Wartezeit vor Preset-Restore, 0 = sofort)
 
-Das Attribut `window_open_active` zeigt den aktuellen Zustand an.
+Die Attribute `window_open_active` und `window_close_delay_active` zeigen den aktuellen Zustand an.
 
 ---
 
