@@ -76,9 +76,17 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             # Strip empty optional sensor values so they're stored as absent
             cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
+            # Preserve existing options not shown in this form (e.g. preset
+            # temperatures set via Number entities, follow_tado_input flag).
+            merged = dict(self.config_entry.options)
+            # Remove optional sensor keys that were cleared by the user
+            for key in (CONF_WINDOW_SENSOR_ID, CONF_PRESENCE_SENSOR_ID):
+                if key not in cleaned:
+                    merged.pop(key, None)
+            merged.update(cleaned)
             # Reload is triggered by the update_listener in __init__.py
             # AFTER HA has persisted the new options, avoiding stale data.
-            return self.async_create_entry(title="", data=cleaned)
+            return self.async_create_entry(title="", data=merged)
 
         # Load current values (options > data > defaults)
         opts = self.config_entry.options
