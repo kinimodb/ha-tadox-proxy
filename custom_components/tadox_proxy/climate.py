@@ -26,7 +26,6 @@ from homeassistant.const import (
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
-    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
@@ -48,16 +47,25 @@ from .const import (
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_PRESENCE_AWAY_DELAY_S,
+    CONF_FOLLOW_THRESHOLD_C,
+    CONF_FOLLOW_GRACE_S,
+    CONF_URGENT_DECREASE_THRESHOLD_C,
     PRESET_FROST_PROTECTION,
 )
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
     FROST_PROTECT_C,
     RegulationConfig,
+    BehaviourConfig,
     CorrectionTuning,
     PresetConfig,
 )
 from .regulation import FeedforwardPiRegulator, RegulationState
+from .climate_controllers import (
+    WindowAutomationController,
+    PresenceAutomationController,
+    FollowPhysicalController,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,13 +80,6 @@ PRESET_LIST = [
     PRESET_FROST_PROTECTION,
     PRESET_NONE,
 ]
-
-# Threshold: tado_setpoint must differ from _last_sent_setpoint by more
-# than this before we treat it as a user-initiated physical change.
-_FOLLOW_THRESHOLD_C = 0.5
-# Grace period after our last sent command during which we ignore divergence
-# (Tado may still be acknowledging the command via Thread/cloud).
-_FOLLOW_GRACE_S = 20
 
 
 async def async_setup_entry(
@@ -119,8 +120,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._config_entry = config_entry
         self._attr_name = None  # uses translation key
 
-        # Build regulation config from defaults + options
+        # Build regulation + behaviour config from defaults + options
         self._config = self._build_config(config_entry)
+        self._behaviour = self._build_behaviour(config_entry)
         self._regulator = FeedforwardPiRegulator(self._config)
         self._reg_state = RegulationState()
 
@@ -139,22 +141,17 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_command_sent_ts = 0.0
         self._last_sent_setpoint: float | None = None
 
-        # Window sensor state
-        self._window_open_active = False
-        self._window_timer_cancel: CALLBACK_TYPE | None = None
-        self._window_close_timer_cancel: CALLBACK_TYPE | None = None
-        self._window_saved_preset: str | None = None
-        self._window_saved_temp: float | None = None
-
-        # Presence sensor state
-        self._presence_away_active = False
-        self._presence_timer_cancel: CALLBACK_TYPE | None = None
-        self._presence_saved_preset: str | None = None
-        self._presence_saved_temp: float | None = None
+        # State-machine controllers (hold their own timer + saved-state)
+        self._window_ctrl = WindowAutomationController()
+        self._presence_ctrl = PresenceAutomationController()
 
         # Diagnostics
         self._last_result = None
         self._last_reason = "startup"
+
+    # ------------------------------------------------------------------
+    # Config builders
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _build_config(entry: ConfigEntry) -> RegulationConfig:
@@ -175,6 +172,21 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             # Ensure max_target_c is at least as high as boost_target_c
             config.max_target_c = max(config.max_target_c, config.presets.boost_target_c)
         return config
+
+    @staticmethod
+    def _build_behaviour(entry: ConfigEntry) -> BehaviourConfig:
+        """Build behaviour config, applying options over defaults."""
+        defaults = BehaviourConfig()
+        opts = entry.options
+        if not opts:
+            return defaults
+        return BehaviourConfig(
+            follow_threshold_c=opts.get(CONF_FOLLOW_THRESHOLD_C, defaults.follow_threshold_c),
+            follow_grace_s=opts.get(CONF_FOLLOW_GRACE_S, defaults.follow_grace_s),
+            urgent_decrease_threshold_c=opts.get(
+                CONF_URGENT_DECREASE_THRESHOLD_C, defaults.urgent_decrease_threshold_c
+            ),
+        )
 
     @property
     def icon(self) -> str | None:
@@ -266,7 +278,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             window_state = self.hass.states.get(window_sensor)
             if window_state and window_state.state == "on":
                 delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
-                self._window_timer_cancel = async_call_later(
+                self._window_ctrl.handle_window_opened(
                     self.hass, delay, self._async_window_action
                 )
                 _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
@@ -285,7 +297,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             presence_state = self.hass.states.get(presence_sensor)
             if presence_state and presence_state.state == "off":
                 delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 1800)
-                self._presence_timer_cancel = async_call_later(
+                self._presence_ctrl.handle_presence_away(
                     self.hass, delay, self._async_presence_away_action
                 )
                 _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
@@ -303,6 +315,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Called when config entry options change (e.g. from number entities)."""
         self._config_entry = entry
         self._config = self._build_config(entry)
+        self._behaviour = self._build_behaviour(entry)
         self._regulator = FeedforwardPiRegulator(self._config)
         # Only sync comfort target when COMFORT preset is active; PRESET_NONE
         # (manual) keeps its independently set temperature.
@@ -322,10 +335,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if not self._config_entry.options.get(CONF_FOLLOW_TADO_INPUT, False):
             return
 
-        # Only react after we have sent at least one command (so we know our baseline).
-        if self._last_sent_setpoint is None:
-            return
-
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
         if new_state is None or new_state.state in ("unavailable", "unknown"):
@@ -341,12 +350,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         except (ValueError, TypeError):
             return
 
-        # Ignore if the change matches our last sent command.
-        if abs(tado_setpoint - self._last_sent_setpoint) <= _FOLLOW_THRESHOLD_C:
-            return
-
-        # Ignore during the grace period after our last command.
-        if time.time() - self._last_command_sent_ts < _FOLLOW_GRACE_S:
+        if not FollowPhysicalController.should_follow(
+            tado_setpoint=tado_setpoint,
+            last_sent=self._last_sent_setpoint,
+            last_sent_ts=self._last_command_sent_ts,
+            threshold_c=self._behaviour.follow_threshold_c,
+            grace_s=self._behaviour.follow_grace_s,
+        ):
             return
 
         _LOGGER.info(
@@ -377,75 +387,49 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
 
         if new_state.state == "on":  # window opened
-            # If close-delay timer is running, window reopened during delay
-            # → cancel close timer and stay in frost protection (no open delay)
-            if self._window_close_timer_cancel:
-                self._window_close_timer_cancel()
-                self._window_close_timer_cancel = None
-                _LOGGER.debug("Window reopened during close delay – staying in frost protection")
-                return
-
-            if self._window_timer_cancel:
-                self._window_timer_cancel()
             delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
-            self._window_timer_cancel = async_call_later(
+            self._window_ctrl.handle_window_opened(
                 self.hass, delay, self._async_window_action
             )
-            _LOGGER.debug("Window opened – action in %ds", delay)
         else:  # window closed
-            if self._window_timer_cancel:
-                self._window_timer_cancel()
-                self._window_timer_cancel = None
-            if self._window_close_timer_cancel:
-                self._window_close_timer_cancel()
-                self._window_close_timer_cancel = None
-            if self._window_open_active:
-                close_delay = self._config_entry.options.get(
-                    CONF_WINDOW_CLOSE_DELAY_S, 120
-                )
-                if close_delay > 0:
-                    self._window_close_timer_cancel = async_call_later(
-                        self.hass, close_delay, self._async_window_close_action
-                    )
-                    _LOGGER.debug("Window closed – restoring in %ds", close_delay)
-                else:
-                    self._restore_window_state()
+            close_delay = self._config_entry.options.get(CONF_WINDOW_CLOSE_DELAY_S, 120)
+            should_restore = self._window_ctrl.handle_window_closed(
+                self.hass, close_delay, self._async_window_close_action
+            )
+            if should_restore:
+                self._restore_window_state()
 
     async def _async_window_action(self, _now) -> None:
         """Switch to frost protection preset after window-open delay."""
-        self._window_timer_cancel = None
-        # If boost is active, cancel it and save the pre-boost preset
+        # If boost is active, cancel it and use the pre-boost preset as saved state
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
-            self._window_saved_preset = self._boost_saved_preset
-            self._window_saved_temp = self._boost_saved_temp
+            saved_preset = self._boost_saved_preset
+            saved_temp = self._boost_saved_temp
         else:
-            self._window_saved_preset = self._preset_mode
-            self._window_saved_temp = self._target_temp
+            saved_preset = self._preset_mode
+            saved_temp = self._target_temp
+        self._window_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_FROST_PROTECTION
-        self._window_open_active = True
         _LOGGER.info("Window open: switching to frost protection")
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="window_open")
 
     async def _async_window_close_action(self, _now) -> None:
         """Restore previous preset after window-close delay expired."""
-        self._window_close_timer_cancel = None
         self._restore_window_state()
 
     def _restore_window_state(self) -> None:
         """Restore preset after window is closed."""
-        if self._window_saved_preset is not None:
-            self._preset_mode = self._window_saved_preset
-            if self._preset_mode == PRESET_COMFORT:
+        saved = self._window_ctrl.restore()
+        if saved.preset is not None:
+            self._preset_mode = saved.preset
+            if saved.preset == PRESET_COMFORT:
                 comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
                 self._target_temp = float(comfort) if comfort is not None else self._target_temp
-            elif self._window_saved_temp is not None:
-                self._target_temp = self._window_saved_temp
-        self._window_open_active = False
-        self._window_saved_preset = None
-        self._window_saved_temp = None
+            elif saved.temp is not None:
+                self._target_temp = saved.temp
         _LOGGER.info("Window closed: restoring previous preset")
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="window_closed")
@@ -464,52 +448,43 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
 
         if new_state.state == "off":  # nobody home
-            if self._presence_timer_cancel:
-                self._presence_timer_cancel()
             delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 1800)
-            self._presence_timer_cancel = async_call_later(
+            self._presence_ctrl.handle_presence_away(
                 self.hass, delay, self._async_presence_away_action
             )
-            _LOGGER.debug("Presence away – AWAY preset in %ds", delay)
         else:  # someone home
-            if self._presence_timer_cancel:
-                self._presence_timer_cancel()
-                self._presence_timer_cancel = None
-            if self._presence_away_active:
+            if self._presence_ctrl.handle_presence_home():
                 self._restore_presence_state()
 
     async def _async_presence_away_action(self, _now) -> None:
         """Switch to AWAY preset after presence-away delay."""
-        self._presence_timer_cancel = None
-        # If boost is active, cancel it and save the pre-boost preset
+        # If boost is active, cancel it and use the pre-boost preset as saved state
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
-            self._presence_saved_preset = self._boost_saved_preset
-            self._presence_saved_temp = self._boost_saved_temp
+            saved_preset = self._boost_saved_preset
+            saved_temp = self._boost_saved_temp
         else:
-            self._presence_saved_preset = self._preset_mode
-            self._presence_saved_temp = self._target_temp
+            saved_preset = self._preset_mode
+            saved_temp = self._target_temp
+        self._presence_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_AWAY
-        self._presence_away_active = True
         _LOGGER.info("Presence away: switching to AWAY preset")
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="presence_away")
 
     def _restore_presence_state(self) -> None:
         """Restore preset after presence returns."""
-        if self._presence_saved_preset is not None:
-            self._preset_mode = self._presence_saved_preset
+        saved = self._presence_ctrl.restore()
+        if saved.preset is not None:
+            self._preset_mode = saved.preset
             # If restoring COMFORT, take the current comfort_target from options
             # (it may have been changed via number entity while away).
-            if self._preset_mode == PRESET_COMFORT:
+            if saved.preset == PRESET_COMFORT:
                 comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
                 self._target_temp = float(comfort) if comfort is not None else self._target_temp
-            elif self._presence_saved_temp is not None:
-                self._target_temp = self._presence_saved_temp
-        self._presence_away_active = False
-        self._presence_saved_preset = None
-        self._presence_saved_temp = None
+            elif saved.temp is not None:
+                self._target_temp = saved.temp
         _LOGGER.info("Presence home: restoring previous preset")
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="presence_home")
@@ -530,13 +505,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
         # Manual HVAC change clears any active window-open state so the user's
         # intention is respected.
-        if self._window_open_active:
-            if self._window_close_timer_cancel:
-                self._window_close_timer_cancel()
-                self._window_close_timer_cancel = None
-            self._window_open_active = False
-            self._window_saved_preset = None
-            self._window_saved_temp = None
+        if self._window_ctrl.is_active:
+            self._window_ctrl.cancel_all()
         self._hvac_mode = hvac_mode
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="hvac_mode_change")
@@ -554,12 +524,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._target_temp = float(temp)
 
         # Cancel window close delay if user manually changes temperature
-        if self._window_close_timer_cancel:
-            self._window_close_timer_cancel()
-            self._window_close_timer_cancel = None
-            self._window_open_active = False
-            self._window_saved_preset = None
-            self._window_saved_temp = None
+        if self._window_ctrl.close_delay_active:
+            self._window_ctrl.cancel_all()
 
         # Any direct temperature change activates manual mode and cancels
         # any running boost timer.
@@ -579,12 +545,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
 
         # Cancel window close delay if user manually changes preset
-        if self._window_close_timer_cancel:
-            self._window_close_timer_cancel()
-            self._window_close_timer_cancel = None
-            self._window_open_active = False
-            self._window_saved_preset = None
-            self._window_saved_temp = None
+        if self._window_ctrl.close_delay_active:
+            self._window_ctrl.cancel_all()
             _LOGGER.info("Window close delay cancelled – user changed preset to %s", preset_mode)
 
         old_preset = self._preset_mode
@@ -610,7 +572,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 self._boost_saved_preset = old_preset
                 self._boost_saved_temp = self._target_temp
             duration_s = self._config.presets.boost_duration_min * 60
-            self._boost_cancel = async_call_later(
+            self._boost_cancel = async_call_later_boost(
                 self.hass, duration_s, self._async_boost_expired
             )
             _LOGGER.info(
@@ -699,7 +661,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if diff < self._config.min_change_threshold_c:
             reason = "already_at_target"
         elif is_rate_limited:
-            is_urgent_decrease = result.target_for_tado_c < current_tado_setpoint - 1.0
+            is_urgent_decrease = (
+                result.target_for_tado_c
+                < current_tado_setpoint - self._behaviour.urgent_decrease_threshold_c
+            )
             if is_urgent_decrease:
                 should_send = True
                 reason = "urgent_decrease"
@@ -792,9 +757,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "correction_ki": self._config.tuning.ki,
             "effective_setpoint_c": self._effective_setpoint(),
             "comfort_target_c": self._config_entry.options.get(CONF_COMFORT_TARGET, 20.0),
-            "window_open_active": self._window_open_active,
-            "window_close_delay_active": self._window_close_timer_cancel is not None,
-            "presence_away_active": self._presence_away_active,
+            "window_open_active": self._window_ctrl.is_active,
+            "window_close_delay_active": self._window_ctrl.close_delay_active,
+            "presence_away_active": self._presence_ctrl.is_active,
         }
 
         if self._last_result:
@@ -809,3 +774,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             })
 
         return attrs
+
+
+# ---------------------------------------------------------------------------
+# Module-level helper (imported lazily to allow HA-free tests of controllers)
+# ---------------------------------------------------------------------------
+
+def async_call_later_boost(hass, delay_s, callback):
+    """Thin wrapper so boost timer scheduling stays in this module."""
+    from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+    return async_call_later(hass, delay_s, callback)

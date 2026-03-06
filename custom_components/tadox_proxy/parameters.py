@@ -5,6 +5,32 @@ from dataclasses import dataclass, field
 
 
 # ---------------------------------------------------------------------------
+# Behavioural thresholds (climate-entity logic, independent of the PI engine)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class BehaviourConfig:
+    """Thresholds for the follow-Tado and send-decision logic.
+
+    These values can be overridden via config-entry options so operators can
+    tune the integration's responsiveness without touching source code.
+    """
+
+    # Follow-Tado: min divergence from last-sent setpoint to treat as a
+    # physical user change (°C).
+    follow_threshold_c: float = 0.5
+
+    # Follow-Tado: grace period (s) after our last command during which we
+    # ignore Tado setpoint changes (Tado may still be acknowledging via
+    # Thread/cloud).
+    follow_grace_s: float = 20.0
+
+    # Rate-limit bypass: immediately send if the new target is this many °C
+    # below the current Tado setpoint (urgent cool-down).
+    urgent_decrease_threshold_c: float = 1.0
+
+
+# ---------------------------------------------------------------------------
 # Integration behaviour defaults
 # ---------------------------------------------------------------------------
 
