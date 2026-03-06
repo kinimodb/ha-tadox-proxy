@@ -15,6 +15,7 @@ from .const import (
     CONF_BOOST_DURATION,
     CONF_WINDOW_SENSOR_ID,
     CONF_WINDOW_DELAY_S,
+    CONF_WINDOW_CLOSE_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_PRESENCE_AWAY_DELAY_S,
 )
@@ -132,6 +133,10 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     CONF_WINDOW_DELAY_S,
                     default=opts.get(CONF_WINDOW_DELAY_S, 30),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
+                vol.Required(
+                    CONF_WINDOW_CLOSE_DELAY_S,
+                    default=opts.get(CONF_WINDOW_CLOSE_DELAY_S, 120),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=600)),
 
                 # --- Presence sensor (optional) ---
                 vol.Optional(CONF_PRESENCE_SENSOR_ID): selector.EntitySelector(

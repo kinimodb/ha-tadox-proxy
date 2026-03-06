@@ -20,6 +20,7 @@ CONF_FOLLOW_TADO_INPUT = "follow_tado_input"
 # Window sensor (binary_sensor) – optional external trigger
 CONF_WINDOW_SENSOR_ID = "window_sensor_id"
 CONF_WINDOW_DELAY_S = "window_delay_s"
+CONF_WINDOW_CLOSE_DELAY_S = "window_close_delay_s"
 
 # Presence sensor (binary_sensor) – optional external trigger
 CONF_PRESENCE_SENSOR_ID = "presence_sensor_id"
