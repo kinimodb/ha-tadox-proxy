@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03-06 (v0.9.0)
+**Letzte Aktualisierung:** 2026-03-07 (v0.9.6)
 
 ---
 
@@ -74,6 +74,7 @@ Absenkungen (> 1°C Differenz).
 - **v0.8.13:** Nach Listener-Registrierung wird der aktuelle Sensor-State evaluiert. Falls Fenster offen oder Präsenz abwesend → Delay-Timer wird sofort gestartet.
 - **v0.9.0:** Window Close Delay – nach Fensterschließen wartet der Proxy konfigurierbar (0–600s, Default 120s) bevor das Preset wiederhergestellt wird. Verhindert Heiz-Bursts nach Stoßlüften. Bei Reopen während Close-Delay bleibt der Proxy im Frostschutz ohne erneuten Open-Delay. Manueller Preset-/Temperaturwechsel cancelt den Close-Timer.
 - Diagnose-Attribute `window_open_active` + `window_close_delay_active` + `presence_away_active`.
+- **v0.9.6 Fix:** Frostschutz wird nie als „vorheriges Preset" gespeichert. Nach HA-Restart mit offenem Fenster wurde Frostschutz als vorheriges Preset gesichert → Nutzer blieb im Frostschutz gefangen. Drei Guards: (1) Startup: Frostschutz→Comfort wie Boost, (2) Save: Frostschutz→Comfort vor activate(), (3) Restore: Safety-Net in _restore_window_state().
 - **v0.8.1 Fix:** Options-Reload wird jetzt über einen `update_listener` in `__init__.py` ausgelöst, der NACH dem Speichern der Options feuert. Vorher gab es eine Race Condition, bei der der Reload mit veralteten Options startete → Sensor-Listener wurden nicht korrekt registriert.
 
 ### iOS EntitySelector-Bug (v0.8.2–v0.8.12)
@@ -101,7 +102,7 @@ custom_components/tadox_proxy/
 ├── config_flow.py     # Setup + Options Flow (Kp, Ki, Presets, Sensor)
 ├── const.py           # DOMAIN + Config-Keys + PRESET_FROST_PROTECTION
 ├── diagnostics.py     # HA Diagnostik-Export
-├── manifest.json      # HACS/HA Metadata (v0.8.12)
+├── manifest.json      # HACS/HA Metadata (v0.9.6)
 ├── parameters.py      # Zentrale Parameter-Defaults (RegulationConfig + PresetConfig)
 ├── regulation.py      # Feedforward + PI Engine (FeedforwardPiRegulator)
 ├── strings.json       # UI-Strings (Fallback)
