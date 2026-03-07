@@ -232,6 +232,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 # Don't restore boost – it's time-limited and the timer is gone
                 if self._preset_mode == PRESET_BOOST:
                     self._preset_mode = PRESET_COMFORT
+                # Don't restore frost protection – it's window-driven and the
+                # controller state is not persisted across restarts
+                if self._preset_mode == PRESET_FROST_PROTECTION:
+                    self._preset_mode = PRESET_COMFORT
 
         # If the active preset is COMFORT, the comfort_target in options is
         # authoritative (may have changed via the number entity while HA was down).
@@ -409,6 +413,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         else:
             saved_preset = self._preset_mode
             saved_temp = self._target_temp
+        # Never save frost protection as the "previous" preset – fall back
+        # to comfort so the user isn't stuck in frost mode after restore.
+        if saved_preset == PRESET_FROST_PROTECTION:
+            saved_preset = PRESET_COMFORT
+            comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+            if comfort is not None:
+                saved_temp = float(comfort)
         self._window_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_FROST_PROTECTION
         _LOGGER.info("Window open: switching to frost protection")
@@ -423,8 +434,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Restore preset after window is closed."""
         saved = self._window_ctrl.restore()
         if saved.preset is not None:
-            self._preset_mode = saved.preset
-            if saved.preset == PRESET_COMFORT:
+            preset_to_restore = saved.preset
+            # Safety net: never restore frost protection from window automation
+            if preset_to_restore == PRESET_FROST_PROTECTION:
+                preset_to_restore = PRESET_COMFORT
+            self._preset_mode = preset_to_restore
+            if preset_to_restore == PRESET_COMFORT:
                 comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
                 self._target_temp = float(comfort) if comfort is not None else self._target_temp
             elif saved.temp is not None:
