@@ -78,7 +78,6 @@ PRESET_LIST = [
     PRESET_BOOST,
     PRESET_AWAY,
     PRESET_FROST_PROTECTION,
-    PRESET_NONE,
 ]
 
 
@@ -228,7 +227,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     pass
             # Restore preset (default to comfort if missing or invalid)
             restored_preset = last_state.attributes.get("preset_mode")
-            if restored_preset in PRESET_LIST:
+            if restored_preset in PRESET_LIST or restored_preset == PRESET_NONE:
                 self._preset_mode = restored_preset
                 # Don't restore boost – it's time-limited and the timer is gone
                 if self._preset_mode == PRESET_BOOST:
