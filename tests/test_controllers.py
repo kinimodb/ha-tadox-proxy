@@ -223,6 +223,36 @@ class TestWindowController:
         c.cancel_all()  # must not raise
         assert not c.is_active
 
+    # --- update_saved ---
+
+    def test_update_saved_changes_saved_state(self):
+        c = self._ctrl()
+        c.activate("comfort", 20.0)
+        assert c.get_saved().preset == "comfort"
+
+        c.update_saved("eco", 17.0)
+        assert c.get_saved().preset == "eco"
+        assert c.get_saved().temp == 17.0
+        # Still active
+        assert c.is_active
+
+    def test_update_saved_then_restore(self):
+        """After update_saved, restore should return the updated state."""
+        c = self._ctrl()
+        c.activate("comfort", 20.0)
+        c.update_saved("away", 16.0)
+        saved = c.restore()
+        assert saved.preset == "away"
+        assert saved.temp == 16.0
+        assert not c.is_active
+
+    def test_update_saved_while_not_active_still_works(self):
+        """update_saved works even if not active (defensive)."""
+        c = self._ctrl()
+        c.update_saved("eco", 19.0)
+        assert c.get_saved().preset == "eco"
+        assert not c.is_active
+
 
 # ---------------------------------------------------------------------------
 # PresenceAutomationController

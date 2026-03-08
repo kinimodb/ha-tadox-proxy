@@ -472,6 +472,18 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     async def _async_presence_away_action(self, _now) -> None:
         """Switch to AWAY preset after presence-away delay."""
+        # If window automation is active, don't override frost protection.
+        # Save current state for when presence returns, but keep frost mode.
+        if self._window_ctrl.is_active:
+            self._presence_ctrl.activate(
+                self._window_ctrl.get_saved().preset or PRESET_COMFORT,
+                self._window_ctrl.get_saved().temp,
+            )
+            # Update window saved state to AWAY so frost→close restores AWAY
+            self._window_ctrl.update_saved(PRESET_AWAY, self._config.presets.away_target_c)
+            _LOGGER.info("Presence away during window-open: saved AWAY for later")
+            return
+
         # If boost is active, cancel it and use the pre-boost preset as saved state
         if self._boost_cancel is not None:
             self._boost_cancel()
@@ -490,15 +502,28 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     def _restore_presence_state(self) -> None:
         """Restore preset after presence returns."""
         saved = self._presence_ctrl.restore()
-        if saved.preset is not None:
-            self._preset_mode = saved.preset
-            # If restoring COMFORT, take the current comfort_target from options
-            # (it may have been changed via number entity while away).
-            if saved.preset == PRESET_COMFORT:
-                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
-                self._target_temp = float(comfort) if comfort is not None else self._target_temp
-            elif saved.temp is not None:
-                self._target_temp = saved.temp
+        if saved.preset is None:
+            _LOGGER.info("Presence home: nothing to restore")
+            return
+
+        # If window automation is active, update the window's saved state
+        # instead of changing the current preset (frost protection stays).
+        if self._window_ctrl.is_active:
+            self._window_ctrl.update_saved(saved.preset, saved.temp)
+            _LOGGER.info(
+                "Presence home during window-open: saved %s for window-close restore",
+                saved.preset,
+            )
+            return
+
+        self._preset_mode = saved.preset
+        # If restoring COMFORT, take the current comfort_target from options
+        # (it may have been changed via number entity while away).
+        if saved.preset == PRESET_COMFORT:
+            comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+            self._target_temp = float(comfort) if comfort is not None else self._target_temp
+        elif saved.temp is not None:
+            self._target_temp = saved.temp
         _LOGGER.info("Presence home: restoring previous preset")
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="presence_home")
@@ -562,6 +587,28 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if self._window_ctrl.close_delay_active:
             self._window_ctrl.cancel_all()
             _LOGGER.info("Window close delay cancelled – user changed preset to %s", preset_mode)
+
+        # If window automation is active (frost protection due to open window),
+        # update the saved state so the new preset is restored when the window
+        # closes, but keep frost protection active.
+        if self._window_ctrl.is_active and preset_mode != PRESET_FROST_PROTECTION:
+            if preset_mode == PRESET_COMFORT:
+                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+                save_temp = float(comfort) if comfort is not None else self._target_temp
+            elif preset_mode == PRESET_ECO:
+                save_temp = self._config.presets.eco_target_c
+            elif preset_mode == PRESET_AWAY:
+                save_temp = self._config.presets.away_target_c
+            else:
+                save_temp = self._target_temp
+            self._window_ctrl.update_saved(preset_mode, save_temp)
+            _LOGGER.info(
+                "Window open: preset %s saved for restore, keeping frost protection",
+                preset_mode,
+            )
+            # Keep frost protection active – do not change preset_mode
+            self.async_write_ha_state()
+            return
 
         old_preset = self._preset_mode
         self._preset_mode = preset_mode
