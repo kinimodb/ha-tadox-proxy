@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03-08 (v0.9.7)
+**Letzte Aktualisierung:** 2026-03-08 (v0.9.8)
 
 ---
 
