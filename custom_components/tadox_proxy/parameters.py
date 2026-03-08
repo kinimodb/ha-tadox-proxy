@@ -61,11 +61,11 @@ class CorrectionTuning:
 class PresetConfig:
     """Temperature settings for each preset mode."""
 
-    eco_target_c: float = 19.0       # fixed eco temperature (independent of comfort)
+    eco_target_c: float = 17.0       # fixed eco temperature (independent of comfort)
     boost_target_c: float = 25.0     # fixed target during boost
     boost_duration_min: int = 30     # auto-revert to comfort after this many minutes
-    away_target_c: float = 16.0      # fixed target when away
-    frost_protection_target_c: float = 5.0   # frost protection temperature
+    away_target_c: float = 17.0      # fixed target when away
+    frost_protection_target_c: float = 7.0   # frost protection temperature
 
 
 # ---------------------------------------------------------------------------

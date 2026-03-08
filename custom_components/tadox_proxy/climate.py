@@ -127,7 +127,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # UI state
         self._hvac_mode = HVACMode.HEAT
-        self._target_temp: float = config_entry.options.get(CONF_COMFORT_TARGET, 20.0)
+        self._target_temp: float = config_entry.options.get(CONF_COMFORT_TARGET, 19.0)
         self._preset_mode: str = PRESET_COMFORT
 
         # Boost timer
@@ -299,7 +299,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             # Evaluate current state after restart
             presence_state = self.hass.states.get(presence_sensor)
             if presence_state and presence_state.state == "off":
-                delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 1800)
+                delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
                 self._presence_ctrl.handle_presence_away(
                     self.hass, delay, self._async_presence_away_action
                 )
@@ -462,7 +462,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
 
         if new_state.state == "off":  # nobody home
-            delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 1800)
+            delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
             self._presence_ctrl.handle_presence_away(
                 self.hass, delay, self._async_presence_away_action
             )

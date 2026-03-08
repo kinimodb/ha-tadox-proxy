@@ -453,16 +453,16 @@ class TestPresetConfig:
     def test_default_preset_values(self):
         """Default presets should have sensible values."""
         presets = PresetConfig()
-        assert presets.eco_target_c == 19.0
+        assert presets.eco_target_c == 17.0
         assert presets.boost_target_c == 25.0
         assert presets.boost_duration_min == 30
-        assert presets.away_target_c == 16.0
-        assert presets.frost_protection_target_c == 5.0
+        assert presets.away_target_c == 17.0
+        assert presets.frost_protection_target_c == 7.0
 
     def test_preset_config_in_regulation_config(self):
         """RegulationConfig should carry PresetConfig defaults."""
         config = RegulationConfig()
-        assert config.presets.eco_target_c == 19.0
+        assert config.presets.eco_target_c == 17.0
         assert config.presets.boost_target_c == 25.0
 
     def test_custom_preset_values(self):

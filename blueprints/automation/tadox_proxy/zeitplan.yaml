@@ -512,7 +512,7 @@ trigger:
     id: "startup"
 
 # ════════════════════════════════════════════════════════════════════════════
-#  Variables
+#  Variables (resolved from inputs at configuration time)
 # ════════════════════════════════════════════════════════════════════════════
 
 variables:
@@ -529,7 +529,7 @@ variables:
   zt_mittags_we: !input zeit_mittags_we
   zt_abends_we: !input zeit_abends_we
   zt_nachts_we: !input zeit_nachts_we
-  # Main presets
+  # Main mode/preset/temp
   mo_morgens: !input modus_morgens
   mo_mittags: !input modus_mittags
   mo_abends: !input modus_abends
@@ -542,7 +542,7 @@ variables:
   tp_mittags: !input temp_mittags
   tp_abends: !input temp_abends
   tp_nachts: !input temp_nachts
-  # Weekend presets
+  # Weekend mode/preset/temp
   mo_morgens_we: !input modus_morgens_we
   mo_mittags_we: !input modus_mittags_we
   mo_abends_we: !input modus_abends_we
@@ -555,6 +555,12 @@ variables:
   tp_mittags_we: !input temp_mittags_we
   tp_abends_we: !input temp_abends_we
   tp_nachts_we: !input temp_nachts_we
+  # Slot names as constant list
+  slot_names:
+    - "morgens"
+    - "mittags"
+    - "abends"
+    - "nachts"
 
 # ════════════════════════════════════════════════════════════════════════════
 #  Action
@@ -562,151 +568,118 @@ variables:
 
 action:
   - variables:
-      tid: "{{ trigger.id }}"
+      tid: "{{ trigger.id | default('') }}"
       is_we: "{{ now().isoweekday() > 5 }}"
+
+      # Determine which slot this trigger belongs to.
+      # Manual triggers and startup both resolve via current time.
+      slot: >-
+        {% set known = ['morgens','mittags','abends','nachts'] %}
+        {% if tid in known %}
+          {{ tid }}
+        {% elif tid.endswith('_we') and tid[:-3] in known %}
+          {{ tid[:-3] }}
+        {% else %}
+          _auto_
+        {% endif %}
+
       # Check if this trigger should fire today
-      valid: >
-        {% if tid == 'startup' %}
+      valid: >-
+        {% if slot == '_auto_' %}
           true
         {% elif tid.endswith('_we') %}
           {{ sep_zeiten and is_we }}
         {% else %}
           {{ (not sep_zeiten) or (not is_we) }}
         {% endif %}
-      # Determine which slot this trigger belongs to
-      slot: >
-        {% if tid == 'startup' %}
-          startup
-        {% elif tid.endswith('_we') %}
-          {{ tid[:-3] }}
-        {% else %}
-          {{ tid }}
-        {% endif %}
+
       # Whether to use weekend presets for this activation
       use_we_p: "{{ sep_presets and is_we }}"
 
   - condition: template
     value_template: "{{ valid }}"
 
+  # ── Determine the active slot (from trigger or from current time) ──
+  - variables:
+      # For startup, manual trigger, or any unknown trigger: determine
+      # the active slot from the current time of day.
+      active_slot: >-
+        {% if slot != '_auto_' %}
+          {{ slot }}
+        {% else %}
+          {% set t = now().strftime('%H:%M:%S') %}
+          {% set use_we_t = sep_zeiten and is_we %}
+          {% set times = [
+            {'time': zt_morgens_we if use_we_t else zt_morgens, 'name': 'morgens'},
+            {'time': zt_mittags_we if use_we_t else zt_mittags, 'name': 'mittags'},
+            {'time': zt_abends_we  if use_we_t else zt_abends,  'name': 'abends'},
+            {'time': zt_nachts_we  if use_we_t else zt_nachts,  'name': 'nachts'}
+          ] %}
+          {% set sorted_times = times | sort(attribute='time') %}
+          {% set ns = namespace(name=sorted_times[-1].name) %}
+          {% for s in sorted_times %}
+            {% if t >= s.time %}{% set ns.name = s.name %}{% endif %}
+          {% endfor %}
+          {{ ns.name }}
+        {% endif %}
+
+  # ── Wait for HA to be fully ready on startup ──
+  - if:
+      - condition: template
+        value_template: "{{ tid == 'startup' }}"
+    then:
+      - delay:
+          seconds: 30
+
+  # ── Resolve mode/preset/temp for the active slot ──
+  - variables:
+      active_mode: >-
+        {% set s = active_slot | trim %}
+        {% set uwp = use_we_p %}
+        {% set m = {
+          'morgens': mo_morgens_we if uwp else mo_morgens,
+          'mittags': mo_mittags_we if uwp else mo_mittags,
+          'abends':  mo_abends_we  if uwp else mo_abends,
+          'nachts':  mo_nachts_we  if uwp else mo_nachts
+        } %}
+        {{ m.get(s, 'preset') }}
+      active_preset: >-
+        {% set s = active_slot | trim %}
+        {% set uwp = use_we_p %}
+        {% set p = {
+          'morgens': pr_morgens_we if uwp else pr_morgens,
+          'mittags': pr_mittags_we if uwp else pr_mittags,
+          'abends':  pr_abends_we  if uwp else pr_abends,
+          'nachts':  pr_nachts_we  if uwp else pr_nachts
+        } %}
+        {{ p.get(s, 'comfort') }}
+      active_temp: >-
+        {% set s = active_slot | trim %}
+        {% set uwp = use_we_p %}
+        {% set t = {
+          'morgens': tp_morgens_we if uwp else tp_morgens,
+          'mittags': tp_mittags_we if uwp else tp_mittags,
+          'abends':  tp_abends_we  if uwp else tp_abends,
+          'nachts':  tp_nachts_we  if uwp else tp_nachts
+        } %}
+        {{ t.get(s, 21.0) }}
+
+  # ── Apply: preset mode or temperature ──
   - choose:
-      # ────────────────────────────────────────────────────────
-      #  Startup-Sync
-      # ────────────────────────────────────────────────────────
       - conditions:
           - condition: template
-            value_template: "{{ tid == 'startup' }}"
+            value_template: "{{ active_mode | trim == 'preset' }}"
         sequence:
-          - delay:
-              seconds: 30
-          - variables:
-              # Determine currently active slot based on time of day
-              use_we_t: "{{ sep_zeiten and is_we }}"
-              startup_slot: >
-                {% set t = now().strftime('%H:%M:%S') %}
-                {% set tm  = zt_morgens_we  if use_we_t else zt_morgens %}
-                {% set tmi = zt_mittags_we  if use_we_t else zt_mittags %}
-                {% set ta  = zt_abends_we   if use_we_t else zt_abends %}
-                {% set tn  = zt_nachts_we   if use_we_t else zt_nachts %}
-                {% set slots = [
-                  {'time': tm,  'name': 'morgens'},
-                  {'time': tmi, 'name': 'mittags'},
-                  {'time': ta,  'name': 'abends'},
-                  {'time': tn,  'name': 'nachts'}
-                ] %}
-                {% set sorted_slots = slots | sort(attribute='time') %}
-                {% set ns = namespace(name=sorted_slots[-1].name) %}
-                {% for s in sorted_slots %}
-                  {% if t >= s.time %}{% set ns.name = s.name %}{% endif %}
-                {% endfor %}
-                {{ ns.name }}
-              startup_mode: >
-                {% set uwp = sep_presets and is_we %}
-                {% set modes = {
-                  'morgens': mo_morgens_we if uwp else mo_morgens,
-                  'mittags': mo_mittags_we if uwp else mo_mittags,
-                  'abends':  mo_abends_we  if uwp else mo_abends,
-                  'nachts':  mo_nachts_we  if uwp else mo_nachts
-                } %}
-                {{ modes[startup_slot] }}
-              startup_preset: >
-                {% set uwp = sep_presets and is_we %}
-                {% set presets = {
-                  'morgens': pr_morgens_we if uwp else pr_morgens,
-                  'mittags': pr_mittags_we if uwp else pr_mittags,
-                  'abends':  pr_abends_we  if uwp else pr_abends,
-                  'nachts':  pr_nachts_we  if uwp else pr_nachts
-                } %}
-                {{ presets[startup_slot] }}
-              startup_temp: >
-                {% set uwp = sep_presets and is_we %}
-                {% set temps = {
-                  'morgens': tp_morgens_we if uwp else tp_morgens,
-                  'mittags': tp_mittags_we if uwp else tp_mittags,
-                  'abends':  tp_abends_we  if uwp else tp_abends,
-                  'nachts':  tp_nachts_we  if uwp else tp_nachts
-                } %}
-                {{ temps[startup_slot] }}
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ startup_mode == 'preset' }}"
-                sequence:
-                  - action: climate.set_preset_mode
-                    target:
-                      entity_id: !input thermostat
-                    data:
-                      preset_mode: "{{ startup_preset }}"
-            default:
-              - action: climate.set_temperature
-                target:
-                  entity_id: !input thermostat
-                data:
-                  temperature: "{{ startup_temp | float }}"
-
-    # ────────────────────────────────────────────────────────
-    #  Normal time triggers
-    # ────────────────────────────────────────────────────────
-    default:
-      - variables:
-          active_mode: >
-            {% set modes = {
-              'morgens': mo_morgens_we if use_we_p else mo_morgens,
-              'mittags': mo_mittags_we if use_we_p else mo_mittags,
-              'abends':  mo_abends_we  if use_we_p else mo_abends,
-              'nachts':  mo_nachts_we  if use_we_p else mo_nachts
-            } %}
-            {{ modes[slot] }}
-          active_preset: >
-            {% set presets = {
-              'morgens': pr_morgens_we if use_we_p else pr_morgens,
-              'mittags': pr_mittags_we if use_we_p else pr_mittags,
-              'abends':  pr_abends_we  if use_we_p else pr_abends,
-              'nachts':  pr_nachts_we  if use_we_p else pr_nachts
-            } %}
-            {{ presets[slot] }}
-          active_temp: >
-            {% set temps = {
-              'morgens': tp_morgens_we if use_we_p else tp_morgens,
-              'mittags': tp_mittags_we if use_we_p else tp_mittags,
-              'abends':  tp_abends_we  if use_we_p else tp_abends,
-              'nachts':  tp_nachts_we  if use_we_p else tp_nachts
-            } %}
-            {{ temps[slot] }}
-      - choose:
-          - conditions:
-              - condition: template
-                value_template: "{{ active_mode == 'preset' }}"
-            sequence:
-              - action: climate.set_preset_mode
-                target:
-                  entity_id: !input thermostat
-                data:
-                  preset_mode: "{{ active_preset }}"
-        default:
-          - action: climate.set_temperature
+          - action: climate.set_preset_mode
             target:
               entity_id: !input thermostat
             data:
-              temperature: "{{ active_temp | float }}"
+              preset_mode: "{{ active_preset | trim }}"
+    default:
+      - action: climate.set_temperature
+        target:
+          entity_id: !input thermostat
+        data:
+          temperature: "{{ active_temp | float(21.0) }}"
 
 mode: single
