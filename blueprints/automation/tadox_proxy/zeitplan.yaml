@@ -1,0 +1,712 @@
+blueprint:
+  name: "Tado X Proxy – Zeitplan"
+  description: >
+    Automatischer Preset-Zeitplan für einen Tado X Proxy Thermostaten.
+
+
+    Vier Phasen pro Tag:
+
+    - ☀️ Morgens → Standard: Komfort
+
+    - 🌤️ Mittags → Standard: Komfort
+
+    - 🌅 Abends → Standard: Eco
+
+    - 🌙 Nachts → Standard: Frostschutz
+
+
+    Pro Phase wählbar: **Preset** oder **individuelle Temperatur**.
+
+
+    Optional: Getrennte Zeiten und/oder Presets für Wochenende (Sa–So).
+
+    Importiere diesen Blueprint **einmal pro Raum**.
+
+
+    Beim HA-Neustart wird automatisch das zur aktuellen Uhrzeit
+    passende Preset/Temperatur gesetzt (Startup-Sync).
+  domain: automation
+  author: "kinimodb"
+  source_url: "https://github.com/kinimodb/ha-tadox-proxy/blob/main/blueprints/automation/tadox_proxy/zeitplan.yaml"
+
+  input:
+    # ── Thermostat ──
+    thermostat:
+      name: "Proxy-Thermostat"
+      description: "Der Tado X Proxy Thermostat für diesen Raum."
+      selector:
+        entity:
+          filter:
+            - domain: climate
+
+    # ── Einstellungen ──
+    einstellungen:
+      name: "⚙️ Einstellungen"
+      description: "Optionale Flexibilität für Wochenend-Konfiguration."
+      input:
+        separate_wochenend_zeiten:
+          name: "Getrennte Wochenend-Zeiten"
+          description: >
+            Aktivieren, um am Wochenende (Sa–So) andere Startzeiten zu nutzen.
+            Wenn deaktiviert, gelten die Hauptzeiten für alle Tage.
+          default: false
+          selector:
+            boolean:
+
+        separate_wochenend_presets:
+          name: "Getrennte Wochenend-Presets"
+          description: >
+            Aktivieren, um am Wochenende andere Presets/Temperaturen zu nutzen.
+            Wenn deaktiviert, gelten die Hauptpresets für alle Tage.
+            Konfiguration unter '🔀 Wochenend-Presets'.
+          default: false
+          selector:
+            boolean:
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  ☀️ Morgens
+    # ══════════════════════════════════════════════════════════════════════
+    section_morgens:
+      name: "☀️ Morgens"
+      input:
+        zeit_morgens:
+          name: "Startzeit"
+          description: "Startzeit der Morgenphase (gilt für alle Tage, oder nur Werktage wenn getrennte Wochenend-Zeiten aktiv)."
+          default: "06:30:00"
+          selector:
+            time:
+
+        zeit_morgens_we:
+          name: "Startzeit – Wochenende"
+          description: "Nur relevant wenn 'Getrennte Wochenend-Zeiten' aktiviert ist."
+          default: "08:00:00"
+          selector:
+            time:
+
+        modus_morgens:
+          name: "Steuerungsart"
+          description: "'Preset' nutzt ein vordefiniertes Preset, 'Temperatur' setzt eine individuelle Zieltemperatur."
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_morgens:
+          name: "Preset"
+          description: "Welches Preset morgens aktiviert werden soll. Nur relevant bei Steuerungsart 'Preset'."
+          default: "comfort"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_morgens:
+          name: "Zieltemperatur"
+          description: "Individuelle Zieltemperatur. Nur relevant bei Steuerungsart 'Temperatur'."
+          default: 21.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  🌤️ Mittags
+    # ══════════════════════════════════════════════════════════════════════
+    section_mittags:
+      name: "🌤️ Mittags"
+      input:
+        zeit_mittags:
+          name: "Startzeit"
+          description: "Startzeit der Mittagsphase."
+          default: "12:00:00"
+          selector:
+            time:
+
+        zeit_mittags_we:
+          name: "Startzeit – Wochenende"
+          description: "Nur relevant wenn 'Getrennte Wochenend-Zeiten' aktiviert ist."
+          default: "12:00:00"
+          selector:
+            time:
+
+        modus_mittags:
+          name: "Steuerungsart"
+          description: "'Preset' nutzt ein vordefiniertes Preset, 'Temperatur' setzt eine individuelle Zieltemperatur."
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_mittags:
+          name: "Preset"
+          description: "Welches Preset mittags aktiviert werden soll. Nur relevant bei Steuerungsart 'Preset'."
+          default: "comfort"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_mittags:
+          name: "Zieltemperatur"
+          description: "Individuelle Zieltemperatur. Nur relevant bei Steuerungsart 'Temperatur'."
+          default: 21.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  🌅 Abends
+    # ══════════════════════════════════════════════════════════════════════
+    section_abends:
+      name: "🌅 Abends"
+      input:
+        zeit_abends:
+          name: "Startzeit"
+          description: "Startzeit der Abendphase."
+          default: "18:00:00"
+          selector:
+            time:
+
+        zeit_abends_we:
+          name: "Startzeit – Wochenende"
+          description: "Nur relevant wenn 'Getrennte Wochenend-Zeiten' aktiviert ist."
+          default: "18:00:00"
+          selector:
+            time:
+
+        modus_abends:
+          name: "Steuerungsart"
+          description: "'Preset' nutzt ein vordefiniertes Preset, 'Temperatur' setzt eine individuelle Zieltemperatur."
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_abends:
+          name: "Preset"
+          description: "Welches Preset abends aktiviert werden soll. Nur relevant bei Steuerungsart 'Preset'."
+          default: "eco"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_abends:
+          name: "Zieltemperatur"
+          description: "Individuelle Zieltemperatur. Nur relevant bei Steuerungsart 'Temperatur'."
+          default: 19.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  🌙 Nachts
+    # ══════════════════════════════════════════════════════════════════════
+    section_nachts:
+      name: "🌙 Nachts"
+      input:
+        zeit_nachts:
+          name: "Startzeit"
+          description: "Startzeit der Nachtphase."
+          default: "23:00:00"
+          selector:
+            time:
+
+        zeit_nachts_we:
+          name: "Startzeit – Wochenende"
+          description: "Nur relevant wenn 'Getrennte Wochenend-Zeiten' aktiviert ist."
+          default: "00:00:00"
+          selector:
+            time:
+
+        modus_nachts:
+          name: "Steuerungsart"
+          description: "'Preset' nutzt ein vordefiniertes Preset, 'Temperatur' setzt eine individuelle Zieltemperatur."
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_nachts:
+          name: "Preset"
+          description: "Welches Preset nachts aktiviert werden soll. Nur relevant bei Steuerungsart 'Preset'."
+          default: "frost_protection"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_nachts:
+          name: "Zieltemperatur"
+          description: "Individuelle Zieltemperatur. Nur relevant bei Steuerungsart 'Temperatur'."
+          default: 16.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  🔀 Wochenend-Presets (optional)
+    # ══════════════════════════════════════════════════════════════════════
+    section_wochenend_presets:
+      name: "🔀 Wochenend-Presets"
+      description: "Nur relevant wenn 'Getrennte Wochenend-Presets' aktiviert ist. Ansonsten gelten die Hauptpresets für alle Tage."
+      collapsed: true
+      input:
+        modus_morgens_we:
+          name: "☀️ Morgens – Steuerungsart"
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_morgens_we:
+          name: "☀️ Morgens – Preset"
+          default: "comfort"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_morgens_we:
+          name: "☀️ Morgens – Zieltemperatur"
+          default: 21.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        modus_mittags_we:
+          name: "🌤️ Mittags – Steuerungsart"
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_mittags_we:
+          name: "🌤️ Mittags – Preset"
+          default: "comfort"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_mittags_we:
+          name: "🌤️ Mittags – Zieltemperatur"
+          default: 21.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        modus_abends_we:
+          name: "🌅 Abends – Steuerungsart"
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_abends_we:
+          name: "🌅 Abends – Preset"
+          default: "eco"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_abends_we:
+          name: "🌅 Abends – Zieltemperatur"
+          default: 19.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+        modus_nachts_we:
+          name: "🌙 Nachts – Steuerungsart"
+          default: "preset"
+          selector:
+            select:
+              options:
+                - label: "Preset"
+                  value: "preset"
+                - label: "Temperatur"
+                  value: "temperatur"
+
+        preset_nachts_we:
+          name: "🌙 Nachts – Preset"
+          default: "frost_protection"
+          selector:
+            select:
+              options:
+                - label: "Komfort"
+                  value: "comfort"
+                - label: "Eco"
+                  value: "eco"
+                - label: "Boost"
+                  value: "boost"
+                - label: "Abwesend"
+                  value: "away"
+                - label: "Frostschutz"
+                  value: "frost_protection"
+
+        temp_nachts_we:
+          name: "🌙 Nachts – Zieltemperatur"
+          default: 16.0
+          selector:
+            number:
+              min: 5.0
+              max: 30.0
+              step: 0.5
+              unit_of_measurement: "°C"
+              mode: slider
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Trigger
+# ════════════════════════════════════════════════════════════════════════════
+
+trigger:
+  # Main times (all days, or weekdays only when separate weekend times)
+  - trigger: time
+    at: !input zeit_morgens
+    id: "morgens"
+  - trigger: time
+    at: !input zeit_mittags
+    id: "mittags"
+  - trigger: time
+    at: !input zeit_abends
+    id: "abends"
+  - trigger: time
+    at: !input zeit_nachts
+    id: "nachts"
+  # Weekend times (only used when separate weekend times enabled)
+  - trigger: time
+    at: !input zeit_morgens_we
+    id: "morgens_we"
+  - trigger: time
+    at: !input zeit_mittags_we
+    id: "mittags_we"
+  - trigger: time
+    at: !input zeit_abends_we
+    id: "abends_we"
+  - trigger: time
+    at: !input zeit_nachts_we
+    id: "nachts_we"
+  # Startup sync
+  - trigger: homeassistant
+    event: start
+    id: "startup"
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Variables
+# ════════════════════════════════════════════════════════════════════════════
+
+variables:
+  # Settings
+  sep_zeiten: !input separate_wochenend_zeiten
+  sep_presets: !input separate_wochenend_presets
+  # Main times
+  zt_morgens: !input zeit_morgens
+  zt_mittags: !input zeit_mittags
+  zt_abends: !input zeit_abends
+  zt_nachts: !input zeit_nachts
+  # Weekend times
+  zt_morgens_we: !input zeit_morgens_we
+  zt_mittags_we: !input zeit_mittags_we
+  zt_abends_we: !input zeit_abends_we
+  zt_nachts_we: !input zeit_nachts_we
+  # Main presets
+  mo_morgens: !input modus_morgens
+  mo_mittags: !input modus_mittags
+  mo_abends: !input modus_abends
+  mo_nachts: !input modus_nachts
+  pr_morgens: !input preset_morgens
+  pr_mittags: !input preset_mittags
+  pr_abends: !input preset_abends
+  pr_nachts: !input preset_nachts
+  tp_morgens: !input temp_morgens
+  tp_mittags: !input temp_mittags
+  tp_abends: !input temp_abends
+  tp_nachts: !input temp_nachts
+  # Weekend presets
+  mo_morgens_we: !input modus_morgens_we
+  mo_mittags_we: !input modus_mittags_we
+  mo_abends_we: !input modus_abends_we
+  mo_nachts_we: !input modus_nachts_we
+  pr_morgens_we: !input preset_morgens_we
+  pr_mittags_we: !input preset_mittags_we
+  pr_abends_we: !input preset_abends_we
+  pr_nachts_we: !input preset_nachts_we
+  tp_morgens_we: !input temp_morgens_we
+  tp_mittags_we: !input temp_mittags_we
+  tp_abends_we: !input temp_abends_we
+  tp_nachts_we: !input temp_nachts_we
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Action
+# ════════════════════════════════════════════════════════════════════════════
+
+action:
+  - variables:
+      tid: "{{ trigger.id }}"
+      is_we: "{{ now().isoweekday() > 5 }}"
+      # Check if this trigger should fire today
+      valid: >
+        {% if tid == 'startup' %}
+          true
+        {% elif tid.endswith('_we') %}
+          {{ sep_zeiten and is_we }}
+        {% else %}
+          {{ (not sep_zeiten) or (not is_we) }}
+        {% endif %}
+      # Determine which slot this trigger belongs to
+      slot: >
+        {% if tid == 'startup' %}
+          startup
+        {% elif tid.endswith('_we') %}
+          {{ tid[:-3] }}
+        {% else %}
+          {{ tid }}
+        {% endif %}
+      # Whether to use weekend presets for this activation
+      use_we_p: "{{ sep_presets and is_we }}"
+
+  - condition: template
+    value_template: "{{ valid }}"
+
+  - choose:
+      # ────────────────────────────────────────────────────────
+      #  Startup-Sync
+      # ────────────────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ tid == 'startup' }}"
+        sequence:
+          - delay:
+              seconds: 30
+          - variables:
+              # Determine currently active slot based on time of day
+              use_we_t: "{{ sep_zeiten and is_we }}"
+              startup_slot: >
+                {% set t = now().strftime('%H:%M:%S') %}
+                {% set tm  = zt_morgens_we  if use_we_t else zt_morgens %}
+                {% set tmi = zt_mittags_we  if use_we_t else zt_mittags %}
+                {% set ta  = zt_abends_we   if use_we_t else zt_abends %}
+                {% set tn  = zt_nachts_we   if use_we_t else zt_nachts %}
+                {% set slots = [
+                  {'time': tm,  'name': 'morgens'},
+                  {'time': tmi, 'name': 'mittags'},
+                  {'time': ta,  'name': 'abends'},
+                  {'time': tn,  'name': 'nachts'}
+                ] %}
+                {% set sorted_slots = slots | sort(attribute='time') %}
+                {% set ns = namespace(name=sorted_slots[-1].name) %}
+                {% for s in sorted_slots %}
+                  {% if t >= s.time %}{% set ns.name = s.name %}{% endif %}
+                {% endfor %}
+                {{ ns.name }}
+              startup_mode: >
+                {% set uwp = sep_presets and is_we %}
+                {% set modes = {
+                  'morgens': mo_morgens_we if uwp else mo_morgens,
+                  'mittags': mo_mittags_we if uwp else mo_mittags,
+                  'abends':  mo_abends_we  if uwp else mo_abends,
+                  'nachts':  mo_nachts_we  if uwp else mo_nachts
+                } %}
+                {{ modes[startup_slot] }}
+              startup_preset: >
+                {% set uwp = sep_presets and is_we %}
+                {% set presets = {
+                  'morgens': pr_morgens_we if uwp else pr_morgens,
+                  'mittags': pr_mittags_we if uwp else pr_mittags,
+                  'abends':  pr_abends_we  if uwp else pr_abends,
+                  'nachts':  pr_nachts_we  if uwp else pr_nachts
+                } %}
+                {{ presets[startup_slot] }}
+              startup_temp: >
+                {% set uwp = sep_presets and is_we %}
+                {% set temps = {
+                  'morgens': tp_morgens_we if uwp else tp_morgens,
+                  'mittags': tp_mittags_we if uwp else tp_mittags,
+                  'abends':  tp_abends_we  if uwp else tp_abends,
+                  'nachts':  tp_nachts_we  if uwp else tp_nachts
+                } %}
+                {{ temps[startup_slot] }}
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ startup_mode == 'preset' }}"
+                sequence:
+                  - action: climate.set_preset_mode
+                    target:
+                      entity_id: !input thermostat
+                    data:
+                      preset_mode: "{{ startup_preset }}"
+            default:
+              - action: climate.set_temperature
+                target:
+                  entity_id: !input thermostat
+                data:
+                  temperature: "{{ startup_temp | float }}"
+
+    # ────────────────────────────────────────────────────────
+    #  Normal time triggers
+    # ────────────────────────────────────────────────────────
+    default:
+      - variables:
+          active_mode: >
+            {% set modes = {
+              'morgens': mo_morgens_we if use_we_p else mo_morgens,
+              'mittags': mo_mittags_we if use_we_p else mo_mittags,
+              'abends':  mo_abends_we  if use_we_p else mo_abends,
+              'nachts':  mo_nachts_we  if use_we_p else mo_nachts
+            } %}
+            {{ modes[slot] }}
+          active_preset: >
+            {% set presets = {
+              'morgens': pr_morgens_we if use_we_p else pr_morgens,
+              'mittags': pr_mittags_we if use_we_p else pr_mittags,
+              'abends':  pr_abends_we  if use_we_p else pr_abends,
+              'nachts':  pr_nachts_we  if use_we_p else pr_nachts
+            } %}
+            {{ presets[slot] }}
+          active_temp: >
+            {% set temps = {
+              'morgens': tp_morgens_we if use_we_p else tp_morgens,
+              'mittags': tp_mittags_we if use_we_p else tp_mittags,
+              'abends':  tp_abends_we  if use_we_p else tp_abends,
+              'nachts':  tp_nachts_we  if use_we_p else tp_nachts
+            } %}
+            {{ temps[slot] }}
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ active_mode == 'preset' }}"
+            sequence:
+              - action: climate.set_preset_mode
+                target:
+                  entity_id: !input thermostat
+                data:
+                  preset_mode: "{{ active_preset }}"
+        default:
+          - action: climate.set_temperature
+            target:
+              entity_id: !input thermostat
+            data:
+              temperature: "{{ active_temp | float }}"
+
+mode: single
