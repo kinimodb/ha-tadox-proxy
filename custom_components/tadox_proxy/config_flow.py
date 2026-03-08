@@ -144,7 +144,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Required(
                     CONF_PRESENCE_AWAY_DELAY_S,
-                    default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, 1800),
+                    default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, 600),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=7200)),
             }
         )
