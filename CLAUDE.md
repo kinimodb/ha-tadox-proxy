@@ -97,7 +97,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.9.6)
+## Aktueller Stand (v0.9.7)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅

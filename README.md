@@ -88,10 +88,10 @@ in Automationen verwendet werden:
 | Entität | Beschreibung | Standard |
 |---------|-------------|---------|
 | `number.*_comfort_temperature` | Komfort-Zieltemperatur | 20.0 °C |
-| `number.*_eco_temperature` | Eco-Zieltemperatur | 19.0 °C |
+| `number.*_eco_temperature` | Eco-Zieltemperatur | 17.0 °C |
 | `number.*_boost_temperature` | Boost-Zieltemperatur | 25.0 °C |
-| `number.*_away_temperature` | Abwesend-Zieltemperatur | 16.0 °C |
-| `number.*_frost_protection_temperature` | Frostschutz-Temperatur | 5.0 °C |
+| `number.*_away_temperature` | Abwesend-Zieltemperatur | 17.0 °C |
+| `number.*_frost_protection_temperature` | Frostschutz-Temperatur | 7.0 °C |
 
 Alle Entitäten sind im Bereich 5–30 °C in 0.5-°C-Schritten einstellbar.
 
@@ -158,39 +158,6 @@ Das Attribut `presence_away_active` zeigt den aktuellen Zustand an.
 > Fenster- und Präsenzsensor sind **unabhängig voneinander**: Das Fenster steuert
 > das Preset (Frostschutz), der Präsenzsensor steuert das Preset
 > (Abwesend). Beide können gleichzeitig aktiv sein.
-
----
-
-## Zeitplan-Blueprint
-
-Ein fertiger Automation-Blueprint für automatische Tagesabläufe mit vier Phasen.
-
-### Installation
-
-1. In HA: **Einstellungen** → **Automationen & Szenen** → **Blueprints** → **Blueprint importieren**
-2. URL eingeben:
-   ```
-   https://github.com/kinimodb/ha-tadox-proxy/blob/main/blueprints/automation/tadox_proxy/zeitplan.yaml
-   ```
-3. Aus dem Blueprint eine **Automation erstellen** (einmal pro Raum).
-
-### Zeitphasen
-
-| Phase | Standard-Zeit | Standard-Preset |
-|-------|--------------|----------------|
-| ☀️ Morgens | 06:30 | Komfort |
-| 🌤️ Mittags | 12:00 | Komfort |
-| 🌅 Abends | 18:00 | Eco |
-| 🌙 Nachts | 23:00 | Frostschutz |
-
-### Funktionen
-
-- **Preset oder Temperatur**: Pro Phase wählbar – entweder ein vordefiniertes Preset oder eine individuelle Zieltemperatur.
-- **Wochenend-Zeiten** (optional): Getrennte Startzeiten für Samstag/Sonntag.
-- **Wochenend-Presets** (optional): Getrennte Presets/Temperaturen für Samstag/Sonntag (unter „🔀 Wochenend-Presets" konfigurierbar).
-- **Startup-Sync**: Beim HA-Neustart wird automatisch die zur aktuellen Uhrzeit passende Phase aktiviert.
-
-> **Hinweis:** Erfordert Home Assistant 2024.6 oder neuer (für Blueprint-Sections).
 
 ---
 

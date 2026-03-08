@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.9.6)
+## Status (v0.9.7)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -84,6 +84,10 @@
 ---
 
 ## Changelog
+
+### v0.9.7
+- **Cleanup:** Blueprint (Zeitplan) entfernt – die Scheduler-Card (Drittanbieter) funktioniert wieder und ist die empfohlene Lösung für Tagesabläufe.
+- **Docs:** Default-Werte in README und CONTEXT.md an parameters.py angeglichen (Eco 17°C, Away 17°C, Frostschutz 7°C).
 
 ### v0.9.6
 - **Bugfix:** Fenster-Schließ-Logik: Frostschutz wird nicht mehr als „vorheriges Preset" gespeichert. Nach HA-Restart mit offenem Fenster blieb der Nutzer im Frostschutz gefangen, weil der WindowAutomationController-State (is_active, saved preset) nicht über Restarts persistiert wird. Drei Guards (Startup, Save, Restore) verhindern das Problem jetzt an mehreren Stellen (defense-in-depth).
