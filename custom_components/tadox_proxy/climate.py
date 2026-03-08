@@ -127,7 +127,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # UI state
         self._hvac_mode = HVACMode.HEAT
-        self._target_temp: float = config_entry.options.get(CONF_COMFORT_TARGET, 19.0)
+        self._target_temp: float = config_entry.options.get(CONF_COMFORT_TARGET, PresetConfig.comfort_target_c)
         self._preset_mode: str = PRESET_COMFORT
 
         # Boost timer

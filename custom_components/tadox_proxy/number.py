@@ -43,7 +43,7 @@ _PRESET_NUMBERS: tuple[PresetNumberDescription, ...] = (
     ),
     PresetNumberDescription(
         conf_key=CONF_COMFORT_TARGET,
-        default=20.0,
+        default=PresetConfig.comfort_target_c,
         translation_key="comfort_target",
     ),
     PresetNumberDescription(

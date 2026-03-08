@@ -4,7 +4,7 @@
 > (neues Chat-Fenster, neue Session) kann dieses Dokument gelesen werden, um
 > den vollen Stand zu erfassen.
 
-**Letzte Aktualisierung:** 2026-03-07 (v0.9.6)
+**Letzte Aktualisierung:** 2026-03-08 (v0.9.7)
 
 ---
 
@@ -169,11 +169,11 @@ Wobei:
 | Parameter | Wert | Datei |
 |-----------|------|-------|
 | Comfort Target | 20.0°C (Default) | entry.options / NumberEntität |
-| Eco Target | 19.0°C | parameters.py (PresetConfig), NumberEntität |
+| Eco Target | 17.0°C | parameters.py (PresetConfig), NumberEntität |
 | Boost Target | 25.0°C | parameters.py (PresetConfig), NumberEntität |
 | Boost Duration | 30 min | parameters.py (PresetConfig), Options Flow |
-| Away Target | 16.0°C | parameters.py (PresetConfig), NumberEntität |
-| Frost Protection Target | 5.0°C | parameters.py (PresetConfig), NumberEntität |
+| Away Target | 17.0°C | parameters.py (PresetConfig), NumberEntität |
+| Frost Protection Target | 7.0°C | parameters.py (PresetConfig), NumberEntität |
 | Target Range | 5–30°C | alle Preset-Temperaturen |
 
 ---

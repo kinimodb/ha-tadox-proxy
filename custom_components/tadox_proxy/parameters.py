@@ -61,6 +61,7 @@ class CorrectionTuning:
 class PresetConfig:
     """Temperature settings for each preset mode."""
 
+    comfort_target_c: float = 20.0   # default comfort temperature
     eco_target_c: float = 17.0       # fixed eco temperature (independent of comfort)
     boost_target_c: float = 25.0     # fixed target during boost
     boost_duration_min: int = 30     # auto-revert to comfort after this many minutes
