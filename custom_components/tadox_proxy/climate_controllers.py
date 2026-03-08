@@ -154,6 +154,14 @@ class WindowAutomationController:
         self.is_active = False
         return saved
 
+    def update_saved(self, preset: str, temp: float | None) -> None:
+        """Update the saved preset/temp without changing active state.
+
+        Used when the user changes preset while frost protection is active
+        so that the new preset is restored when the window closes.
+        """
+        self._saved = SavedState(preset=preset, temp=temp)
+
     def cancel_all(self) -> None:
         """Cancel all timers and reset to idle state (e.g. user override)."""
         if self._open_timer:
