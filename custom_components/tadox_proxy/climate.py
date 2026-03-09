@@ -246,6 +246,12 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 # controller state is not persisted across restarts
                 if self._preset_mode == PRESET_FROST_PROTECTION:
                     self._preset_mode = PRESET_COMFORT
+                # Don't blindly restore AWAY – it's presence-driven and the
+                # controller state is not persisted across restarts.
+                # We re-evaluate the presence sensor below in the startup
+                # section and apply AWAY immediately if the sensor is "off".
+                if self._preset_mode == PRESET_AWAY:
+                    self._preset_mode = PRESET_COMFORT
 
         # If the active preset is COMFORT, the comfort_target in options is
         # authoritative (may have changed via the number entity while HA was down).
@@ -306,14 +312,21 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     self._async_presence_changed,
                 )
             )
-            # Evaluate current state after restart
+            # Evaluate current state after restart: if already away,
+            # activate AWAY immediately (no delay – the user is already gone).
             presence_state = self.hass.states.get(presence_sensor)
             if presence_state and presence_state.state == "off":
-                delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
-                self._presence_ctrl.handle_presence_away(
-                    self.hass, delay, self._async_presence_away_action
+                # Save the current (restored) preset so we can restore it
+                # when the user comes home.
+                saved_preset = self._preset_mode
+                saved_temp = self._target_temp
+                self._presence_ctrl.activate(saved_preset, saved_temp)
+                self._preset_mode = PRESET_AWAY
+                _LOGGER.info(
+                    "Startup: presence sensor is away, activating AWAY immediately "
+                    "(saved %s for restore)",
+                    saved_preset,
                 )
-                _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
 
         # Start periodic regulation
         self.async_on_remove(
