@@ -444,6 +444,23 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 self._target_temp = float(comfort) if comfort is not None else self._target_temp
             elif saved.temp is not None:
                 self._target_temp = saved.temp
+
+            # If restoring BOOST, start the expiry timer so it doesn't run
+            # indefinitely. Use COMFORT as the post-boost fallback since the
+            # original pre-boost context was lost when window automation
+            # took over.
+            if preset_to_restore == PRESET_BOOST:
+                self._boost_saved_preset = PRESET_COMFORT
+                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+                self._boost_saved_temp = float(comfort) if comfort is not None else self._target_temp
+                duration_s = self._config.presets.boost_duration_min * 60
+                self._boost_cancel = async_call_later_boost(
+                    self.hass, duration_s, self._async_boost_expired
+                )
+                _LOGGER.info(
+                    "Boost restored after window close, timer started for %d min",
+                    self._config.presets.boost_duration_min,
+                )
         _LOGGER.info("Window closed: restoring previous preset")
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="window_closed")
