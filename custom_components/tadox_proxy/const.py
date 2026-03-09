@@ -33,3 +33,6 @@ PRESET_FROST_PROTECTION = "frost_protection"
 CONF_FOLLOW_THRESHOLD_C = "follow_threshold_c"
 CONF_FOLLOW_GRACE_S = "follow_grace_s"
 CONF_URGENT_DECREASE_THRESHOLD_C = "urgent_decrease_threshold_c"
+
+# Sensor resilience
+CONF_SENSOR_GRACE_S = "sensor_grace_s"

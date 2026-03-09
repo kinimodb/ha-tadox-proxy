@@ -50,10 +50,12 @@ from .const import (
     CONF_FOLLOW_THRESHOLD_C,
     CONF_FOLLOW_GRACE_S,
     CONF_URGENT_DECREASE_THRESHOLD_C,
+    CONF_SENSOR_GRACE_S,
     PRESET_FROST_PROTECTION,
 )
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
+    DEFAULT_SENSOR_GRACE_S,
     FROST_PROTECT_C,
     RegulationConfig,
     BehaviourConfig,
@@ -139,6 +141,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_regulation_ts = 0.0
         self._last_command_sent_ts = 0.0
         self._last_sent_setpoint: float | None = None
+
+        # Sensor resilience: last-valid values for grace-period bridging
+        self._last_valid_room_temp: float | None = None
+        self._last_valid_room_temp_ts: float = 0.0
+        self._sensor_grace_s: int = config_entry.options.get(
+            CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S
+        )
+        self._sensor_degraded: bool = False
 
         # State-machine controllers (hold their own timer + saved-state)
         self._window_ctrl = WindowAutomationController()
@@ -320,6 +330,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._config = self._build_config(entry)
         self._behaviour = self._build_behaviour(entry)
         self._regulator = FeedforwardPiRegulator(self._config)
+        self._sensor_grace_s = entry.options.get(
+            CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S
+        )
         # Only sync comfort target when COMFORT preset is active; PRESET_NONE
         # (manual) keeps its independently set temperature.
         if self._preset_mode == PRESET_COMFORT:
@@ -404,6 +417,18 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     async def _async_window_action(self, _now) -> None:
         """Switch to frost protection preset after window-open delay."""
+        # Revalidate: only proceed if window sensor is still "on"
+        window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
+        if window_sensor:
+            current = self.hass.states.get(window_sensor)
+            if current is None or current.state != "on":
+                _LOGGER.info(
+                    "Window action skipped: sensor is now %s",
+                    current.state if current else "unavailable",
+                )
+                self._window_ctrl.cancel_all()
+                return
+
         # If boost is active, cancel it and use the pre-boost preset as saved state
         if self._boost_cancel is not None:
             self._boost_cancel()
@@ -489,6 +514,18 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     async def _async_presence_away_action(self, _now) -> None:
         """Switch to AWAY preset after presence-away delay."""
+        # Revalidate: only proceed if presence sensor is still "off"
+        presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
+        if presence_sensor:
+            current = self.hass.states.get(presence_sensor)
+            if current is None or current.state != "off":
+                _LOGGER.info(
+                    "Presence away action skipped: sensor is now %s",
+                    current.state if current else "unavailable",
+                )
+                self._presence_ctrl.cancel_timer()
+                return
+
         # If window automation is active, don't override frost protection.
         # Save current state for when presence returns, but keep frost mode.
         if self._window_ctrl.is_active:
@@ -704,6 +741,25 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         room_temp = self.coordinator.data.get("room_temp")
         tado_internal = self.coordinator.data.get("tado_internal_temp")
 
+        # Sensor resilience: bridge short gaps with last-valid value
+        if room_temp is not None:
+            self._last_valid_room_temp = room_temp
+            self._last_valid_room_temp_ts = now
+            self._sensor_degraded = False
+        elif (
+            self._last_valid_room_temp is not None
+            and (now - self._last_valid_room_temp_ts) <= self._sensor_grace_s
+        ):
+            room_temp = self._last_valid_room_temp
+            self._sensor_degraded = True
+            age = int(now - self._last_valid_room_temp_ts)
+            _LOGGER.debug(
+                "Room temp unavailable – using last valid %.1f°C (age %ds, grace %ds)",
+                room_temp, age, self._sensor_grace_s,
+            )
+        else:
+            self._sensor_degraded = room_temp is None and self._last_valid_room_temp is not None
+
         if room_temp is None or tado_internal is None:
             self._last_reason = "waiting_for_sensors"
             self.async_write_ha_state()
@@ -837,7 +893,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             "window_open_active": self._window_ctrl.is_active,
             "window_close_delay_active": self._window_ctrl.close_delay_active,
             "presence_away_active": self._presence_ctrl.is_active,
+            "sensor_degraded": self._sensor_degraded,
         }
+
+        # Sensor resilience diagnostics
+        if self._last_valid_room_temp is not None:
+            attrs["room_temp_last_valid_c"] = self._last_valid_room_temp
+            if self._last_valid_room_temp_ts > 0:
+                age = int(time.time() - self._last_valid_room_temp_ts)
+                attrs["room_temp_last_valid_age_s"] = age
 
         if self._last_result:
             r = self._last_result
