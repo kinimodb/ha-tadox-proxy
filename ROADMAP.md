@@ -2,13 +2,14 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.9.8)
+## Status (v0.10.0)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
-- **Phase:** Beta-Test – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
+- **Phase:** Pre-Release – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
 - **Presets:** Comfort, Eco, Boost (mit Timer), Away, Frostschutz – alle als NumberEntität steuerbar.
 - **Externe Trigger:** Fensterkontakt (→ Frostschutz) + Präsenzsensor (→ Abwesend) vollständig implementiert.
+- **Sensor-Resilienz:** Last-Valid-Bridging bei kurzen Sensorausfällen, Timer-Revalidierung.
 - **Window Close Delay:** Konfigurierbarer Restore-Delay nach Fensterschließen verhindert aggressive Heiz-Bursts.
 
 ---
@@ -73,17 +74,34 @@
 - [x] Diagnose-Attribute `window_open_active` + `presence_away_active`.
 - [x] Übersetzungen (DE/EN) für alle neuen Felder.
 
-## M5 – Multi-Room & Community
+## M4.2 – Sensor-Resilienz (v0.10.0) ✅
+
+**Ziel:** Robustheit bei kurzen Sensorausfällen verbessern.
+
+- [x] **Last-Valid-Bridging:** Bei `unavailable`/`unknown` des externen Temperatursensors wird der letzte gültige Wert für eine konfigurierbare Grace-Zeit (Default 300s) weiterverwendet.
+- [x] **Timer-Revalidierung:** Fenster-/Präsenz-Aktionen prüfen vor Ausführung den aktuellen Sensorzustand. Glitches lösen keine ungewollten Presetwechsel mehr aus.
+- [x] **Diagnostik:** Neue Attribute `sensor_degraded`, `room_temp_last_valid_c`, `room_temp_last_valid_age_s` in den Entity-Attributen.
+- [x] **Tests:** 10 neue Tests für Sensor-Grace-Logik (78 Tests gesamt).
+
+## M5 – Multi-Room & Community (→ v1.0.0)
 
 **Ziel:** Erweiterung und Community-Feedback.
 
 - [ ] Validierung der Default-Parameter in verschiedenen Raumtypen.
+- [ ] Logo in HACS sichtbar (PR an home-assistant/brands).
+- [ ] Community-Forum Vorstellung.
 - [ ] Dokumentation erweitern basierend auf Community-Erfahrungen.
 - [ ] Optional: Raum-Gruppierung (Zonen).
 
 ---
 
 ## Changelog
+
+### v0.10.0
+- **Feature:** Sensor-Resilienz – bei kurzen Sensorausfällen (≤5 min) wird der letzte gültige Messwert weiterverwendet statt die Regelung zu unterbrechen. Konfigurierbar via `sensor_grace_s`.
+- **Feature:** Timer-Revalidierung – Fenster- und Präsenz-Aktionen prüfen vor Ausführung nochmals den aktuellen Sensorzustand. Verhindert ungewollte Presetwechsel durch kurze Sensor-Glitches.
+- **Feature:** Neue Diagnose-Attribute: `sensor_degraded`, `room_temp_last_valid_c`, `room_temp_last_valid_age_s`.
+- **Tests:** 10 neue Tests für Sensor-Grace-Logik (78 Tests gesamt).
 
 ### v0.9.8
 - **Cleanup:** Blueprint (Zeitplan) entfernt – die Scheduler-Card (Drittanbieter) funktioniert wieder und ist die empfohlene Lösung für Tagesabläufe.

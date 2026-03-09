@@ -36,6 +36,7 @@ class BehaviourConfig:
 
 DEFAULT_CONTROL_INTERVAL_S: int = 60   # seconds between regulation cycles
 FROST_PROTECT_C: float = 5.0           # target temperature when HVAC is OFF
+DEFAULT_SENSOR_GRACE_S: int = 300      # seconds to use last-valid room_temp when sensor is unavailable
 
 
 # ---------------------------------------------------------------------------

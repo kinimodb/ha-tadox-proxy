@@ -32,7 +32,7 @@ python -m pytest tests/ -v
 
 - Tests importieren Module via `importlib.util.spec_from_file_location` um `__init__.py` (HA-Abhängigkeit) zu umgehen.
 - Vor jedem Commit: Tests müssen grün sein.
-- Aktuell: 23 Tests in `tests/test_regulation.py`.
+- Aktuell: 78 Tests in `tests/test_regulation.py`, `tests/test_controllers.py`, `tests/test_sensor_resilience.py`.
 
 ## Wichtige Dateien
 
@@ -97,7 +97,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.9.8)
+## Aktueller Stand (v0.10.0)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
@@ -105,7 +105,8 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 - M3.1 (Preset-Setpoint-Fix + Number/Switch-Entitäten) ✅
 - M4 (Externe Trigger: Fensterkontakt → Frostschutz, Präsenzsensor → Away) ✅
 - M4.1 (UX-Polish: Frostschutz-Umbenennung, Icons, Sortierung) ✅
-- M5 (Multi-Room & Community) – nächster Meilenstein
+- M4.2 (Sensor-Resilienz: Last-Valid-Bridging, Timer-Revalidierung) ✅
+- M5 (Multi-Room & Community → v1.0.0) – nächster Meilenstein
 - Testraum läuft stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
 
 ## Bekannte offene Bugs (Priorisiert)
