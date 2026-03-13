@@ -110,6 +110,8 @@ class PresetTemperatureNumber(CoordinatorEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Persist the new preset temperature to config entry options."""
+        # Clamp to configured bounds (service calls bypass frontend validation)
+        value = max(self._attr_native_min_value, min(self._attr_native_max_value, value))
         new_opts = {**self._entry.options, self._desc.conf_key: value}
         self.hass.config_entries.async_update_entry(self._entry, options=new_opts)
         self.async_write_ha_state()
