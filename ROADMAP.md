@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.10.1)
+## Status (v0.10.2)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -81,7 +81,7 @@
 - [x] **Last-Valid-Bridging:** Bei `unavailable`/`unknown` des externen Temperatursensors wird der letzte gültige Wert für eine konfigurierbare Grace-Zeit (Default 300s) weiterverwendet.
 - [x] **Timer-Revalidierung:** Fenster-/Präsenz-Aktionen prüfen vor Ausführung den aktuellen Sensorzustand. Glitches lösen keine ungewollten Presetwechsel mehr aus.
 - [x] **Diagnostik:** Neue Attribute `sensor_degraded`, `room_temp_last_valid_c`, `room_temp_last_valid_age_s` in den Entity-Attributen.
-- [x] **Tests:** 10 neue Tests für Sensor-Grace-Logik (78 Tests gesamt).
+- [x] **Tests:** 10 neue Tests für Sensor-Grace-Logik.
 
 ## M5 – Multi-Room & Community (→ v1.0.0)
 
@@ -107,13 +107,13 @@
 - **Robustheit:** `_async_regulation_cycle` prüft `coordinator.last_update_success` und bricht früh ab bei stale Coordinator-Daten.
 - **Infrastruktur:** GitHub Actions CI (`tests.yml`) – Tests laufen automatisch bei jedem Push/PR.
 - **Infrastruktur:** `pyproject.toml` – Ruff-Lint-Konfiguration (E/F/W/I/UP) + Pytest-Pfade.
-- **Tests:** 6 neue Edge-Case-Tests (78 → 84 Tests): negativer Feedforward-Offset, Zeit-Delta-Extreme, Integral-Decay-Verifikation.
+- **Tests:** 6 neue Edge-Case-Tests: negativer Feedforward-Offset, Zeit-Delta-Extreme, Integral-Decay-Verifikation.
 
 ### v0.10.0
 - **Feature:** Sensor-Resilienz – bei kurzen Sensorausfällen (≤5 min) wird der letzte gültige Messwert weiterverwendet statt die Regelung zu unterbrechen. Konfigurierbar via `sensor_grace_s`.
 - **Feature:** Timer-Revalidierung – Fenster- und Präsenz-Aktionen prüfen vor Ausführung nochmals den aktuellen Sensorzustand. Verhindert ungewollte Presetwechsel durch kurze Sensor-Glitches.
 - **Feature:** Neue Diagnose-Attribute: `sensor_degraded`, `room_temp_last_valid_c`, `room_temp_last_valid_age_s`.
-- **Tests:** 10 neue Tests für Sensor-Grace-Logik (78 Tests gesamt).
+- **Tests:** 10 neue Tests für Sensor-Grace-Logik.
 
 ### v0.9.8
 - **Cleanup:** Blueprint (Zeitplan) entfernt – die Scheduler-Card (Drittanbieter) funktioniert wieder und ist die empfohlene Lösung für Tagesabläufe.
@@ -163,14 +163,14 @@
 - **Feature:** 5 neue NumberEntitäten (Comfort-, Eco-, Boost-, Away-, Urlaub-Temperatur) – steuerbar per Dashboard, Automation und Service `number.set_value`.
 - **Feature:** Switch "Physischem Thermostat folgen" – HA übernimmt Temperaturänderungen am physischen Tado-Gerät.
 - **Feature:** Boost-Temperatur kann jetzt > 25°C konfiguriert werden (max. 30°C).
-- **Breaking:** Eco nutzt jetzt eine feste Zieltemperatur (Default 19°C) statt eines Offsets von der Comfort-Temperatur. Bestehende `eco_offset`-Einstellungen gehen verloren.
+- **Breaking:** Eco nutzt jetzt eine feste Zieltemperatur (Default 17°C) statt eines Offsets von der Comfort-Temperatur. Bestehende `eco_offset`-Einstellungen gehen verloren.
 
 ### v0.5.0
 - **Feature:** Presets – Comfort, Eco, Boost, Away, Frostschutz.
 - Eco: konfigurierbarer Offset (Default −2°C) von der Komfort-Temperatur.
 - Boost: temporär max. Temperatur mit Auto-Revert-Timer (Default 30 min).
-- Away: feste niedrige Temperatur (Default 16°C).
-- Frostschutz: Minimale Temperatur (Default 5°C).
+- Away: feste niedrige Temperatur (Default 17°C).
+- Frostschutz: Minimale Temperatur (Default 7°C).
 - Alle Preset-Temperaturen über Options Flow einstellbar.
 - `effective_setpoint_c` Diagnose-Attribut zeigt den tatsächlich genutzten Sollwert.
 - 23 Unit Tests (7 neue).

@@ -32,7 +32,7 @@ python -m pytest tests/ -v
 
 - Tests importieren Module via `importlib.util.spec_from_file_location` um `__init__.py` (HA-Abhängigkeit) zu umgehen.
 - Vor jedem Commit: Tests müssen grün sein.
-- Aktuell: 78 Tests in `tests/test_regulation.py`, `tests/test_controllers.py`, `tests/test_sensor_resilience.py`.
+- Aktuell: 90 Tests in `tests/test_regulation.py`, `tests/test_controllers.py`, `tests/test_sensor_resilience.py`.
 
 ## Wichtige Dateien
 
@@ -53,9 +53,8 @@ python -m pytest tests/ -v
 Bei jeder Feature-Änderung diese Dateien aktualisieren:
 
 1. **ROADMAP.md** – Meilenstein-Status, Changelog-Eintrag
-2. **CONTEXT.md** – Technischer Kontext für Session-Übergaben
-3. **README.md** – User-facing Dokumentation
-4. **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
+2. **README.md** – User-facing Dokumentation
+3. **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
 
 ## Commit-Konventionen
 
@@ -97,7 +96,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.10.0)
+## Aktueller Stand (v0.10.2)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
@@ -109,13 +108,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 - M5 (Multi-Room & Community → v1.0.0) – nächster Meilenstein
 - Testraum läuft stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
 
-## Bekannte offene Bugs (Priorisiert)
+## Bekannte offene Bugs
 
-1. ~~**Options Flow Reload Race Condition** – behoben in v0.8.1~~
-2. **iOS Companion App: EntitySelector-Crash** – Die `ha-entity-picker` Web Component verursacht einen `ReferenceError: elementId` im iOS WebView. Das ist ein bekannter HA-Frontend-Bug (nicht unser Code). **Workaround:** Konfiguration über den Browser statt die iOS App durchführen. Mehrere Lösungsansätze wurden getestet (Registry-Validierung entfernen, Two-Step-Flow, SelectSelector-Dropdown) – keiner war zufriedenstellend. Betrifft Config Flow und Options Flow.
-3. ~~**Sensor-State nach Restart nicht evaluiert** – behoben in v0.8.13~~
-4. ~~**Nach Boost: Wechsel in Komfort statt vorheriges Preset** – behoben in v0.8.13~~
-5. ~~**Boost-Timer bei Away nicht gecancelt** – behoben in v0.8.13~~
-6. ~~**Preset-Icons unvollständig** – behoben in v0.8.13 (alle 6 Presets haben Icons)~~
-7. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
-8. ~~**Preset-Temps doppelt konfigurierbar** – behoben in v0.8.13 (nur noch über NumberEntitäten)~~
+1. **iOS Companion App: EntitySelector-Crash** – HA-Frontend-Bug in `ha-entity-picker` (`ReferenceError: elementId` im iOS WebView). Nicht unser Code. **Workaround:** Konfiguration über den Browser. Mehrere Lösungsansätze getestet und verworfen (Registry-Validierung, Two-Step-Flow, SelectSelector-Dropdown).
+2. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
