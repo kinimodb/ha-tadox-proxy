@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.10.0)
+## Status (v0.10.1)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -96,6 +96,18 @@
 ---
 
 ## Changelog
+
+### v0.10.1
+- **Bugfix:** `_async_send_to_tado` erhält jetzt einen 10-Sekunden-Timeout via `asyncio.timeout`. Hängende Tado-Entities blockieren den Regelzyklus nicht mehr indefinit.
+- **Bugfix:** `except Exception:` in `_async_send_to_tado` auf `except (TimeoutError, HomeAssistantError):` eingegrenzt – `asyncio.CancelledError` wird beim Shutdown nicht mehr verschluckt.
+- **Bugfix:** Drei `except: pass` Blöcke in `async_update_data` (Coordinator) loggen jetzt als `WARNING` statt Sensor-Parse-Fehler still zu verwerfen.
+- **Bugfix:** Dead Code entfernt: `RegulationState.last_room_temp_c` wurde jede Zykle gesetzt aber nirgendwo gelesen.
+- **Refactor:** Magic Number `0.01` in `regulation.py` → benannte Konstante `_SATURATION_TOLERANCE_C`.
+- **Refactor:** `Optional` Import in `regulation.py` entfernt (war nach Entfernen des dead fields obsolet).
+- **Robustheit:** `_async_regulation_cycle` prüft `coordinator.last_update_success` und bricht früh ab bei stale Coordinator-Daten.
+- **Infrastruktur:** GitHub Actions CI (`tests.yml`) – Tests laufen automatisch bei jedem Push/PR.
+- **Infrastruktur:** `pyproject.toml` – Ruff-Lint-Konfiguration (E/F/W/I/UP) + Pytest-Pfade.
+- **Tests:** 6 neue Edge-Case-Tests (78 → 84 Tests): negativer Feedforward-Offset, Zeit-Delta-Extreme, Integral-Decay-Verifikation.
 
 ### v0.10.0
 - **Feature:** Sensor-Resilienz – bei kurzen Sensorausfällen (≤5 min) wird der letzte gültige Messwert weiterverwendet statt die Regelung zu unterbrechen. Konfigurierbar via `sensor_grace_s`.
