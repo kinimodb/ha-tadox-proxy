@@ -1,6 +1,7 @@
 """Climate Entity for Tado X Proxy."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import datetime
@@ -18,6 +19,7 @@ from homeassistant.components.climate import (
     PRESET_NONE,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     PRECISION_TENTHS,
@@ -737,6 +739,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Execute one control cycle."""
         now = time.time()
 
+        # Guard: skip when coordinator data is stale (update method raised an exception).
+        if not self.coordinator.last_update_success:
+            _LOGGER.debug("Skipping regulation cycle – coordinator update failed")
+            self._last_reason = "coordinator_unavailable"
+            self.async_write_ha_state()
+            return
+
         # 1. Gather sensor data from coordinator
         room_temp = self.coordinator.data.get("room_temp")
         tado_internal = self.coordinator.data.get("tado_internal_temp")
@@ -828,18 +837,19 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         _LOGGER.debug("Sending %.1f°C to %s", target_c, source_entity)
 
         try:
-            await self.hass.services.async_call(
-                domain="climate",
-                service="set_temperature",
-                service_data={
-                    "entity_id": source_entity,
-                    "temperature": target_c,
-                    "hvac_mode": HVACMode.HEAT,
-                },
-                blocking=True,
-            )
+            async with asyncio.timeout(10):
+                await self.hass.services.async_call(
+                    domain="climate",
+                    service="set_temperature",
+                    service_data={
+                        "entity_id": source_entity,
+                        "temperature": target_c,
+                        "hvac_mode": HVACMode.HEAT,
+                    },
+                    blocking=True,
+                )
             self._last_sent_setpoint = target_c
-        except Exception:
+        except (TimeoutError, HomeAssistantError):
             _LOGGER.exception("Failed to send command to Tado")
 
     # ------------------------------------------------------------------

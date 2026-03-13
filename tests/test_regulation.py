@@ -542,3 +542,135 @@ class TestPresetConfig:
         # Command should be at minimum (frost protection)
         assert result.target_for_tado_c == 5.0
         assert result.error_c == -13.0
+
+
+# ---------------------------------------------------------------------------
+# Edge-case tests added during v0.10.1 audit
+# ---------------------------------------------------------------------------
+
+
+class TestNegativeFeedforward:
+    """Tado's sensor reads *lower* than the room sensor.
+
+    This is unusual (TRV near a cold window / draught) but valid.  The
+    feedforward offset becomes negative, which should lower the command
+    sent to Tado rather than raise it.
+    """
+
+    def test_negative_offset_lowers_command(self):
+        """Negative offset → command below setpoint."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        # tado_internal (17°C) < room_temp (20°C) → offset = -3°C
+        result = reg.compute(
+            setpoint_c=20.0,
+            room_temp_c=20.0,
+            tado_internal_c=17.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        assert result.feedforward_offset_c == -3.0
+        # Error = 0, P = 0, I = 0 → command = 20 + (-3) = 17°C
+        assert result.target_for_tado_c == 17.0
+
+    def test_negative_offset_with_room_error(self):
+        """Negative offset combined with a positive room error."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        # Room is 1°C below setpoint, Tado sensor is 2°C below room
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.0,
+            tado_internal_c=18.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        # offset = 18 - 20 = -2.0; error = 21 - 20 = 1.0; P = 0.8 * 1 = 0.8
+        # command = 21 + (-2) + 0.8 = 19.8°C
+        assert result.feedforward_offset_c == -2.0
+        assert result.p_correction_c == pytest.approx(0.8, abs=0.01)
+        assert result.target_for_tado_c == pytest.approx(19.8, abs=0.05)
+
+    def test_negative_offset_clamped_at_minimum(self):
+        """A very large negative offset should be clamped at min_target_c."""
+        reg = make_regulator(min_target_c=5.0)
+        state = RegulationState()
+
+        # Extreme: Tado sensor 20°C below room temp
+        result = reg.compute(
+            setpoint_c=20.0,
+            room_temp_c=20.0,
+            tado_internal_c=0.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        # raw = 20 + (-20) = 0°C → clamped to 5°C
+        assert result.target_for_tado_c == 5.0
+        assert result.is_saturated is True
+
+
+class TestTimeDeltaEdgeCases:
+    """Validate integral behaviour at extreme time-delta values."""
+
+    def test_zero_time_delta_does_not_change_integral(self):
+        """time_delta_s=0 must never update the integral (first cycle guard)."""
+        reg = make_regulator()
+        initial_integral = 1.5
+        state = RegulationState(integral_c=initial_integral)
+
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.0,  # error = 1.0, within deadband
+            tado_internal_c=22.0,
+            time_delta_s=0.0,
+            state=state,
+        )
+
+        # Integral must be unchanged on first cycle
+        assert result.new_state.integral_c == pytest.approx(initial_integral)
+
+    def test_large_time_delta_integral_stays_bounded(self):
+        """A very long gap (600s) must not push integral past its clamps."""
+        reg = make_regulator(integral_max_c=2.0, integral_min_c=-2.0)
+        state = RegulationState(integral_c=0.0)
+
+        # Run 100 consecutive "long-gap" cycles near target so integral
+        # can accumulate freely (within deadband, not saturated).
+        for _ in range(100):
+            result = reg.compute(
+                setpoint_c=21.0,
+                room_temp_c=20.8,   # error = 0.2 < deadband (0.3)
+                tado_internal_c=22.0,
+                time_delta_s=600.0,  # 10-minute gap
+                state=state,
+            )
+            state = result.new_state
+
+        # Integral must stay within the configured clamps
+        assert state.integral_c <= 2.0
+        assert state.integral_c >= -2.0
+
+    def test_decay_applied_outside_deadband(self):
+        """Integral must shrink each cycle when |error| exceeds deadband."""
+        reg = make_regulator(integral_decay=0.9, integral_deadband_c=0.3)
+        initial_integral = 1.0
+        state = RegulationState(integral_c=initial_integral)
+
+        # error = 1.0°C, well outside deadband
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.0,
+            tado_internal_c=22.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+
+        # Integral must have decayed (multiplied by 0.9)
+        assert result.new_state.integral_c == pytest.approx(
+            initial_integral * 0.9, abs=0.001
+        )
