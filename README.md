@@ -64,7 +64,7 @@ Der Proxy-Thermostat kennt sechs Betriebsmodi:
 | Preset | Beschreibung |
 |--------|-------------|
 | **Komfort** | Zieltemperatur aus der Komfort-Einstellung (konfigurierbar) |
-| **Eco** | Feste Eco-Temperatur (konfigurierbar, Standard: 19 °C) |
+| **Eco** | Feste Eco-Temperatur (konfigurierbar, Standard: 17 °C) |
 | **Boost** | Kurzzeitiges Hochheizen auf Boost-Temperatur, dann automatisch zurück |
 | **Abwesend** | Reduzierte Temperatur für kurze Abwesenheit |
 | **Frostschutz** | Minimale Temperatur für Frostschutz (z.B. bei Fensteröffnung oder langer Abwesenheit) |
@@ -196,7 +196,7 @@ Die Proxy-Entität stellt folgende Attribute bereit (sichtbar unter **Entwickler
 |-------|-------|
 | [TUNING.md](TUNING.md) | Detaillierte Tuning-Anleitung für neue Räume |
 | [ROADMAP.md](ROADMAP.md) | Feature-Roadmap und Meilensteine |
-| [CONTEXT.md](CONTEXT.md) | Technischer Kontext und Architekturentscheidungen |
+
 
 ---
 

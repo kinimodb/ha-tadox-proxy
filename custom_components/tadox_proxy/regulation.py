@@ -105,8 +105,13 @@ class FeedforwardPiRegulator:
                     "Regulation aborted: %s is %s (not a finite number)",
                     label, value,
                 )
+                safe_target = (
+                    max(self.cfg.min_target_c, min(self.cfg.max_target_c, setpoint_c))
+                    if math.isfinite(setpoint_c)
+                    else self.cfg.min_target_c
+                )
                 return RegulationResult(
-                    target_for_tado_c=setpoint_c if math.isfinite(setpoint_c) else self.cfg.min_target_c,
+                    target_for_tado_c=safe_target,
                     feedforward_offset_c=0.0,
                     p_correction_c=0.0,
                     i_correction_c=state.integral_c,
