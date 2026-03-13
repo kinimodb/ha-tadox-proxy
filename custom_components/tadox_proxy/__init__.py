@@ -46,7 +46,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 try:
                     data["room_temp"] = float(state.state)
                 except (ValueError, TypeError):
-                    pass
+                    _LOGGER.warning(
+                        "Cannot parse room temperature from sensor %s: %r",
+                        external_sensor_id, state.state,
+                    )
 
         # Get Tado Internal Temp & Setpoint from Source Entity
         if source_entity_id:
@@ -54,17 +57,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if state:
                 # Try to get internal temperature attribute (device dependent)
                 if state.attributes.get("current_temperature") is not None:
-                     try:
+                    try:
                         data["tado_internal_temp"] = float(state.attributes["current_temperature"])
-                     except (ValueError, TypeError):
-                        pass
-                
+                    except (ValueError, TypeError):
+                        _LOGGER.warning(
+                            "Cannot parse tado internal temperature from %s: %r",
+                            source_entity_id, state.attributes.get("current_temperature"),
+                        )
+
                 # Get current Setpoint
                 if state.attributes.get("temperature") is not None:
                     try:
                         data["tado_setpoint"] = float(state.attributes["temperature"])
                     except (ValueError, TypeError):
-                        pass
+                        _LOGGER.warning(
+                            "Cannot parse tado setpoint from %s: %r",
+                            source_entity_id, state.attributes.get("temperature"),
+                        )
         
         return data
 
