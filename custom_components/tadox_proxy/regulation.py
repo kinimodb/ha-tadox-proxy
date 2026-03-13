@@ -25,11 +25,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 from .parameters import RegulationConfig
 
 _LOGGER = logging.getLogger(__name__)
+
+# Output is considered "not saturated" when clamping error is below this threshold (°C).
+# 0.01 °C is 1/10 of the Tado quantisation step (0.1 °C) – effectively zero.
+_SATURATION_TOLERANCE_C = 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +44,6 @@ class RegulationState:
     """Mutable state carried between regulation cycles."""
 
     integral_c: float = 0.0
-    last_room_temp_c: Optional[float] = None
 
 
 @dataclass
@@ -112,7 +114,7 @@ class FeedforwardPiRegulator:
             self.cfg.min_target_c,
             min(self.cfg.max_target_c, raw_command),
         )
-        is_saturated = abs(final_command - raw_command) > 0.01
+        is_saturated = abs(final_command - raw_command) > _SATURATION_TOLERANCE_C
 
         # 7. Anti-windup (two mechanisms)
         new_integral = state.integral_c
@@ -144,7 +146,6 @@ class FeedforwardPiRegulator:
         # 8. Build result
         new_state = RegulationState(
             integral_c=new_integral,
-            last_room_temp_c=room_temp_c,
         )
 
         return RegulationResult(
