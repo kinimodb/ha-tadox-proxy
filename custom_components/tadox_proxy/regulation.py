@@ -24,6 +24,7 @@ Anti-windup (two mechanisms):
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 
 from .parameters import RegulationConfig
@@ -92,6 +93,27 @@ class FeedforwardPiRegulator:
         state:
             Previous regulation state (integral accumulator, etc.).
         """
+
+        # 0. Guard: reject NaN/Inf inputs – they would corrupt all calculations
+        for label, value in (
+            ("setpoint", setpoint_c),
+            ("room_temp", room_temp_c),
+            ("tado_internal", tado_internal_c),
+        ):
+            if not math.isfinite(value):
+                _LOGGER.error(
+                    "Regulation aborted: %s is %s (not a finite number)",
+                    label, value,
+                )
+                return RegulationResult(
+                    target_for_tado_c=setpoint_c if math.isfinite(setpoint_c) else self.cfg.min_target_c,
+                    feedforward_offset_c=0.0,
+                    p_correction_c=0.0,
+                    i_correction_c=state.integral_c,
+                    error_c=0.0,
+                    is_saturated=False,
+                    new_state=state,
+                )
 
         # 1. Feedforward – compensate for sensor-placement offset
         feedforward_offset = tado_internal_c - room_temp_c

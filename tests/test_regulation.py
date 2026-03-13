@@ -674,3 +674,95 @@ class TestTimeDeltaEdgeCases:
         assert result.new_state.integral_c == pytest.approx(
             initial_integral * 0.9, abs=0.001
         )
+
+
+# ---------------------------------------------------------------------------
+# NaN / Inf guard tests (added during Phase 2 audit)
+# ---------------------------------------------------------------------------
+
+
+class TestNanInfGuard:
+    """Regulation must reject NaN/Inf inputs without corrupting state."""
+
+    def test_nan_setpoint_returns_safe_fallback(self):
+        """NaN setpoint → regulation aborted, state preserved."""
+        reg = make_regulator()
+        state = RegulationState(integral_c=0.5)
+
+        result = reg.compute(
+            setpoint_c=float("nan"),
+            room_temp_c=20.0,
+            tado_internal_c=22.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+
+        # Should return a safe result, not NaN
+        assert result.target_for_tado_c == 5.0  # min_target_c fallback
+        # State must be preserved (not corrupted)
+        assert result.new_state.integral_c == 0.5
+
+    def test_nan_room_temp_returns_safe_fallback(self):
+        """NaN room_temp → regulation aborted."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=float("nan"),
+            tado_internal_c=22.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+
+        # setpoint is valid, so use it as fallback
+        assert result.target_for_tado_c == 21.0
+        assert result.error_c == 0.0
+
+    def test_inf_tado_internal_returns_safe_fallback(self):
+        """Inf tado_internal → regulation aborted."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.0,
+            tado_internal_c=float("inf"),
+            time_delta_s=60.0,
+            state=state,
+        )
+
+        assert result.target_for_tado_c == 21.0
+
+    def test_negative_inf_rejected(self):
+        """Negative infinity must also be rejected."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=float("-inf"),
+            tado_internal_c=22.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+
+        assert result.target_for_tado_c == 21.0
+
+    def test_valid_inputs_still_work_normally(self):
+        """Normal inputs must not be affected by the NaN guard."""
+        reg = make_regulator()
+        state = RegulationState()
+
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.0,
+            tado_internal_c=22.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+
+        # Normal computation: offset=2, error=1, P=0.8
+        # command = 21 + 2 + 0.8 = 23.8
+        assert result.target_for_tado_c == 23.8
+        assert result.error_c == 1.0

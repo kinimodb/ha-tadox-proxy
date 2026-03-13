@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 import datetime
 from typing import Any
@@ -72,6 +73,17 @@ from .climate_controllers import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _safe_float(value: Any) -> float | None:
+    """Convert value to float, returning None for non-finite or unparseable values."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (ValueError, TypeError):
+        return None
+    return f if math.isfinite(f) else None
 
 # Ordered list of presets shown in the UI.
 # PRESET_NONE ("Manuell") activates when the user moves the temperature
@@ -231,12 +243,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if last_state:
             if last_state.state in (HVACMode.HEAT, HVACMode.OFF):
                 self._hvac_mode = HVACMode(last_state.state)
-            temp = last_state.attributes.get(ATTR_TEMPERATURE)
+            temp = _safe_float(last_state.attributes.get(ATTR_TEMPERATURE))
             if temp is not None:
-                try:
-                    self._target_temp = float(temp)
-                except (ValueError, TypeError):
-                    pass
+                self._target_temp = temp
             # Restore preset (default to comfort if missing or invalid)
             restored_preset = last_state.attributes.get("preset_mode")
             if restored_preset in PRESET_LIST or restored_preset == PRESET_NONE:
@@ -253,9 +262,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # authoritative (may have changed via the number entity while HA was down).
         # For PRESET_NONE (manual), the restored slider temperature wins.
         if self._preset_mode == PRESET_COMFORT:
-            opts_comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+            opts_comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
             if opts_comfort is not None:
-                self._target_temp = float(opts_comfort)
+                self._target_temp = opts_comfort
 
         # Initialize baseline for follow-tado from current tado setpoint so
         # the feature works immediately without waiting for the first regulation.
@@ -326,6 +335,15 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             )
         )
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel all timers when the entity is being removed."""
+        self._window_ctrl.cancel_all()
+        self._presence_ctrl.cancel_timer()
+        if self._boost_cancel is not None:
+            self._boost_cancel()
+            self._boost_cancel = None
+        await super().async_will_remove_from_hass()
+
     async def _async_config_entry_updated(self, hass, entry) -> None:
         """Called when config entry options change (e.g. from number entities)."""
         self._config_entry = entry
@@ -338,9 +356,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # Only sync comfort target when COMFORT preset is active; PRESET_NONE
         # (manual) keeps its independently set temperature.
         if self._preset_mode == PRESET_COMFORT:
-            comfort = entry.options.get(CONF_COMFORT_TARGET)
+            comfort = _safe_float(entry.options.get(CONF_COMFORT_TARGET))
             if comfort is not None:
-                self._target_temp = float(comfort)
+                self._target_temp = comfort
         self.async_write_ha_state()
 
     # ------------------------------------------------------------------
@@ -363,9 +381,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         if new_temp_attr is None or new_temp_attr == old_temp_attr:
             return
 
-        try:
-            tado_setpoint = float(new_temp_attr)
-        except (ValueError, TypeError):
+        tado_setpoint = _safe_float(new_temp_attr)
+        if tado_setpoint is None:
             return
 
         if not FollowPhysicalController.should_follow(
@@ -444,9 +461,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # to comfort so the user isn't stuck in frost mode after restore.
         if saved_preset == PRESET_FROST_PROTECTION:
             saved_preset = PRESET_COMFORT
-            comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+            comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
             if comfort is not None:
-                saved_temp = float(comfort)
+                saved_temp = comfort
         self._window_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_FROST_PROTECTION
         _LOGGER.info("Window open: switching to frost protection")
@@ -467,8 +484,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 preset_to_restore = PRESET_COMFORT
             self._preset_mode = preset_to_restore
             if preset_to_restore == PRESET_COMFORT:
-                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
-                self._target_temp = float(comfort) if comfort is not None else self._target_temp
+                comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+                if comfort is not None:
+                    self._target_temp = comfort
             elif saved.temp is not None:
                 self._target_temp = saved.temp
 
@@ -478,8 +496,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             # took over.
             if preset_to_restore == PRESET_BOOST:
                 self._boost_saved_preset = PRESET_COMFORT
-                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
-                self._boost_saved_temp = float(comfort) if comfort is not None else self._target_temp
+                comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+                self._boost_saved_temp = comfort if comfort is not None else self._target_temp
                 duration_s = self._config.presets.boost_duration_min * 60
                 self._boost_cancel = async_call_later_boost(
                     self.hass, duration_s, self._async_boost_expired
@@ -576,8 +594,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # If restoring COMFORT, take the current comfort_target from options
         # (it may have been changed via number entity while away).
         if saved.preset == PRESET_COMFORT:
-            comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
-            self._target_temp = float(comfort) if comfort is not None else self._target_temp
+            comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+            if comfort is not None:
+                self._target_temp = comfort
         elif saved.temp is not None:
             self._target_temp = saved.temp
         _LOGGER.info("Presence home: restoring previous preset")
@@ -616,7 +635,16 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
-        self._target_temp = float(temp)
+        try:
+            temp_f = float(temp)
+        except (ValueError, TypeError):
+            return
+        if not math.isfinite(temp_f):
+            _LOGGER.warning("Ignoring non-finite temperature: %s", temp)
+            return
+        # Clamp to safe range
+        temp_f = max(self._config.min_target_c, min(self._config.max_target_c, temp_f))
+        self._target_temp = temp_f
 
         # Cancel window close delay if user manually changes temperature
         if self._window_ctrl.close_delay_active:
@@ -649,8 +677,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # closes, but keep frost protection active.
         if self._window_ctrl.is_active and preset_mode != PRESET_FROST_PROTECTION:
             if preset_mode == PRESET_COMFORT:
-                comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
-                save_temp = float(comfort) if comfort is not None else self._target_temp
+                comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+                save_temp = comfort if comfort is not None else self._target_temp
             elif preset_mode == PRESET_ECO:
                 save_temp = self._config.presets.eco_target_c
             elif preset_mode == PRESET_AWAY:
@@ -676,9 +704,9 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # When switching to COMFORT, restore the stored comfort target
         if preset_mode == PRESET_COMFORT:
-            comfort = self._config_entry.options.get(CONF_COMFORT_TARGET)
+            comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
             if comfort is not None:
-                self._target_temp = float(comfort)
+                self._target_temp = comfort
 
         # Start boost timer if entering boost mode
         if preset_mode == PRESET_BOOST:
@@ -704,10 +732,18 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Called when the boost timer expires – revert to previous preset."""
         self._boost_cancel = None
         restore_preset = self._boost_saved_preset
-        if restore_preset == PRESET_NONE and self._boost_saved_temp is not None:
-            self._target_temp = self._boost_saved_temp
         _LOGGER.info("Boost expired, reverting to %s", restore_preset)
-        await self.async_set_preset_mode(restore_preset)
+
+        # PRESET_NONE (manual mode) is not in PRESET_LIST and would be rejected
+        # by async_set_preset_mode, so handle it directly.
+        if restore_preset == PRESET_NONE:
+            if self._boost_saved_temp is not None:
+                self._target_temp = self._boost_saved_temp
+            self._preset_mode = PRESET_NONE
+            self.async_write_ha_state()
+            await self._async_regulation_cycle(trigger="boost_expired")
+        else:
+            await self.async_set_preset_mode(restore_preset)
 
     # ------------------------------------------------------------------
     # Effective setpoint calculation
@@ -767,7 +803,17 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 room_temp, age, self._sensor_grace_s,
             )
         else:
-            self._sensor_degraded = room_temp is None and self._last_valid_room_temp is not None
+            if room_temp is None and self._last_valid_room_temp is not None:
+                self._sensor_degraded = True
+                _LOGGER.warning(
+                    "Room sensor unavailable and grace period expired "
+                    "(last valid: %.1f°C, %ds ago, grace: %ds)",
+                    self._last_valid_room_temp,
+                    int(now - self._last_valid_room_temp_ts),
+                    self._sensor_grace_s,
+                )
+            else:
+                self._sensor_degraded = False
 
         if room_temp is None or tado_internal is None:
             self._last_reason = "waiting_for_sensors"
@@ -793,7 +839,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._last_result = result
 
         # 5. Rate limiting & send decision
-        current_tado_setpoint = self.coordinator.data.get("tado_setpoint", 0.0)
+        # Prefer our own last-sent value (always fresh) over coordinator data
+        # (which may be up to 60s stale from the polling interval).
+        current_tado_setpoint = (
+            self._last_sent_setpoint
+            if self._last_sent_setpoint is not None
+            else self.coordinator.data.get("tado_setpoint", 0.0)
+        )
         diff = abs(result.target_for_tado_c - current_tado_setpoint)
         time_since_last = now - self._last_command_sent_ts
         is_rate_limited = time_since_last < self._config.min_command_interval_s
@@ -832,6 +884,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Send a temperature command to the source Tado entity."""
         source_entity = self._config_entry.data.get("source_entity_id")
         if not source_entity:
+            _LOGGER.warning("No source_entity_id configured – cannot send command to Tado")
             return
 
         _LOGGER.debug("Sending %.1f°C to %s", target_c, source_entity)

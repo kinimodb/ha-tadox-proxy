@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -44,7 +45,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             state = hass.states.get(external_sensor_id)
             if state and state.state not in ("unknown", "unavailable"):
                 try:
-                    data["room_temp"] = float(state.state)
+                    value = float(state.state)
+                    if math.isfinite(value):
+                        data["room_temp"] = value
+                    else:
+                        _LOGGER.warning(
+                            "Room temperature from %s is not finite: %s",
+                            external_sensor_id, value,
+                        )
                 except (ValueError, TypeError):
                     _LOGGER.warning(
                         "Cannot parse room temperature from sensor %s: %r",
@@ -58,7 +66,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Try to get internal temperature attribute (device dependent)
                 if state.attributes.get("current_temperature") is not None:
                     try:
-                        data["tado_internal_temp"] = float(state.attributes["current_temperature"])
+                        value = float(state.attributes["current_temperature"])
+                        if math.isfinite(value):
+                            data["tado_internal_temp"] = value
+                        else:
+                            _LOGGER.warning(
+                                "Tado internal temperature from %s is not finite: %s",
+                                source_entity_id, value,
+                            )
                     except (ValueError, TypeError):
                         _LOGGER.warning(
                             "Cannot parse tado internal temperature from %s: %r",
@@ -68,7 +83,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Get current Setpoint
                 if state.attributes.get("temperature") is not None:
                     try:
-                        data["tado_setpoint"] = float(state.attributes["temperature"])
+                        value = float(state.attributes["temperature"])
+                        if math.isfinite(value):
+                            data["tado_setpoint"] = value
+                        else:
+                            _LOGGER.warning(
+                                "Tado setpoint from %s is not finite: %s",
+                                source_entity_id, value,
+                            )
                     except (ValueError, TypeError):
                         _LOGGER.warning(
                             "Cannot parse tado setpoint from %s: %r",
