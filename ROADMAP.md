@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v1.0.0 – Stable Release)
+## Status (v1.0.2 – Stable Release)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -104,6 +104,10 @@
 ---
 
 ## Changelog
+
+### v1.0.2 – Version Cleanup & Documentation
+- **Cleanup:** Versionsnummern überall synchronisiert (manifest.json, README-Badge, CLAUDE.md, ROADMAP.md).
+- **Docs:** README.md gestrafft – redundante Informationen entfernt, Struktur vereinfacht.
 
 ### v1.0.0 – Stable Community Release
 - **Release:** Erster stabiler Community-Release nach erfolgreicher Multi-Room-Validierung.
