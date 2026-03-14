@@ -1,5 +1,3 @@
-> **[Deutsche Version](TUNING_DE.md)**  |  English (this page)
-
 # Tuning Guide for Tado X Proxy
 
 This guide describes how to set up, test, and fine-tune the control loop for a
