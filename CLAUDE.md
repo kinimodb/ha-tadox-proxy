@@ -58,6 +58,18 @@ Bei jeder Feature-Änderung diese Dateien aktualisieren:
 2. **README.md** (Englisch) + **README_DE.md** (Deutsch) – User-facing Dokumentation, beide Versionen synchron halten
 3. **TUNING.md** (Englisch) + **TUNING_DE.md** (Deutsch) – Bei Regelungs-/Parameter-Änderungen, beide Versionen synchron halten
 
+## Versionierung
+
+Bei jedem Release müssen **alle** Versionsnummern synchron aktualisiert werden:
+
+| Datei | Feld/Stelle |
+|-------|-------------|
+| `manifest.json` | `"version": "x.y.z"` |
+| `README.md` | Version-Badge (`img.shields.io/badge/version-x.y.z-blue`) |
+| `README_DE.md` | Version-Badge (identisch) |
+
+**Wichtig:** Vor dem Commit prüfen, dass die Version überall konsistent ist.
+
 ## Commit-Konventionen
 
 ```
@@ -98,7 +110,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.0)
+## Aktueller Stand (v1.0.1)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
