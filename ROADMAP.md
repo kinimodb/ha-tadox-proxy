@@ -2,15 +2,16 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v0.10.2)
+## Status (v1.0.0 – Stable Release)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
-- **Phase:** Pre-Release – ein Raum läuft stabil (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
+- **Phase:** Stable Release – mehrere Räume validiert (±0.3–0.5°C, 11h+ Nachtbetrieb bestätigt).
 - **Presets:** Comfort, Eco, Boost (mit Timer), Away, Frostschutz – alle als NumberEntität steuerbar.
 - **Externe Trigger:** Fensterkontakt (→ Frostschutz) + Präsenzsensor (→ Abwesend) vollständig implementiert.
 - **Sensor-Resilienz:** Last-Valid-Bridging bei kurzen Sensorausfällen, Timer-Revalidierung.
 - **Window Close Delay:** Konfigurierbarer Restore-Delay nach Fensterschließen verhindert aggressive Heiz-Bursts.
+- **Brand-Assets:** Logo und Icons für HACS/HA-UI (ab HA 2026.3).
 
 ---
 
@@ -83,19 +84,40 @@
 - [x] **Diagnostik:** Neue Attribute `sensor_degraded`, `room_temp_last_valid_c`, `room_temp_last_valid_age_s` in den Entity-Attributen.
 - [x] **Tests:** 10 neue Tests für Sensor-Grace-Logik.
 
-## M5 – Multi-Room & Community (→ v1.0.0)
+## M5 – Multi-Room, Community & Release-Infrastruktur (v1.0.0) ✅
 
-**Ziel:** Erweiterung und Community-Feedback.
+**Ziel:** Stabile Multi-Room-Validierung, Community-Readiness, professionelle Projekt-Infrastruktur.
 
-- [ ] Validierung der Default-Parameter in verschiedenen Raumtypen.
-- [ ] Logo in HACS sichtbar (PR an home-assistant/brands).
-- [ ] Community-Forum Vorstellung.
-- [ ] Dokumentation erweitern basierend auf Community-Erfahrungen.
-- [ ] Optional: Raum-Gruppierung (Zonen).
+- [x] Validierung der Default-Parameter in verschiedenen Raumtypen (mehrere Räume getestet, stabil).
+- [x] Brand-Assets: Logo und Icons im `brand/` Ordner für HA 2026.3+ (kein externer PR nötig).
+- [x] Dokumentation überarbeitet: README, ROADMAP, TUNING, CLAUDE.md.
+- [x] CLAUDE.md: Branching-Strategie, Schritt-für-Schritt-Workflows (Feature, PR, Release, Hotfix), Session-Übergabe-Checkliste.
+- [x] GitHub Actions CI: Tests laufen automatisch bei jedem Push/PR.
+- [x] Code-Audit (v0.10.1): 5 P1-Issues behoben, Ruff-Linting eingeführt.
+
+### Ausblick (post v1.0.0)
+
+- [ ] Community-Forum Vorstellung und Feedback-Sammlung.
+- [ ] Raum-Gruppierung (Zonen) – optional, basierend auf Community-Bedarf.
+- [ ] Reload-Optimierung: Doppelter Update-Listener bei NumberEntity-Änderungen (UX-Jank).
 
 ---
 
 ## Changelog
+
+### v1.0.0 – Stable Community Release
+- **Release:** Erster stabiler Community-Release nach erfolgreicher Multi-Room-Validierung.
+- **Brand-Assets:** Logo und Icons werden nativ in HA 2026.3+ angezeigt (HACS-Integration, Geräteseite). Redundante Root-Level `logo.png` entfernt.
+- **Infrastruktur:** `hacs.json` mit Mindest-HA-Version `2026.3.0`. Branching-Strategie (main/dev) dokumentiert.
+- **Dokumentation:** CLAUDE.md komplett überarbeitet mit Branching-Strategie, Schritt-für-Schritt-Workflows (Feature-Entwicklung, PR-Merge, Release-Erstellung, Hotfix), Session-Übergabe-Checkliste für AI-gestützte Entwicklung.
+- **Dokumentation:** README.md aktualisiert mit allen Diagnose-Attributen, Multi-Room-Hinweis, v1.0.0-Status.
+- **Dokumentation:** ROADMAP.md: M5 als erledigt markiert, Ausblick für post-v1.0.0 ergänzt.
+- **Alle Meilensteine (M1–M5) abgeschlossen.** Regelung stabil in mehreren Räumen (±0.3–0.5°C).
+
+### v0.10.2
+- **Bugfix:** Kp/Ki Options-Felder verwenden jetzt `NumberSelector` statt Freitext.
+- **Bugfix:** NaN-Guard-Fallback wird auf konfigurierte Grenzen geklemmt.
+- **Docs:** Konsolidierung der Dokumentation.
 
 ### v0.10.1
 - **Bugfix:** `_async_send_to_tado` erhält jetzt einen 10-Sekunden-Timeout via `asyncio.timeout`. Hängende Tado-Entities blockieren den Regelzyklus nicht mehr indefinit.

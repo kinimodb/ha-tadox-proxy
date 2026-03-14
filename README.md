@@ -1,10 +1,16 @@
 # Tado X Proxy Thermostat
 
+[![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
+
 Ein Home Assistant Custom Component (HACS), das einen virtuellen Proxy-Thermostaten
 für Tado X Heizkörperthermostate (TRVs) erzeugt. Kern der Integration ist eine
 Feedforward+PI-Regelung, die den Tado-internen Sensor mithilfe eines externen
 Raumsensors kompensiert – für präzise Raumtemperaturregelung statt
 Heizkörperoberflächentemperatur.
+
+> **v1.0.0** – Stable Release. Validiert in mehreren Räumen mit ±0.3–0.5°C Genauigkeit.
 
 ---
 
@@ -27,7 +33,7 @@ Ergebnis: ±0.3–0.5 °C Genauigkeit, bestätigt über 11+ Stunden Nachtbetrieb
 
 ## Voraussetzungen
 
-- Home Assistant (aktuelle Version empfohlen)
+- Home Assistant **2026.3** oder neuer
 - [HACS](https://hacs.xyz) installiert
 - Mindestens ein Tado X TRV als `climate.*`-Entity in HA
 - Ein Temperatur-Sensor (`sensor.*`, `device_class: temperature`) im Raum
@@ -184,9 +190,27 @@ Die Proxy-Entität stellt folgende Attribute bereit (sichtbar unter **Entwickler
 | `tado_internal_temp` | Tado-interne Temperaturmessung |
 | `correction_applied` | Aktuell angewendete Korrektur (°C) |
 | `integral` | Aktueller Integral-Wert der PI-Regelung |
+| `effective_setpoint_c` | Tatsächlich genutzter Sollwert (inkl. Preset) |
 | `last_sent_setpoint` | Zuletzt an Tado gesendeter Sollwert |
 | `window_open_active` | Fenstererkennung aktiv (`true`/`false`) |
+| `window_close_delay_active` | Close-Delay nach Fensterschließen aktiv (`true`/`false`) |
 | `presence_away_active` | Präsenz-Abwesenheit aktiv (`true`/`false`) |
+| `sensor_degraded` | Externer Sensor nicht verfügbar, Bridging aktiv (`true`/`false`) |
+| `room_temp_last_valid_c` | Letzter gültiger Messwert des externen Sensors |
+| `room_temp_last_valid_age_s` | Alter des letzten gültigen Messwerts (Sekunden) |
+
+---
+
+## Sensor-Resilienz
+
+Bei kurzen Sensorausfällen (z. B. Zigbee-Verbindungsproblem) greift die Integration
+auf den letzten gültigen Messwert zurück (**Last-Valid-Bridging**). Die Grace-Zeit
+beträgt standardmäßig 300 Sekunden (5 Minuten). Während dieser Zeit zeigt das
+Attribut `sensor_degraded` den Wert `true`.
+
+Fenster- und Präsenz-Aktionen werden vor Ausführung nochmals gegen den aktuellen
+Sensorzustand validiert (**Timer-Revalidierung**), um Fehlschaltungen durch
+kurze Sensor-Glitches zu verhindern.
 
 ---
 
@@ -196,6 +220,7 @@ Die Proxy-Entität stellt folgende Attribute bereit (sichtbar unter **Entwickler
 |-------|-------|
 | [TUNING.md](TUNING.md) | Detaillierte Tuning-Anleitung für neue Räume |
 | [ROADMAP.md](ROADMAP.md) | Feature-Roadmap und Meilensteine |
+| [CLAUDE.md](CLAUDE.md) | Projektanweisungen für AI-gestützte Entwicklung |
 
 
 ---
