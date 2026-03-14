@@ -270,16 +270,26 @@ Wenn eine neue AI-Session beginnt (neuer Claude Code Chat), sollte die AI:
 
 ## Brand-Assets (HACS Logo)
 
-Die Integration liefert ihre eigenen Brand-Assets mit (seit HA 2026.3):
+Brand-Assets müssen an **zwei Orten** liegen – sie werden von unterschiedlichen Systemen gelesen:
 
 ```
-custom_components/tadox_proxy/brand/
-├── icon.png      (256×256 – Haupticon)
-├── icon@2x.png   (512×512 – HiDPI-Version)
-└── logo.png      (256×256 – Logo für HACS/Integrationsseite)
+ha-tadox-proxy/                          ← Repository-Root
+├── brand/                               ← Von HACS gelesen (beim Download/Anzeige im Store)
+│   ├── icon.png      (256×256)
+│   ├── icon@2x.png   (512×512)
+│   └── logo.png      (256×256)
+├── custom_components/tadox_proxy/
+│   └── brand/                           ← Von HA 2026.3+ lokal gelesen (Integrationsseite)
+│       ├── icon.png      (256×256)
+│       ├── icon@2x.png   (512×512)
+│       └── logo.png      (256×256)
 ```
 
-**Wichtig:** Keine `logo.png` auf Root-Level (`custom_components/tadox_proxy/logo.png`) ablegen – nur der `brand/` Ordner wird von HA ausgewertet.
+**Wichtig:**
+- **Repository-Root `brand/`** → wird von **HACS** beim Download und in der Store-Ansicht ausgelesen.
+- **`custom_components/tadox_proxy/brand/`** → wird von **Home Assistant 2026.3+** lokal auf der Integrationsseite ausgelesen.
+- Keine `logo.png` direkt in `custom_components/tadox_proxy/` ablegen (nur im `brand/` Unterordner).
+- Bei Änderungen an den Icons: **Beide Ordner synchron halten!**
 
 Falls das Logo in HACS nicht angezeigt wird:
 1. Home Assistant komplett neu starten (nicht nur Reload).
