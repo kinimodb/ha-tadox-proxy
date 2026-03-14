@@ -96,7 +96,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v0.10.2)
+## Aktueller Stand (v1.0.0)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
@@ -105,10 +105,184 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 - M4 (Externe Trigger: Fensterkontakt → Frostschutz, Präsenzsensor → Away) ✅
 - M4.1 (UX-Polish: Frostschutz-Umbenennung, Icons, Sortierung) ✅
 - M4.2 (Sensor-Resilienz: Last-Valid-Bridging, Timer-Revalidierung) ✅
-- M5 (Multi-Room & Community → v1.0.0) – nächster Meilenstein
-- Testraum läuft stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
+- M5 (Multi-Room & Community → v1.0.0) ✅
+- Mehrere Räume getestet, stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
 
 ## Bekannte offene Bugs
 
 1. **iOS Companion App: EntitySelector-Crash** – HA-Frontend-Bug in `ha-entity-picker` (`ReferenceError: elementId` im iOS WebView). Nicht unser Code. **Workaround:** Konfiguration über den Browser. Mehrere Lösungsansätze getestet und verworfen (Registry-Validierung, Two-Step-Flow, SelectSelector-Dropdown).
 2. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
+
+---
+
+## Git-Branching-Strategie
+
+```
+main  ─────────────────────────── stabil, Release-Branch
+  │
+  └── dev  ────────────────────── Entwicklung & Tests
+        │
+        └── claude/feature-xyz ── Feature-Branches (von Claude Code)
+```
+
+| Branch | Zweck | Wer pusht hierhin? |
+|--------|-------|--------------------|
+| `main` | Nur stabile, getestete Releases. HACS zieht Updates von hier. | Nur via Pull Request (PR) |
+| `dev` | Entwicklungs- und Test-Branch. Hier werden neue Features integriert und getestet. | Claude Code pusht Feature-Branches, Nutzer mergt via PR |
+| `claude/*` | Kurzlebige Feature-Branches, erstellt von Claude Code. | Claude Code (automatisch) |
+
+**Wichtig:** Direkte Pushes auf `main` sind verboten. Alles geht über Pull Requests.
+
+---
+
+## Workflow: Feature entwickeln (für AI-Sessions)
+
+Wenn ein Nutzer eine neue Funktion oder einen Fix anfordert:
+
+1. **Kontext lesen:** Diese Datei (CLAUDE.md), ROADMAP.md, und relevante Code-Dateien lesen.
+2. **Feature-Branch erstellen:** Claude Code erstellt automatisch einen Branch `claude/<beschreibung>-<id>` basierend auf dem aktuellen Stand.
+3. **Implementieren:** Code ändern, Tests schreiben/anpassen.
+4. **Tests ausführen:**
+   ```bash
+   python -m pytest tests/ -v
+   ```
+   Alle Tests müssen grün sein.
+5. **Commit & Push:**
+   ```bash
+   git add <dateien>
+   git commit -m "feat: kurze Beschreibung"
+   git push -u origin claude/<branch-name>
+   ```
+6. **PR erstellen:** Claude Code erstellt einen PR gegen `main` (für Hotfixes) oder `dev` (für Features).
+7. **Merge-Anleitung ausgeben:** Dem Nutzer Schritt für Schritt erklären, wie er den PR mergt.
+
+---
+
+## Workflow: PR mergen (Schritt-für-Schritt für den Nutzer)
+
+### Variante A: Über GitHub Web (empfohlen)
+
+1. Öffne den PR-Link, den Claude dir gegeben hat.
+2. Lies die Änderungen durch (Tab "Files changed").
+3. Klicke auf den grünen Button **"Merge pull request"**.
+4. Klicke auf **"Confirm merge"**.
+5. Optional: Klicke auf **"Delete branch"** um den Feature-Branch aufzuräumen.
+
+### Variante B: Über die Kommandozeile
+
+```bash
+# 1. Zum Ziel-Branch wechseln
+git checkout main        # oder: git checkout dev
+git pull origin main     # oder: git pull origin dev
+
+# 2. Feature-Branch mergen
+git merge origin/claude/<branch-name>
+
+# 3. Push
+git push origin main     # oder: git push origin dev
+```
+
+---
+
+## Workflow: Release erstellen (Schritt-für-Schritt)
+
+Wenn eine neue Version veröffentlicht werden soll:
+
+### Voraussetzungen
+- Alle gewünschten Änderungen sind auf `main` gemergt.
+- Tests sind grün.
+- `manifest.json` und `pyproject.toml` zeigen die neue Versionsnummer.
+
+### Schritte
+
+1. **Auf GitHub gehen:** https://github.com/kinimodb/ha-tadox-proxy
+2. **Releases öffnen:** Rechte Seitenleiste → "Releases" → **"Draft a new release"**
+3. **Tag erstellen:**
+   - Im Feld "Choose a tag" eintippen: `v1.0.0` (oder die neue Version)
+   - Klick auf **"Create new tag: v1.0.0 on publish"**
+4. **Target branch:** `main` auswählen
+5. **Release title:** `v1.0.0 – Community Release` (oder passender Titel)
+6. **Beschreibung:** Die Release-Notes einfügen (werden am Ende jeder Session von Claude bereitgestellt)
+7. **Veröffentlichen:** Klick auf **"Publish release"**
+
+### Nach dem Release
+- HACS erkennt neue Releases automatisch (kann bis zu 1h dauern).
+- Nutzer sehen das Update unter HACS → Integrationen → Tado X Proxy → "Update".
+
+---
+
+## Workflow: Hotfix auf main (für dringende Bugfixes)
+
+Falls ein kritischer Bug direkt auf `main` gefixt werden muss (ohne den Umweg über `dev`):
+
+1. Claude Code erstellt einen Feature-Branch direkt von `main`.
+2. Fix implementieren, Tests grün.
+3. PR gegen `main` erstellen.
+4. Nutzer mergt den PR (siehe "Workflow: PR mergen").
+5. Neuen Patch-Release erstellen (z.B. `v1.0.1`).
+6. **Wichtig:** Danach `dev` aktualisieren:
+   ```bash
+   git checkout dev
+   git pull origin main
+   git push origin dev
+   ```
+
+---
+
+## Workflow: dev-Branch auf den neuesten Stand bringen
+
+Falls `main` Änderungen hat, die noch nicht in `dev` sind (z.B. nach einem Hotfix):
+
+```bash
+git checkout dev
+git pull origin main
+git push origin dev
+```
+
+---
+
+## Session-Übergabe
+
+Wenn eine neue AI-Session beginnt (neuer Claude Code Chat), sollte die AI:
+
+1. **CLAUDE.md lesen** – enthält alle Projektregeln, Architektur, Workflows.
+2. **ROADMAP.md lesen** – aktueller Stand, was erledigt ist, was noch kommt.
+3. **README.md lesen** – User-facing Doku, aktuelle Features.
+4. **Git-Status prüfen:**
+   ```bash
+   git branch -a          # Welche Branches existieren?
+   git log --oneline -10  # Letzte Commits?
+   git status             # Offene Änderungen?
+   ```
+5. **Tests ausführen** um sicherzustellen, dass alles grün ist:
+   ```bash
+   python -m pytest tests/ -v
+   ```
+
+### Checkliste für die neue Session
+- [ ] Auf welchem Branch bin ich? (`git branch`)
+- [ ] Gibt es ungespeicherte Änderungen? (`git status`)
+- [ ] Sind alle Tests grün? (`python -m pytest tests/ -v`)
+- [ ] Was ist die aktuelle Version? (`manifest.json` prüfen)
+- [ ] Was ist die Aufgabe des Nutzers?
+
+---
+
+## Brand-Assets (HACS Logo)
+
+Die Integration liefert ihre eigenen Brand-Assets mit (seit HA 2026.3):
+
+```
+custom_components/tadox_proxy/brand/
+├── icon.png      (256×256 – Haupticon)
+├── icon@2x.png   (512×512 – HiDPI-Version)
+└── logo.png      (256×256 – Logo für HACS/Integrationsseite)
+```
+
+**Wichtig:** Keine `logo.png` auf Root-Level (`custom_components/tadox_proxy/logo.png`) ablegen – nur der `brand/` Ordner wird von HA ausgewertet.
+
+Falls das Logo in HACS nicht angezeigt wird:
+1. Home Assistant komplett neu starten (nicht nur Reload).
+2. Browser-Cache leeren (Strg+Shift+R / Cmd+Shift+R).
+3. In HACS: Integration entfernen und neu installieren.
+4. Prüfen ob `hacs.json` die Mindest-HA-Version `"homeassistant": "2026.3.0"` enthält.

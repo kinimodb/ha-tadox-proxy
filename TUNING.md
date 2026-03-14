@@ -196,6 +196,17 @@ regulation_reason: rate_limited(95s)
 2. `min_command_interval_s` ist auf 180s gesetzt – häufigere Befehle würden die Batterie belasten.
 3. Prüfe, ob die Tado-App eigene Zeitpläne aktiv hat (Konflikte).
 
+### Externer Sensor fällt kurz aus
+
+Die Integration überbrückt kurze Sensorausfälle automatisch (**Last-Valid-Bridging**,
+Standard: 5 Minuten). Während dieser Zeit:
+
+- Die Regelung läuft mit dem letzten gültigen Messwert weiter.
+- Das Attribut `sensor_degraded` zeigt `true`.
+- `room_temp_last_valid_age_s` zeigt das Alter des letzten Messwerts in Sekunden.
+
+Wenn der Sensor länger als die Grace-Zeit ausfällt, pausiert die Regelung automatisch.
+
 ### Integration reagiert nicht
 
 1. Home Assistant Logs prüfen (Einstellungen > System > Logs > "tadox_proxy").
