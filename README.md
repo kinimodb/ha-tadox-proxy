@@ -1,5 +1,3 @@
-> **[Deutsche Version](README_DE.md)**  |  English (this page)
-
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
@@ -10,8 +8,6 @@ A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
 for Tado X radiator thermostats (TRVs). At its core is a feedforward + PI control
 loop that compensates the Tado internal sensor using an external room sensor –
 for precise room temperature control instead of radiator surface temperature.
-
-> **v1.0.0** – Stable Release. Validated in multiple rooms with ±0.3–0.5°C accuracy.
 
 ---
 
@@ -237,7 +233,6 @@ by brief sensor glitches.
 | File | Purpose |
 |------|---------|
 | [TUNING.md](TUNING.md) | Detailed tuning guide for new rooms (English) |
-| [TUNING_DE.md](TUNING_DE.md) | Tuning-Anleitung für neue Räume (Deutsch) |
 | [ROADMAP.md](ROADMAP.md) | Feature roadmap and milestones |
 | [CLAUDE.md](CLAUDE.md) | Project instructions for AI-assisted development |
 
