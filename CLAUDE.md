@@ -8,7 +8,7 @@ Nutzt Feedforward + PI Regelung mit externem Raumsensor.
 ## Sprache
 
 - Code und Kommentare: **Englisch**
-- Dokumentation (README, ROADMAP, TUNING, CONTEXT): **Deutsch** (Zielgruppe: deutschsprachige Nutzer)
+- Dokumentation: **Englisch** als Hauptsprache (README.md, TUNING.md) + **Deutsche** Versionen (README_DE.md, TUNING_DE.md). ROADMAP.md bleibt Deutsch.
 - Commit-Messages: **Englisch**
 - Kommunikation mit dem Nutzer: **Deutsch**
 
@@ -47,14 +47,16 @@ python -m pytest tests/ -v
 | `const.py` | DOMAIN, Config-Keys, Custom Preset Names | Bei neuen Config-Keys |
 | `strings.json` + `translations/` | UI-Texte (EN + DE) | Bei neuen UI-Elementen |
 | `manifest.json` | Version, Metadata | Bei jedem Release (Version bumpen) |
+| `README_DE.md` | Deutsche Version der README | Bei Feature-Änderungen (parallel zu README.md) |
+| `TUNING_DE.md` | Deutsche Version der Tuning-Anleitung | Bei Regelungs-/Parameter-Änderungen (parallel zu TUNING.md) |
 
 ## Dokumentation
 
 Bei jeder Feature-Änderung diese Dateien aktualisieren:
 
 1. **ROADMAP.md** – Meilenstein-Status, Changelog-Eintrag
-2. **README.md** – User-facing Dokumentation
-3. **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
+2. **README.md** (Englisch) + **README_DE.md** (Deutsch) – User-facing Dokumentation, beide Versionen synchron halten
+3. **TUNING.md** (Englisch) + **TUNING_DE.md** (Deutsch) – Bei Regelungs-/Parameter-Änderungen, beide Versionen synchron halten
 
 ## Commit-Konventionen
 
