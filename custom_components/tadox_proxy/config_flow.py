@@ -105,11 +105,21 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     "correction_kp",
                     default=opts.get("correction_kp", defaults.tuning.kp),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=5.0)),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.0, max=5.0, step=0.1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
                 vol.Required(
                     "correction_ki",
                     default=opts.get("correction_ki", defaults.tuning.ki),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=0.1)),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.0, max=0.1, step=0.001,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
 
                 # --- Boost duration ---
                 vol.Required(
