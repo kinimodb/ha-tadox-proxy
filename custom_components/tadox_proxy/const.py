@@ -36,3 +36,6 @@ CONF_URGENT_DECREASE_THRESHOLD_C = "urgent_decrease_threshold_c"
 
 # Sensor resilience
 CONF_SENSOR_GRACE_S = "sensor_grace_s"
+
+# Overlay refresh (for cloud-API integrations with timer-based overlays)
+CONF_OVERLAY_REFRESH_S = "overlay_refresh_s"
