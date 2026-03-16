@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.0.2-blue)
+![Version](https://img.shields.io/badge/version-1.0.3-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -94,6 +94,12 @@ An optional `binary_sensor.*` (e.g., person tracker) can trigger automatic away 
 
 Both sensors work independently and can be active simultaneously.
 
+### HVAC OFF Forwarding
+
+When the proxy thermostat is turned OFF, it sends `set_hvac_mode(off)` directly
+to the underlying Tado TRV. The TRV powers down completely instead of heating to
+a frost protection setpoint. Returning to HEAT reactivates the TRV automatically.
+
 ### Follow Physical Thermostat
 
 The switch `switch.*_follow_physical_thermostat` (disabled by default) lets the proxy
@@ -107,6 +113,17 @@ adopt manual temperature changes made directly on the physical TRV (>1.5°C diff
 |-----------|---------|-------|-------------|
 | **Kp (Proportional)** | 0.8 | 0.0–5.0 | Strength of immediate error correction |
 | **Ki (Integral)** | 0.003 | 0.0–0.1 | Speed of long-term drift correction |
+| **Overlay Refresh (s)** | 0 (off) | 0–3600 | Periodic resend interval for cloud-API integrations (see below) |
+
+### Overlay Refresh (Cloud-API Users)
+
+**Matter/Thread users: leave this at 0 (default).** Temperature commands persist
+permanently via Matter – no refresh needed.
+
+Cloud-API integrations (e.g. [ha-tado-x](https://github.com/exabird/ha-tado-x))
+may use timer-based overlays that expire after 30 minutes. If your TRV reverts to
+its schedule unexpectedly, set this to e.g. **1500** (25 minutes) so the proxy
+periodically resends the setpoint before the overlay expires.
 
 > For detailed tuning guidance, see [TUNING.md](TUNING.md).
 
@@ -140,6 +157,7 @@ Visible under **Developer Tools → States**:
 | `presence_away_active` | Presence-away mode active |
 | `sensor_degraded` | External sensor unavailable, bridging active |
 | `is_saturated` | Controller saturation active |
+| `overlay_refresh_s` | Configured overlay refresh interval (0 = off) |
 
 When sensor bridging is active, `room_temp_last_valid_c` and `room_temp_last_valid_age_s` are also shown.
 

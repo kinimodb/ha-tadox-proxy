@@ -107,7 +107,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.2)
+## Aktueller Stand (v1.0.3)
 
 - M1 (Core Stability) ✅
 - M2 (Advanced Configuration) ✅
@@ -117,6 +117,7 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 - M4.1 (UX-Polish: Frostschutz-Umbenennung, Icons, Sortierung) ✅
 - M4.2 (Sensor-Resilienz: Last-Valid-Bridging, Timer-Revalidierung) ✅
 - M5 (Multi-Room & Community → v1.0.0) ✅
+- v1.0.3: HVAC OFF-Weiterleitung an TRV, optionaler Overlay-Refresh (Community-Feedback)
 - Mehrere Räume getestet, stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
 
 ## Bekannte offene Bugs

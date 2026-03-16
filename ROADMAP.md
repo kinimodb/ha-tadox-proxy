@@ -2,7 +2,7 @@
 
 **Mission:** Ein lokaler Proxy-Regler für Tado X, der den internen Offset-Hitzestau der Hardware durch Feedforward-Kompensation eliminiert und präzise auf externe Raumsensoren regelt.
 
-## Status (v1.0.2 – Stable Release)
+## Status (v1.0.3 – Stable Release)
 
 - **Architektur:** Feedforward + PI (arbeitet MIT Tados internem Regler).
 - **Technik:** Python `async`, HA DataUpdateCoordinator, Number- + Switch-Plattformen.
@@ -97,13 +97,22 @@
 
 ### Ausblick (post v1.0.0)
 
-- [ ] Community-Forum Vorstellung und Feedback-Sammlung.
+- [x] Community-Forum Vorstellung und Feedback-Sammlung.
+- [x] HVAC OFF-Weiterleitung an Source-TRV (Community-Feedback).
+- [x] Optionaler Overlay-Refresh für Cloud-API-Integrationen (Community-Feedback).
 - [ ] Raum-Gruppierung (Zonen) – optional, basierend auf Community-Bedarf.
 - [ ] Reload-Optimierung: Doppelter Update-Listener bei NumberEntity-Änderungen (UX-Jank).
 
 ---
 
 ## Changelog
+
+### v1.0.3 – HVAC OFF & Overlay Refresh (Community-Feedback)
+- **Feature:** HVAC OFF wird jetzt direkt an die unterliegende Tado TRV weitergeleitet (`climate.set_hvac_mode(off)`). Die TRV wird tatsächlich ausgeschaltet statt nur auf 5°C Frostschutz im HEAT-Modus gesetzt.
+- **Feature:** Bei Rückkehr von OFF zu HEAT wird die TRV automatisch reaktiviert und ein Regelzyklus gestartet.
+- **Feature:** Neuer optionaler Parameter `overlay_refresh_s` (Default: 0 = aus) für Cloud-API-Integrationen (z.B. exabird/ha-tado-x), die Timer-basierte Overlays verwenden. Periodisches Neusenden des Setpoints hält das Overlay am Leben.
+- **Optimierung:** Regelzyklen werden bei HVAC OFF übersprungen (TRV ist aus, kein Setpoint nötig).
+- **Hinweis:** Matter/Thread-Nutzer brauchen den Overlay-Refresh nicht – Temperatur-Befehle bleiben über Matter permanent bestehen.
 
 ### v1.0.2 – Version Cleanup & Documentation
 - **Cleanup:** Versionsnummern überall synchronisiert (manifest.json, README-Badge, CLAUDE.md, ROADMAP.md).
