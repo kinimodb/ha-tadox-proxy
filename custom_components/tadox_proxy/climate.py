@@ -637,12 +637,22 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # Forward HVAC mode to the source TRV entity
         if hvac_mode == HVACMode.OFF:
-            await self._async_send_hvac_mode_to_tado(HVACMode.OFF)
+            try:
+                await self._async_send_hvac_mode_to_tado(HVACMode.OFF)
+            except (TimeoutError, HomeAssistantError):
+                # Command failed – revert local state so the proxy stays in sync
+                # with the TRV (which may still be heating).
+                self._hvac_mode = previous_mode
+                self._last_reason = "hvac_off_failed"
+                self.async_write_ha_state()
+                return
             self._last_reason = "sent(hvac_off)"
             self.async_write_ha_state()
         elif hvac_mode == HVACMode.HEAT and previous_mode == HVACMode.OFF:
-            # Returning from OFF → reactivate the TRV, then run regulation
-            # to send the correct setpoint.
+            # Returning from OFF → reset timestamp so the first HEAT cycle uses
+            # dt=0 and avoids an integral spike from the long OFF period.
+            self._last_regulation_ts = 0
+            # Reactivate the TRV, then run regulation to send the correct setpoint.
             await self._async_send_hvac_mode_to_tado(HVACMode.HEAT)
             await self._async_regulation_cycle(trigger="hvac_mode_change")
         else:
@@ -944,6 +954,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 self._last_sent_setpoint = None
         except (TimeoutError, HomeAssistantError):
             _LOGGER.exception("Failed to send HVAC mode to Tado")
+            raise
 
     async def _async_send_to_tado(self, target_c: float) -> None:
         """Send a temperature command to the source Tado entity."""
