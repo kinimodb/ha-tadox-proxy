@@ -8,7 +8,7 @@ Nutzt Feedforward + PI Regelung mit externem Raumsensor.
 ## Sprache
 
 - Code und Kommentare: **Englisch**
-- Dokumentation: **Englisch** (README.md, TUNING.md). ROADMAP.md bleibt Deutsch.
+- Dokumentation: **Englisch** (README.md, TUNING.md)
 - Commit-Messages: **Englisch**
 - Kommunikation mit dem Nutzer: **Deutsch**
 
@@ -52,9 +52,8 @@ python -m pytest tests/ -v
 
 Bei jeder Feature-Änderung diese Dateien aktualisieren:
 
-1. **ROADMAP.md** – Meilenstein-Status, Changelog-Eintrag
-2. **README.md** – User-facing Dokumentation
-3. **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
+1. **README.md** – User-facing Dokumentation
+2. **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
 
 ## Versionierung
 
@@ -107,22 +106,15 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.2)
+## Aktueller Stand (v1.0.3)
 
-- M1 (Core Stability) ✅
-- M2 (Advanced Configuration) ✅
-- M3 (Presets: Comfort, Eco, Boost, Away, Frostschutz) ✅
-- M3.1 (Preset-Setpoint-Fix + Number/Switch-Entitäten) ✅
-- M4 (Externe Trigger: Fensterkontakt → Frostschutz, Präsenzsensor → Away) ✅
-- M4.1 (UX-Polish: Frostschutz-Umbenennung, Icons, Sortierung) ✅
-- M4.2 (Sensor-Resilienz: Last-Valid-Bridging, Timer-Revalidierung) ✅
-- M5 (Multi-Room & Community → v1.0.0) ✅
-- Mehrere Räume getestet, stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
+- Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
+- HVAC OFF wird an den Tado-TRV weitergeleitet; Fehler beim Senden werden korrekt behandelt
+- 90 Tests grün, CI aktiv
 
 ## Bekannte offene Bugs
 
-1. **iOS Companion App: EntitySelector-Crash** – HA-Frontend-Bug in `ha-entity-picker` (`ReferenceError: elementId` im iOS WebView). Nicht unser Code. **Workaround:** Konfiguration über den Browser. Mehrere Lösungsansätze getestet und verworfen (Registry-Validierung, Two-Step-Flow, SelectSelector-Dropdown).
-2. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
+1. **iOS Companion App: EntitySelector-Crash** – HA-Frontend-Bug in `ha-entity-picker` (`ReferenceError: elementId` im iOS WebView). Nicht unser Code. **Workaround:** Konfiguration über den Browser.
 
 ---
 
@@ -257,8 +249,7 @@ git push origin dev
 Wenn eine neue AI-Session beginnt (neuer Claude Code Chat), sollte die AI:
 
 1. **CLAUDE.md lesen** – enthält alle Projektregeln, Architektur, Workflows.
-2. **ROADMAP.md lesen** – aktueller Stand, was erledigt ist, was noch kommt.
-3. **README.md lesen** – User-facing Doku, aktuelle Features.
+2. **README.md lesen** – User-facing Doku, aktuelle Features.
 4. **Git-Status prüfen:**
    ```bash
    git branch -a          # Welche Branches existieren?
