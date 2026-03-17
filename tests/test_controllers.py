@@ -352,13 +352,22 @@ class TestPresenceController:
 
     # --- interaction: away timer fires while already active ---
 
-    def test_second_away_event_resets_timer_while_active(self):
+    def test_second_away_event_skips_timer_while_active(self):
+        """When already active, a new away event must NOT schedule a timer.
+
+        Starting a new away timer would cause the away-action to overwrite
+        the saved preset with PRESET_AWAY, losing the original state.
+        """
         c = self._ctrl()
         c.activate("comfort", 20.0)  # already away-active
         fake = FakeCallLater()
         c.handle_presence_away(None, 1800, lambda now: None, call_later=fake)
-        assert fake.scheduled_count == 1
+        assert fake.scheduled_count == 0  # no timer scheduled
         assert c.is_active  # active flag unchanged
+        # Saved state must be preserved
+        saved = c.restore()
+        assert saved.preset == "comfort"
+        assert saved.temp == 20.0
 
     # --- update_saved ---
 
@@ -427,8 +436,12 @@ class TestPresenceController:
         assert result is False
         assert fake.scheduled_count == 0
 
-    def test_away_cancels_home_timer(self):
-        """Away event during home-pending cancels the home timer."""
+    def test_away_cancels_home_timer_no_new_away_timer(self):
+        """Away event during home-pending cancels the home timer.
+
+        Since is_active is True, no new away timer should be scheduled –
+        this prevents the away-action from overwriting the saved state.
+        """
         c = self._ctrl()
         c.activate("comfort", 21.0)
         home_fake = FakeCallLater()
@@ -442,16 +455,20 @@ class TestPresenceController:
 
         # Home timer must be cancelled
         assert home_fake.calls[0]["cancelled"]
-        # Away timer scheduled
-        assert away_fake.scheduled_count == 1
+        # No new away timer (already active)
+        assert away_fake.scheduled_count == 0
         # Still active (away mode persists)
         assert c.is_active
+        # Saved state preserved
+        saved = c.restore()
+        assert saved.preset == "comfort"
+        assert saved.temp == 21.0
 
     def test_flicker_scenario_no_restore(self):
         """Full flicker scenario: activate → home(delay) → away.
 
-        The home timer should be cancelled, away timer rescheduled,
-        and is_active should remain True with original saved state intact.
+        The home timer should be cancelled, no new away timer scheduled
+        (already active), and the original saved state must be preserved.
         """
         c = self._ctrl()
         c.activate("comfort", 21.0)
@@ -468,8 +485,8 @@ class TestPresenceController:
         # Home callback never fired
         assert len(home_actions) == 0
         assert home_fake.calls[0]["cancelled"]
-        # Away timer is active
-        assert away_fake.active_count == 1
+        # No new away timer (already active)
+        assert away_fake.scheduled_count == 0
         # Controller still active
         assert c.is_active
         # Saved state preserved
@@ -531,22 +548,68 @@ class TestPresenceController:
         assert home_fake.calls[0]["cancelled"]
 
     def test_home_with_delay_cancels_pending_away_timer(self):
-        """Home event cancels pending away timer even when scheduling a home timer."""
-        c = self._ctrl()
-        c.activate("comfort", 21.0)
+        """Home event cancels pending away timer (not yet fired).
 
-        # Schedule a new away timer while already active
+        When the away timer is still pending and a home event arrives,
+        the away timer must be cancelled.  Since the controller is not yet
+        active, no home timer is scheduled (nothing to restore).
+        """
+        c = self._ctrl()
         away_fake = FakeCallLater()
         c.handle_presence_away(None, 600, lambda now: None, call_later=away_fake)
 
-        home_fake = FakeCallLater()
-        c.handle_presence_home(
-            None, 30, lambda now: None, call_later=home_fake
-        )
-        # Away timer must be cancelled by handle_presence_home
+        # Home arrives before away timer fired
+        result = c.handle_presence_home()
+        # Away timer must be cancelled
         assert away_fake.calls[0]["cancelled"]
-        # Home timer must be scheduled
-        assert home_fake.active_count == 1
+        # Not active → no restore needed
+        assert result is False
+
+    def test_away_while_active_preserves_saved_state(self):
+        """Repeated away events while active must not overwrite saved state.
+
+        This is the core bug fix: sensor flicker (Home → Away) while already
+        in away mode must NOT schedule a new away timer, because the timer
+        callback would save PRESET_AWAY as the 'previous' preset.
+        """
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+
+        fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=fake)
+
+        # No timer scheduled
+        assert fake.scheduled_count == 0
+        # Active flag and saved state unchanged
+        assert c.is_active
+        saved = c.restore()
+        assert saved.preset == "eco"
+        assert saved.temp == 19.0
+
+    def test_multi_flicker_preserves_saved_state(self):
+        """Multiple home/away flickers must preserve the original saved state.
+
+        Scenario: active(comfort) → home → away → home → away → home → restore
+        """
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+
+        for _ in range(3):
+            home_fake = FakeCallLater()
+            c.handle_presence_home(
+                None, 30, lambda now: None, call_later=home_fake
+            )
+            away_fake = FakeCallLater()
+            c.handle_presence_away(None, 600, lambda now: None, call_later=away_fake)
+            # Home timer cancelled, no new away timer
+            assert home_fake.calls[0]["cancelled"]
+            assert away_fake.scheduled_count == 0
+
+        # After all flickers, saved state is still the original
+        assert c.is_active
+        saved = c.restore()
+        assert saved.preset == "comfort"
+        assert saved.temp == 21.0
 
 
 # ---------------------------------------------------------------------------

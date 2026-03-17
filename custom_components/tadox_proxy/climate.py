@@ -329,11 +329,28 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             # Evaluate current state after restart
             presence_state = self.hass.states.get(presence_sensor)
             if presence_state and presence_state.state == "off":
-                delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
-                self._presence_ctrl.handle_presence_away(
-                    self.hass, delay, self._async_presence_away_action
-                )
-                _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
+                if self._preset_mode == PRESET_AWAY:
+                    # Preset AWAY was restored from state but the controller's
+                    # is_active flag is not persisted.  Pre-activate with
+                    # COMFORT as the saved state so that coming home restores
+                    # a useful preset instead of AWAY → AWAY (no-op).
+                    comfort = _safe_float(
+                        self._config_entry.options.get(CONF_COMFORT_TARGET)
+                    )
+                    self._presence_ctrl.activate(
+                        PRESET_COMFORT,
+                        comfort if comfort is not None else self._target_temp,
+                    )
+                    _LOGGER.info(
+                        "Startup: preset AWAY restored, controller pre-activated "
+                        "with COMFORT as saved state"
+                    )
+                else:
+                    delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
+                    self._presence_ctrl.handle_presence_away(
+                        self.hass, delay, self._async_presence_away_action
+                    )
+                    _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
 
         # Start periodic regulation
         self.async_on_remove(
@@ -547,6 +564,14 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     async def _async_presence_away_action(self, _now) -> None:
         """Switch to AWAY preset after presence-away delay."""
+        # Safety: if the controller is already active (e.g. a stale timer fired
+        # after a sensor flicker), do not overwrite the saved preset.
+        if self._presence_ctrl.is_active:
+            _LOGGER.info(
+                "Presence away action skipped: controller already active"
+            )
+            return
+
         # Revalidate: only proceed if presence sensor is still "off"
         presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
         if presence_sensor:
