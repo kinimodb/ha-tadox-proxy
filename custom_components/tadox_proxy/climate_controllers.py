@@ -208,12 +208,23 @@ class PresenceAutomationController:
 
         If a home-delay timer is pending (presence flickered Home then back to
         Away), cancel it so that the restore never fires and away stays active.
+
+        If already active (rooms already in AWAY mode), only cancel the home
+        timer – do **not** schedule a new away timer, because that would
+        overwrite the saved pre-away state with the current AWAY preset.
         """
         # Cancel any pending home-delay timer (flicker protection)
         if self._home_timer is not None:
             self._home_timer()
             self._home_timer = None
             _LOGGER.debug("Presence away during home delay – cancelled restore, staying away")
+
+        # Already in away mode: nothing more to do.  Starting a new away
+        # timer would cause _async_presence_away_action to overwrite the
+        # saved preset with PRESET_AWAY, destroying the original state.
+        if self.is_active:
+            _LOGGER.debug("Presence away event ignored – already active")
+            return
 
         if self._away_timer is not None:
             self._away_timer()
