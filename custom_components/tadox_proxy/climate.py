@@ -705,6 +705,29 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             self._window_ctrl.cancel_all()
             _LOGGER.info("Window close delay cancelled – user changed preset to %s", preset_mode)
 
+        # If presence automation is active (away due to presence sensor),
+        # update the saved state so the new preset is restored when someone
+        # returns home, but keep away mode active.
+        if self._presence_ctrl.is_active and preset_mode != PRESET_AWAY:
+            if preset_mode == PRESET_COMFORT:
+                comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+                save_temp = comfort if comfort is not None else self._target_temp
+            elif preset_mode == PRESET_ECO:
+                save_temp = self._config.presets.eco_target_c
+            elif preset_mode == PRESET_BOOST:
+                save_temp = self._config.presets.boost_target_c
+            elif preset_mode == PRESET_FROST_PROTECTION:
+                save_temp = self._config.presets.frost_protection_target_c
+            else:
+                save_temp = self._target_temp
+            self._presence_ctrl.update_saved(preset_mode, save_temp)
+            _LOGGER.info(
+                "Presence away: preset %s saved for restore, keeping away mode",
+                preset_mode,
+            )
+            self.async_write_ha_state()
+            return
+
         # If window automation is active (frost protection due to open window),
         # update the saved state so the new preset is restored when the window
         # closes, but keep frost protection active.

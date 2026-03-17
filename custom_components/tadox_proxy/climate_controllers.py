@@ -232,6 +232,14 @@ class PresenceAutomationController:
         self.is_active = False
         return saved
 
+    def update_saved(self, preset: str, temp: float | None) -> None:
+        """Update the saved preset/temp without changing active state.
+
+        Used when an external preset change arrives while away mode is active
+        so that the new preset is restored when presence returns.
+        """
+        self._saved = SavedState(preset=preset, temp=temp)
+
     def cancel_timer(self) -> None:
         """Cancel the pending away timer without changing the active flag."""
         if self._away_timer is not None:
