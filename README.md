@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.0.2-blue)
+![Version](https://img.shields.io/badge/version-1.0.3-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -94,6 +94,12 @@ An optional `binary_sensor.*` (e.g., person tracker) can trigger automatic away 
 
 Both sensors work independently and can be active simultaneously.
 
+### HVAC OFF
+
+When the proxy thermostat is turned off (HVAC mode → OFF), the OFF command is forwarded
+directly to the source Tado TRV. If the command fails (e.g., TRV unreachable), the proxy
+reverts to its previous mode to stay in sync with the actual device state.
+
 ### Follow Physical Thermostat
 
 The switch `switch.*_follow_physical_thermostat` (disabled by default) lets the proxy
@@ -156,7 +162,6 @@ When sensor bridging is active, `room_temp_last_valid_c` and `room_temp_last_val
 | File | Purpose |
 |------|---------|
 | [TUNING.md](TUNING.md) | Tuning guide for new rooms |
-| [ROADMAP.md](ROADMAP.md) | Feature roadmap and milestones |
 
 ---
 
