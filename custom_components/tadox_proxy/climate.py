@@ -50,6 +50,7 @@ from .const import (
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_PRESENCE_AWAY_DELAY_S,
+    CONF_PRESENCE_HOME_DELAY_S,
     CONF_FOLLOW_THRESHOLD_C,
     CONF_FOLLOW_GRACE_S,
     CONF_URGENT_DECREASE_THRESHOLD_C,
@@ -538,7 +539,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                 self.hass, delay, self._async_presence_away_action
             )
         else:  # someone home
-            if self._presence_ctrl.handle_presence_home():
+            home_delay = self._config_entry.options.get(CONF_PRESENCE_HOME_DELAY_S, 30)
+            if self._presence_ctrl.handle_presence_home(
+                self.hass, home_delay, self._async_presence_home_action,
+            ):
                 self._restore_presence_state()
 
     async def _async_presence_away_action(self, _now) -> None:
@@ -582,6 +586,20 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self.async_write_ha_state()
         await self._async_regulation_cycle(trigger="presence_away")
 
+    async def _async_presence_home_action(self, _now) -> None:
+        """Restore previous preset after presence-home delay."""
+        # Revalidate: only proceed if presence sensor is still "on"
+        presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
+        if presence_sensor:
+            current = self.hass.states.get(presence_sensor)
+            if current is None or current.state == "off":
+                _LOGGER.info(
+                    "Presence home action skipped: sensor is now %s",
+                    current.state if current else "unavailable",
+                )
+                return
+        self._restore_presence_state()
+
     def _restore_presence_state(self) -> None:
         """Restore preset after presence returns."""
         saved = self._presence_ctrl.restore()
@@ -600,9 +618,25 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             return
 
         self._preset_mode = saved.preset
+        # If restoring BOOST, start the expiry timer so it doesn't run
+        # indefinitely.  Use COMFORT as the post-boost fallback since the
+        # original pre-boost context was lost when presence automation
+        # took over.
+        if saved.preset == PRESET_BOOST:
+            self._boost_saved_preset = PRESET_COMFORT
+            comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+            self._boost_saved_temp = comfort if comfort is not None else self._target_temp
+            duration_s = self._config.presets.boost_duration_min * 60
+            self._boost_cancel = async_call_later_boost(
+                self.hass, duration_s, self._async_boost_expired
+            )
+            _LOGGER.info(
+                "Boost restored after presence home, timer started for %d min",
+                self._config.presets.boost_duration_min,
+            )
         # If restoring COMFORT, take the current comfort_target from options
         # (it may have been changed via number entity while away).
-        if saved.preset == PRESET_COMFORT:
+        elif saved.preset == PRESET_COMFORT:
             comfort = _safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
             if comfort is not None:
                 self._target_temp = comfort

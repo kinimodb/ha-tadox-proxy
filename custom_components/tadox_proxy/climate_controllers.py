@@ -179,18 +179,21 @@ class WindowAutomationController:
 # ---------------------------------------------------------------------------
 
 class PresenceAutomationController:
-    """Manages presence-sensor automation with a configurable away delay.
+    """Manages presence-sensor automation with configurable away/home delays.
 
     State transitions::
 
-        home ──(away)──► away_pending ──(delay)──► active
-          ▲                                            │
-          └─────────────── (home) ────────────────────┘
+        home ──(away)──► away_pending ──(delay)──► active ──(home)──► home_pending ──(delay)──► home
+          ▲                                           │  (away cancels home timer)                 │
+          └───────────────────────────────────────────┘                                            │
+          ▲                                                                                       │
+          └───────────────────────────────────────────────────────────────────────────────────────┘
     """
 
     def __init__(self) -> None:
         self.is_active: bool = False
         self._away_timer: _CancelFn | None = None
+        self._home_timer: _CancelFn | None = None
         self._saved: SavedState = SavedState()
 
     def handle_presence_away(
@@ -201,23 +204,59 @@ class PresenceAutomationController:
         *,
         call_later: _CallLaterFn | None = None,
     ) -> None:
-        """React to a presence-away event; schedule the away action."""
+        """React to a presence-away event; schedule the away action.
+
+        If a home-delay timer is pending (presence flickered Home then back to
+        Away), cancel it so that the restore never fires and away stays active.
+        """
+        # Cancel any pending home-delay timer (flicker protection)
+        if self._home_timer is not None:
+            self._home_timer()
+            self._home_timer = None
+            _LOGGER.debug("Presence away during home delay – cancelled restore, staying away")
+
         if self._away_timer is not None:
             self._away_timer()
         _cl = call_later or _get_call_later()
         self._away_timer = _cl(hass, delay_s, on_away_action)
         _LOGGER.debug("Presence away – switching to AWAY preset in %ds", delay_s)
 
-    def handle_presence_home(self) -> bool:
+    def handle_presence_home(
+        self,
+        hass: Any = None,
+        delay_s: float = 0,
+        on_home_action: Callable | None = None,
+        *,
+        call_later: _CallLaterFn | None = None,
+    ) -> bool:
         """React to a presence-home event; cancel any pending away timer.
 
-        Returns ``True`` when the caller should trigger an immediate restore
-        (presence-away mode was active).
+        When *delay_s* is 0 (or the controller is not active), behaves as
+        before: returns ``True`` when the caller should trigger an immediate
+        restore (presence-away mode was active).
+
+        When *delay_s* > 0 **and** the controller is active, a home-delay
+        timer is scheduled instead of restoring immediately.  The method
+        returns ``False`` in that case so the caller does **not** restore yet.
         """
         if self._away_timer is not None:
             self._away_timer()
             self._away_timer = None
-        return self.is_active
+
+        if not self.is_active:
+            return False
+
+        if delay_s > 0 and on_home_action is not None:
+            # Cancel any previously pending home timer
+            if self._home_timer is not None:
+                self._home_timer()
+            _cl = call_later or _get_call_later()
+            self._home_timer = _cl(hass, delay_s, on_home_action)
+            _LOGGER.debug("Presence home – restoring preset in %ds", delay_s)
+            return False
+
+        # No delay: immediate restore
+        return True
 
     def activate(self, preset: str, temp: float | None) -> None:
         """Record the pre-away state and mark presence automation as active."""
@@ -227,6 +266,9 @@ class PresenceAutomationController:
 
     def restore(self) -> SavedState:
         """Clear active state and return the saved preset/temp for restoration."""
+        if self._home_timer is not None:
+            self._home_timer()
+            self._home_timer = None
         saved = SavedState(preset=self._saved.preset, temp=self._saved.temp)
         self._saved = SavedState()
         self.is_active = False
@@ -245,6 +287,9 @@ class PresenceAutomationController:
         if self._away_timer is not None:
             self._away_timer()
             self._away_timer = None
+        if self._home_timer is not None:
+            self._home_timer()
+            self._home_timer = None
 
 
 # ---------------------------------------------------------------------------

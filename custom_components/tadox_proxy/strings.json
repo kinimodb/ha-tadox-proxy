@@ -34,6 +34,7 @@
           "window_close_delay_s": "Window close delay (seconds)",
           "presence_sensor_id": "Presence sensor",
           "presence_away_delay_s": "Away delay (seconds)",
+          "presence_home_delay_s": "Home delay (seconds)",
           "overlay_refresh_s": "Overlay refresh interval (0 = off)"
         }
       }
