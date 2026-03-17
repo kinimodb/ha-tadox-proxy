@@ -34,6 +34,7 @@
           "window_close_delay_s": "Verzögerung Fenster-Schließen (Sekunden)",
           "presence_sensor_id": "Präsenzsensor",
           "presence_away_delay_s": "Verzögerung Abwesenheit (Sekunden)",
+          "presence_home_delay_s": "Verzögerung Heimkehr (Sekunden)",
           "overlay_refresh_s": "Overlay-Refresh-Intervall (0 = aus)"
         }
       }

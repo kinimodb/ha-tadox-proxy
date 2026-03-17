@@ -394,6 +394,160 @@ class TestPresenceController:
         assert saved.preset == "boost"
         assert saved.temp == 25.0
 
+    # --- home delay (debounce) ---
+
+    def test_home_delay_schedules_timer_when_active(self):
+        """With delay > 0 and active, a home timer is scheduled, return False."""
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+        fake = FakeCallLater()
+        actions = []
+        result = c.handle_presence_home(
+            None, 30, lambda now: actions.append(now), call_later=fake
+        )
+        assert result is False  # not immediate restore
+        assert fake.scheduled_count == 1
+        assert fake.calls[0]["delay"] == 30
+        assert c.is_active  # still active until timer fires
+
+    def test_home_delay_zero_immediate_restore(self):
+        """With delay == 0, behaves like before: returns True when active."""
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+        result = c.handle_presence_home(None, 0, None)
+        assert result is True
+
+    def test_home_delay_not_active_no_timer(self):
+        """When not active, no home timer is scheduled regardless of delay."""
+        c = self._ctrl()
+        fake = FakeCallLater()
+        result = c.handle_presence_home(
+            None, 30, lambda now: None, call_later=fake
+        )
+        assert result is False
+        assert fake.scheduled_count == 0
+
+    def test_away_cancels_home_timer(self):
+        """Away event during home-pending cancels the home timer."""
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+        home_fake = FakeCallLater()
+        c.handle_presence_home(
+            None, 30, lambda now: None, call_later=home_fake
+        )
+        assert home_fake.active_count == 1
+
+        away_fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=away_fake)
+
+        # Home timer must be cancelled
+        assert home_fake.calls[0]["cancelled"]
+        # Away timer scheduled
+        assert away_fake.scheduled_count == 1
+        # Still active (away mode persists)
+        assert c.is_active
+
+    def test_flicker_scenario_no_restore(self):
+        """Full flicker scenario: activate → home(delay) → away.
+
+        The home timer should be cancelled, away timer rescheduled,
+        and is_active should remain True with original saved state intact.
+        """
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+
+        home_fake = FakeCallLater()
+        home_actions = []
+        c.handle_presence_home(
+            None, 30, lambda now: home_actions.append(now), call_later=home_fake
+        )
+
+        away_fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=away_fake)
+
+        # Home callback never fired
+        assert len(home_actions) == 0
+        assert home_fake.calls[0]["cancelled"]
+        # Away timer is active
+        assert away_fake.active_count == 1
+        # Controller still active
+        assert c.is_active
+        # Saved state preserved
+        saved = c.restore()
+        assert saved.preset == "comfort"
+        assert saved.temp == 21.0
+
+    def test_home_timer_fires_callback(self):
+        """When the home delay timer fires, the callback is invoked."""
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+        fake = FakeCallLater()
+        actions = []
+        c.handle_presence_home(
+            None, 30, lambda now: actions.append("restored"), call_later=fake
+        )
+        fake.trigger(0, now=None)
+        assert actions == ["restored"]
+
+    def test_repeated_home_replaces_timer(self):
+        """Two consecutive home events: first timer cancelled, only second active."""
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+        fake = FakeCallLater()
+        c.handle_presence_home(
+            None, 30, lambda now: None, call_later=fake
+        )
+        c.handle_presence_home(
+            None, 30, lambda now: None, call_later=fake
+        )
+        assert fake.calls[0]["cancelled"]
+        assert not fake.calls[1]["cancelled"]
+        assert fake.active_count == 1
+
+    def test_restore_cancels_home_timer(self):
+        """Calling restore() defensively cancels any pending home timer."""
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+        fake = FakeCallLater()
+        c.handle_presence_home(
+            None, 30, lambda now: None, call_later=fake
+        )
+        saved = c.restore()
+        assert fake.calls[0]["cancelled"]
+        assert saved.preset == "comfort"
+        assert not c.is_active
+
+    def test_cancel_timer_cancels_both_timers(self):
+        """cancel_timer() cancels both away and home timers."""
+        c = self._ctrl()
+        away_fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=away_fake)
+        c.activate("comfort", 21.0)
+        home_fake = FakeCallLater()
+        c.handle_presence_home(
+            None, 30, lambda now: None, call_later=home_fake
+        )
+        c.cancel_timer()
+        assert home_fake.calls[0]["cancelled"]
+
+    def test_home_with_delay_cancels_pending_away_timer(self):
+        """Home event cancels pending away timer even when scheduling a home timer."""
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+
+        # Schedule a new away timer while already active
+        away_fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=away_fake)
+
+        home_fake = FakeCallLater()
+        c.handle_presence_home(
+            None, 30, lambda now: None, call_later=home_fake
+        )
+        # Away timer must be cancelled by handle_presence_home
+        assert away_fake.calls[0]["cancelled"]
+        # Home timer must be scheduled
+        assert home_fake.active_count == 1
+
 
 # ---------------------------------------------------------------------------
 # FollowPhysicalController

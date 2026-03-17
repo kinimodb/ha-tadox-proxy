@@ -25,6 +25,7 @@ CONF_WINDOW_CLOSE_DELAY_S = "window_close_delay_s"
 # Presence sensor (binary_sensor) – optional external trigger
 CONF_PRESENCE_SENSOR_ID = "presence_sensor_id"
 CONF_PRESENCE_AWAY_DELAY_S = "presence_away_delay_s"
+CONF_PRESENCE_HOME_DELAY_S = "presence_home_delay_s"
 
 # Custom preset name (not a HA built-in)
 PRESET_FROST_PROTECTION = "frost_protection"

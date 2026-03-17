@@ -18,6 +18,7 @@ from .const import (
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_PRESENCE_AWAY_DELAY_S,
+    CONF_PRESENCE_HOME_DELAY_S,
     CONF_OVERLAY_REFRESH_S,
 )
 from .parameters import RegulationConfig
@@ -157,6 +158,10 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     CONF_PRESENCE_AWAY_DELAY_S,
                     default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, 600),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=7200)),
+                vol.Required(
+                    CONF_PRESENCE_HOME_DELAY_S,
+                    default=opts.get(CONF_PRESENCE_HOME_DELAY_S, 30),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=600)),
 
                 # --- Overlay refresh (cloud-API integrations) ---
                 vol.Required(
