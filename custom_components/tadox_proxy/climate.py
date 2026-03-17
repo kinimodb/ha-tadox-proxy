@@ -339,7 +339,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     )
                     self._presence_ctrl.activate(
                         PRESET_COMFORT,
-                        comfort if comfort is not None else self._target_temp,
+                        comfort if comfort is not None else self._config.presets.comfort_target_c,
                     )
                     _LOGGER.info(
                         "Startup: preset AWAY restored, controller pre-activated "
