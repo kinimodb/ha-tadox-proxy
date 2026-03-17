@@ -360,6 +360,40 @@ class TestPresenceController:
         assert fake.scheduled_count == 1
         assert c.is_active  # active flag unchanged
 
+    # --- update_saved ---
+
+    def test_update_saved_changes_saved_state(self):
+        c = self._ctrl()
+        c.activate("comfort", 20.0)
+        c.update_saved("eco", 17.0)
+        saved = c.restore()
+        assert saved.preset == "eco"
+        assert saved.temp == 17.0
+
+    def test_update_saved_preserves_active_flag(self):
+        c = self._ctrl()
+        c.activate("comfort", 20.0)
+        c.update_saved("eco", 17.0)
+        assert c.is_active
+
+    def test_update_saved_while_not_active(self):
+        """update_saved works even if not active (defensive)."""
+        c = self._ctrl()
+        c.update_saved("eco", 19.0)
+        saved = c.restore()
+        assert saved.preset == "eco"
+        assert not c.is_active
+
+    def test_update_saved_multiple_times_keeps_last(self):
+        """Multiple update_saved calls keep only the last one."""
+        c = self._ctrl()
+        c.activate("comfort", 20.0)
+        c.update_saved("eco", 17.0)
+        c.update_saved("boost", 25.0)
+        saved = c.restore()
+        assert saved.preset == "boost"
+        assert saved.temp == 25.0
+
 
 # ---------------------------------------------------------------------------
 # FollowPhysicalController
