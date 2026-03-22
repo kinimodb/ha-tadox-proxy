@@ -1091,16 +1091,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     # ------------------------------------------------------------------
 
     @property
-    def min_temp(self) -> float:
-        """Return minimum temperature (from RegulationConfig)."""
-        return self._config.min_target_c
-
-    @property
-    def max_temp(self) -> float:
-        """Return maximum temperature (from RegulationConfig)."""
-        return self._config.max_target_c
-
-    @property
     def current_temperature(self) -> float | None:
         """Return the room temperature from the external sensor."""
         return self.coordinator.data.get("room_temp")
