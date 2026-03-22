@@ -1129,7 +1129,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
             PRESET_AWAY: "mdi:home-export-outline",
             PRESET_FROST_PROTECTION: "mdi:snowflake",
             PRESET_NONE: "mdi:hand-back-right",
-        }.get(self._preset_mode, "mdi:fire")
+        }.get(self._preset_mode, "mdi:thermostat")
 
     @property
     def preset_mode(self) -> str:

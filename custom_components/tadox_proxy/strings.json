@@ -83,6 +83,13 @@
     "climate": {
       "tadox_proxy": {
         "state_attributes": {
+          "hvac_action": {
+            "state": {
+              "heating": "Heating",
+              "idle": "Idle",
+              "off": "Off"
+            }
+          },
           "preset_mode": {
             "state": {
               "none": "Manual",
