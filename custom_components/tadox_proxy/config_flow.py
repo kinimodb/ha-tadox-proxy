@@ -4,6 +4,7 @@ from __future__ import annotations
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 
 from .const import (
@@ -76,8 +77,17 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
+            # Flatten section data (sections return nested dicts) into
+            # a single flat dict for storage in config_entry.options.
+            flat: dict = {}
+            for key, value in user_input.items():
+                if isinstance(value, dict):
+                    flat.update(value)
+                else:
+                    flat[key] = value
+
             # Strip empty optional sensor values so they're stored as absent
-            cleaned = {k: v for k, v in user_input.items() if v not in (None, "")}
+            cleaned = {k: v for k, v in flat.items() if v not in (None, "")}
             # Preserve existing options not shown in this form (e.g. preset
             # temperatures set via Number entities, follow_tado_input flag).
             merged = dict(self.config_entry.options)
@@ -100,98 +110,146 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID),
         )
 
+        # --- Build window sensor section schema ---
+        window_schema_dict: dict = {
+            vol.Optional(CONF_WINDOW_SENSOR_ID): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor")
+            ),
+            vol.Required(
+                CONF_WINDOW_DELAY_S,
+                default=opts.get(CONF_WINDOW_DELAY_S, 30),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=3600, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="s",
+                )
+            ),
+            vol.Required(
+                CONF_WINDOW_CLOSE_DELAY_S,
+                default=opts.get(CONF_WINDOW_CLOSE_DELAY_S, 120),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=600, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="s",
+                )
+            ),
+        }
+        window_section_schema = vol.Schema(window_schema_dict)
+
+        # Inject suggested value for optional entity selector only if set
+        window_sensor = opts.get(CONF_WINDOW_SENSOR_ID)
+        if window_sensor:
+            window_section_schema = self.add_suggested_values_to_schema(
+                window_section_schema, {CONF_WINDOW_SENSOR_ID: window_sensor}
+            )
+
+        # --- Build presence sensor section schema ---
+        presence_schema_dict: dict = {
+            vol.Optional(CONF_PRESENCE_SENSOR_ID): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor")
+            ),
+            vol.Required(
+                CONF_PRESENCE_AWAY_DELAY_S,
+                default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, 600),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=7200, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="s",
+                )
+            ),
+            vol.Required(
+                CONF_PRESENCE_HOME_DELAY_S,
+                default=opts.get(CONF_PRESENCE_HOME_DELAY_S, 30),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=600, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="s",
+                )
+            ),
+        }
+        presence_section_schema = vol.Schema(presence_schema_dict)
+
+        presence_sensor = opts.get(CONF_PRESENCE_SENSOR_ID)
+        if presence_sensor:
+            presence_section_schema = self.add_suggested_values_to_schema(
+                presence_section_schema, {CONF_PRESENCE_SENSOR_ID: presence_sensor}
+            )
+
+        # --- Main options schema with sections ---
         options_schema = vol.Schema(
             {
-                # --- Correction tuning ---
-                vol.Required(
-                    "correction_kp",
-                    default=opts.get("correction_kp", defaults.tuning.kp),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0, max=5.0, step=0.1,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    "correction_ki",
-                    default=opts.get("correction_ki", defaults.tuning.ki),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0, max=0.1, step=0.001,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-
-                # --- Boost duration ---
-                vol.Required(
-                    CONF_BOOST_DURATION,
-                    default=opts.get(CONF_BOOST_DURATION, defaults.presets.boost_duration_min),
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=120)),
-
-                # --- External sensor ---
+                # Top-level: external sensor + boost duration
                 vol.Required(
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
                     default=current_ext_temp,
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
-
-                # --- Window sensor (optional) ---
-                vol.Optional(CONF_WINDOW_SENSOR_ID): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="binary_sensor")
-                ),
                 vol.Required(
-                    CONF_WINDOW_DELAY_S,
-                    default=opts.get(CONF_WINDOW_DELAY_S, 30),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=3600)),
-                vol.Required(
-                    CONF_WINDOW_CLOSE_DELAY_S,
-                    default=opts.get(CONF_WINDOW_CLOSE_DELAY_S, 120),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=600)),
-
-                # --- Presence sensor (optional) ---
-                vol.Optional(CONF_PRESENCE_SENSOR_ID): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="binary_sensor")
-                ),
-                vol.Required(
-                    CONF_PRESENCE_AWAY_DELAY_S,
-                    default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, 600),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=7200)),
-                vol.Required(
-                    CONF_PRESENCE_HOME_DELAY_S,
-                    default=opts.get(CONF_PRESENCE_HOME_DELAY_S, 30),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=600)),
-
-                # --- Overlay refresh (cloud-API integrations) ---
-                vol.Required(
-                    CONF_OVERLAY_REFRESH_S,
-                    default=opts.get(CONF_OVERLAY_REFRESH_S, 0),
+                    CONF_BOOST_DURATION,
+                    default=opts.get(CONF_BOOST_DURATION, defaults.presets.boost_duration_min),
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=0, max=3600, step=60,
+                        min=1, max=120, step=1,
                         mode=selector.NumberSelectorMode.BOX,
-                        unit_of_measurement="s",
+                        unit_of_measurement="min",
                     )
+                ),
+
+                # Section: Window sensor
+                vol.Required("window_sensor"): section(
+                    window_section_schema,
+                    {"collapsed": True},
+                ),
+
+                # Section: Presence sensor
+                vol.Required("presence_sensor"): section(
+                    presence_section_schema,
+                    {"collapsed": True},
+                ),
+
+                # Section: Other options (regulation tuning + overlay)
+                vol.Required("other_options"): section(
+                    vol.Schema(
+                        {
+                            vol.Required(
+                                "correction_kp",
+                                default=opts.get("correction_kp", defaults.tuning.kp),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.0, max=5.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                "correction_ki",
+                                default=opts.get("correction_ki", defaults.tuning.ki),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.0, max=0.1, step=0.001,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_OVERLAY_REFRESH_S,
+                                default=opts.get(CONF_OVERLAY_REFRESH_S, 0),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0, max=3600, step=60,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="s",
+                                )
+                            ),
+                        }
+                    ),
+                    {"collapsed": True},
                 ),
             }
         )
-
-        # Use add_suggested_values_to_schema for optional entity selectors.
-        # Unlike manual description={"suggested_value": None}, this method
-        # only sets suggested_value when a value actually exists, preventing
-        # the EntitySelector frontend from receiving a confusing None value.
-        suggested: dict[str, str] = {}
-        window_sensor = opts.get(CONF_WINDOW_SENSOR_ID)
-        if window_sensor:
-            suggested[CONF_WINDOW_SENSOR_ID] = window_sensor
-        presence_sensor = opts.get(CONF_PRESENCE_SENSOR_ID)
-        if presence_sensor:
-            suggested[CONF_PRESENCE_SENSOR_ID] = presence_sensor
-
-        if suggested:
-            options_schema = self.add_suggested_values_to_schema(
-                options_schema, suggested
-            )
 
         return self.async_show_form(
             step_id="init",

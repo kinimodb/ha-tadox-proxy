@@ -1,0 +1,58 @@
+{
+  "options": {
+    "step": {
+      "init": {
+        "sections": {
+          "window_sensor": "mdi:window-open-variant",
+          "presence_sensor": "mdi:motion-sensor",
+          "other_options": "mdi:cog"
+        }
+      }
+    }
+  },
+  "entity": {
+    "climate": {
+      "tadox_proxy": {
+        "default": "mdi:thermostat",
+        "state": {
+          "heat": "mdi:fire",
+          "off": "mdi:power"
+        },
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "none": "mdi:hand-back-right",
+              "comfort": "mdi:sofa",
+              "eco": "mdi:leaf",
+              "boost": "mdi:rocket-launch",
+              "away": "mdi:home-export-outline",
+              "frost_protection": "mdi:snowflake"
+            }
+          }
+        }
+      }
+    },
+    "number": {
+      "comfort_target": {
+        "default": "mdi:sofa"
+      },
+      "eco_target": {
+        "default": "mdi:leaf"
+      },
+      "boost_target": {
+        "default": "mdi:rocket-launch"
+      },
+      "away_target": {
+        "default": "mdi:home-export-outline"
+      },
+      "frost_protection_target": {
+        "default": "mdi:snowflake"
+      }
+    },
+    "switch": {
+      "follow_tado_input": {
+        "default": "mdi:gesture-tap"
+      }
+    }
+  }
+}

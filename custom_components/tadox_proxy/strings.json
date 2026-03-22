@@ -23,19 +23,54 @@
     "step": {
       "init": {
         "title": "Proxy options",
-        "description": "Tune the regulation parameters, configure boost duration, and select sensors.",
+        "description": "Configure the proxy thermostat behavior.",
         "data": {
-          "correction_kp": "Proportional correction (Kp)",
-          "correction_ki": "Integral correction (Ki)",
-          "boost_duration": "Boost duration (minutes)",
           "external_temperature_entity_id": "External temperature sensor",
-          "window_sensor_id": "Window sensor",
-          "window_delay_s": "Window open delay (seconds)",
-          "window_close_delay_s": "Window close delay (seconds)",
-          "presence_sensor_id": "Presence sensor",
-          "presence_away_delay_s": "Away delay (seconds)",
-          "presence_home_delay_s": "Home delay (seconds)",
-          "overlay_refresh_s": "Overlay refresh interval (0 = off)"
+          "boost_duration": "Boost duration"
+        },
+        "data_description": {
+          "boost_duration": "How long boost mode stays active before returning to the previous preset."
+        },
+        "sections": {
+          "window_sensor": {
+            "name": "Window sensor",
+            "data": {
+              "window_sensor_id": "Window sensor",
+              "window_delay_s": "Window open delay",
+              "window_close_delay_s": "Window close delay"
+            },
+            "data_description": {
+              "window_sensor_id": "Binary sensor that detects an open window. When triggered, heating is paused.",
+              "window_delay_s": "Delay before heating is paused after the window opens.",
+              "window_close_delay_s": "Delay before heating resumes after the window closes."
+            }
+          },
+          "presence_sensor": {
+            "name": "Presence sensor",
+            "data": {
+              "presence_sensor_id": "Presence sensor",
+              "presence_away_delay_s": "Away delay",
+              "presence_home_delay_s": "Home delay"
+            },
+            "data_description": {
+              "presence_sensor_id": "Binary sensor for presence detection. Switches to away mode when no presence is detected.",
+              "presence_away_delay_s": "Delay before switching to away mode after presence is lost.",
+              "presence_home_delay_s": "Delay before switching back to comfort mode after presence is detected."
+            }
+          },
+          "other_options": {
+            "name": "Other options",
+            "data": {
+              "correction_kp": "Proportional correction (Kp)",
+              "correction_ki": "Integral correction (Ki)",
+              "overlay_refresh_s": "Overlay refresh interval"
+            },
+            "data_description": {
+              "correction_kp": "Proportional gain of the PI controller. Higher values react faster to temperature deviations.",
+              "correction_ki": "Integral gain of the PI controller. Higher values correct persistent offsets more aggressively.",
+              "overlay_refresh_s": "Periodically resend the setpoint to the TRV to keep cloud-API overlays alive. 0 = off."
+            }
+          }
         }
       }
     },
