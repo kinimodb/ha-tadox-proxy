@@ -37,7 +37,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = {
             "room_temp": None,
             "tado_internal_temp": None,
-            "tado_setpoint": None
+            "tado_setpoint": None,
+            "tado_min_temp": None,
+            "tado_max_temp": None,
         }
 
         # Get Room Temp from External Sensor
@@ -79,6 +81,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             "Cannot parse tado internal temperature from %s: %r",
                             source_entity_id, state.attributes.get("current_temperature"),
                         )
+
+                # Get min/max temperature limits from source entity
+                for attr, key in (("min_temp", "tado_min_temp"), ("max_temp", "tado_max_temp")):
+                    raw = state.attributes.get(attr)
+                    if raw is not None:
+                        try:
+                            val = float(raw)
+                            if math.isfinite(val):
+                                data[key] = val
+                        except (ValueError, TypeError):
+                            pass
 
                 # Get current Setpoint
                 if state.attributes.get("temperature") is not None:

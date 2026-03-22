@@ -84,8 +84,11 @@ def _rate_limit_decision(
     is_rate_limited = time_since_last < config.min_command_interval_s
 
     if current_tado_setpoint is None:
-        # Bug-1 fix: no baseline → send immediately rather than comparing
-        # against the bogus sentinel 0.0.
+        # No baseline: send to establish one, but honour the rate limiter
+        # after the first attempt so a transient outage does not cause spam.
+        if is_rate_limited and last_command_sent_ts > 0:
+            remaining = int(config.min_command_interval_s - time_since_last)
+            return False, f"rate_limited({remaining}s)"
         return True, "no_baseline"
 
     diff = abs(target_c - current_tado_setpoint)
@@ -125,12 +128,25 @@ class TestRateLimiterNoBaseline:
         self.now = 1_000_000.0
         self.last_sent_ts = self.now - 90.0  # 90 s ago → rate-limited
 
-    def test_no_baseline_sends_immediately_despite_rate_limit(self):
-        """When current_tado_setpoint is None, always send regardless of rate limit."""
+    def test_no_baseline_throttled_after_first_attempt(self):
+        """After a failed send (baseline still None), honour the rate limiter."""
         should_send, reason = _rate_limit_decision(
             target_c=20.0,
             current_tado_setpoint=None,
-            last_command_sent_ts=self.last_sent_ts,
+            last_command_sent_ts=self.last_sent_ts,  # 90s ago, rate-limited
+            now=self.now,
+            config=self.config,
+            behaviour=self.behaviour,
+        )
+        assert should_send is False
+        assert "rate_limited" in reason
+
+    def test_no_baseline_sends_after_rate_limit_expires(self):
+        """After the rate-limit window expires, retry despite no baseline."""
+        should_send, reason = _rate_limit_decision(
+            target_c=20.0,
+            current_tado_setpoint=None,
+            last_command_sent_ts=self.now - 200.0,  # 200s ago > 180s
             now=self.now,
             config=self.config,
             behaviour=self.behaviour,
@@ -139,7 +155,7 @@ class TestRateLimiterNoBaseline:
         assert reason == "no_baseline"
 
     def test_no_baseline_at_startup(self):
-        """At startup _last_command_sent_ts=0, no baseline: still sends."""
+        """At startup _last_command_sent_ts=0, no baseline: sends immediately."""
         should_send, reason = _rate_limit_decision(
             target_c=20.0,
             current_tado_setpoint=None,
@@ -156,9 +172,7 @@ class TestRateLimiterNoBaseline:
 
         With baseline=0.0 and target=18.0 (a decrease from the user's perspective),
         the check is: 18.0 < 0.0 - 1.0 = -1.0 → False → urgent decrease suppressed.
-        The fix replaces 0.0 with None, which triggers the no_baseline fast path.
         """
-        # Simulate the OLD buggy behavior explicitly
         bogus_baseline = 0.0
         target_c = 18.0
 
@@ -169,18 +183,6 @@ class TestRateLimiterNoBaseline:
         # Old code: urgent_decrease = target < baseline - threshold = 18 < -1.0 → False
         old_is_urgent = target_c < bogus_baseline - self.behaviour.urgent_decrease_threshold_c
         assert old_is_urgent is False  # the old bug: suppress when we shouldn't
-
-        # New code: current_tado_setpoint is None → always sends
-        should_send, reason = _rate_limit_decision(
-            target_c=target_c,
-            current_tado_setpoint=None,  # correct: no baseline after HVAC OFF
-            last_command_sent_ts=self.last_sent_ts,
-            now=self.now,
-            config=self.config,
-            behaviour=self.behaviour,
-        )
-        assert should_send is True
-        assert reason == "no_baseline"
 
     def test_known_baseline_still_rate_limits_correctly(self):
         """When a baseline is known, normal rate-limiting still applies."""
@@ -221,12 +223,12 @@ class TestRateLimiterNoBaseline:
         assert should_send is True
         assert reason == "normal_update"
 
-    def test_no_baseline_with_boost_target(self):
-        """No baseline + high boost target (25°C) → send immediately."""
+    def test_no_baseline_with_boost_target_at_startup(self):
+        """No baseline + high boost target (25°C) at startup → send immediately."""
         should_send, reason = _rate_limit_decision(
             target_c=25.0,
             current_tado_setpoint=None,
-            last_command_sent_ts=self.last_sent_ts,
+            last_command_sent_ts=0.0,  # startup
             now=self.now,
             config=self.config,
             behaviour=self.behaviour,
@@ -234,18 +236,44 @@ class TestRateLimiterNoBaseline:
         assert should_send is True
         assert reason == "no_baseline"
 
-    def test_no_baseline_with_frost_target(self):
-        """No baseline + frost target (5°C) → send immediately (HVAC just resumed)."""
+    def test_no_baseline_with_frost_target_at_startup(self):
+        """No baseline + frost target (5°C) at startup → send immediately."""
         should_send, reason = _rate_limit_decision(
             target_c=5.0,
             current_tado_setpoint=None,
-            last_command_sent_ts=self.last_sent_ts,
+            last_command_sent_ts=0.0,  # startup
             now=self.now,
             config=self.config,
             behaviour=self.behaviour,
         )
         assert should_send is True
         assert reason == "no_baseline"
+
+    def test_no_baseline_retry_throttled_then_succeeds(self):
+        """Simulate failed send → throttled → rate limit expires → retry."""
+        # 1st cycle: startup, sends immediately
+        s1, r1 = _rate_limit_decision(
+            target_c=20.0, current_tado_setpoint=None,
+            last_command_sent_ts=0.0, now=self.now,
+            config=self.config, behaviour=self.behaviour,
+        )
+        assert s1 is True and r1 == "no_baseline"
+
+        # 2nd cycle (60s later): send failed, baseline still None → throttled
+        s2, r2 = _rate_limit_decision(
+            target_c=20.0, current_tado_setpoint=None,
+            last_command_sent_ts=self.now, now=self.now + 60.0,
+            config=self.config, behaviour=self.behaviour,
+        )
+        assert s2 is False and "rate_limited" in r2
+
+        # 3rd cycle (180s later): rate limit expired → retry
+        s3, r3 = _rate_limit_decision(
+            target_c=20.0, current_tado_setpoint=None,
+            last_command_sent_ts=self.now, now=self.now + 181.0,
+            config=self.config, behaviour=self.behaviour,
+        )
+        assert s3 is True and r3 == "no_baseline"
 
 
 # ---------------------------------------------------------------------------

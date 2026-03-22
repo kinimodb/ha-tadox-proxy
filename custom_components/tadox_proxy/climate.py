@@ -980,11 +980,17 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         reason = "noop"
 
         if current_tado_setpoint is None:
-            # No known Tado baseline – send immediately to establish one.
-            # Rate-limit decisions (including urgent-decrease) are meaningless
-            # without a reference point, so we skip them here.
-            should_send = True
-            reason = "no_baseline"
+            # No known Tado baseline – send to establish one.
+            # On the very first attempt (_last_command_sent_ts == 0) we send
+            # immediately.  On subsequent retries (e.g. after a failed send)
+            # we honour the rate limiter so a transient TRV/backend outage
+            # does not cause command spam every regulation cycle.
+            if is_rate_limited and self._last_command_sent_ts > 0:
+                remaining = int(self._config.min_command_interval_s - time_since_last)
+                reason = f"rate_limited({remaining}s)"
+            else:
+                should_send = True
+                reason = "no_baseline"
         else:
             diff = abs(result.target_for_tado_c - current_tado_setpoint)
 
@@ -1079,6 +1085,18 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     # ------------------------------------------------------------------
     # Properties for HA UI
     # ------------------------------------------------------------------
+
+    @property
+    def min_temp(self) -> float:
+        """Return minimum temperature from the source Tado entity."""
+        tado_min = self.coordinator.data.get("tado_min_temp")
+        return tado_min if tado_min is not None else self._config.min_target_c
+
+    @property
+    def max_temp(self) -> float:
+        """Return maximum temperature from the source Tado entity."""
+        tado_max = self.coordinator.data.get("tado_max_temp")
+        return tado_max if tado_max is not None else self._config.max_target_c
 
     @property
     def current_temperature(self) -> float | None:
