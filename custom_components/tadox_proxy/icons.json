@@ -1,4 +1,15 @@
 {
+  "options": {
+    "step": {
+      "init": {
+        "sections": {
+          "window_sensor": "mdi:window-open-variant",
+          "presence_sensor": "mdi:motion-sensor",
+          "other_options": "mdi:cog"
+        }
+      }
+    }
+  },
   "entity": {
     "climate": {
       "tadox_proxy": {
