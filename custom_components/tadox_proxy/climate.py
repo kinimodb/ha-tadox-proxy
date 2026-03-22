@@ -1118,6 +1118,20 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         return HVACAction.IDLE
 
     @property
+    def icon(self) -> str:
+        """Return preset-specific icon so the primary entity icon reflects the active preset."""
+        if self._hvac_mode == HVACMode.OFF:
+            return "mdi:power"
+        return {
+            PRESET_COMFORT: "mdi:sofa",
+            PRESET_ECO: "mdi:leaf",
+            PRESET_BOOST: "mdi:rocket-launch",
+            PRESET_AWAY: "mdi:home-export-outline",
+            PRESET_FROST_PROTECTION: "mdi:snowflake",
+            PRESET_NONE: "mdi:hand-back-right",
+        }.get(self._preset_mode, "mdi:fire")
+
+    @property
     def preset_mode(self) -> str:
         """Return the current preset mode."""
         return self._preset_mode
