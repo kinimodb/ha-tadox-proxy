@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_SOURCE_ENTITY_ID, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID
+from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, CONF_SOURCE_ENTITY_ID
 
 TO_REDACT: list[str] = []
 

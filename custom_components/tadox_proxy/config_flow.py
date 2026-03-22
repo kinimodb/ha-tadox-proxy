@@ -2,24 +2,23 @@
 from __future__ import annotations
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
-    DOMAIN,
-    CONF_SOURCE_ENTITY_ID,
-    CONF_NAME,
-    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
     CONF_BOOST_DURATION,
-    CONF_WINDOW_SENSOR_ID,
-    CONF_WINDOW_DELAY_S,
-    CONF_WINDOW_CLOSE_DELAY_S,
-    CONF_PRESENCE_SENSOR_ID,
+    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_NAME,
+    CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
-    CONF_OVERLAY_REFRESH_S,
+    CONF_PRESENCE_SENSOR_ID,
+    CONF_SOURCE_ENTITY_ID,
+    CONF_WINDOW_CLOSE_DELAY_S,
+    CONF_WINDOW_DELAY_S,
+    CONF_WINDOW_SENSOR_ID,
+    DOMAIN,
 )
 from .parameters import RegulationConfig
 

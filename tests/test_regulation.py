@@ -5,8 +5,8 @@ Home Assistant to be installed.  We import the modules directly
 to avoid triggering the HA-dependent __init__.py.
 """
 import importlib
-import sys
 import os
+import sys
 import types
 
 import pytest
