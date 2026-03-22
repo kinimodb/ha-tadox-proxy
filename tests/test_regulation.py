@@ -782,3 +782,47 @@ class TestNanInfGuard:
         # command = 21 + 2 + 0.8 = 23.8
         assert result.target_for_tado_c == 23.8
         assert result.error_c == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Temperature range limits
+# ---------------------------------------------------------------------------
+
+class TestTemperatureRangeLimits:
+    """Verify that RegulationConfig defaults match Tado X TRV limits (5–30°C)."""
+
+    def test_default_min_target(self):
+        cfg = RegulationConfig()
+        assert cfg.min_target_c == 5.0
+
+    def test_default_max_target(self):
+        cfg = RegulationConfig()
+        assert cfg.max_target_c == 30.0
+
+    def test_regulation_clamps_to_min(self):
+        """Computed target below min_target_c is clamped to 5.0."""
+        cfg = RegulationConfig()
+        reg = FeedforwardPiRegulator(cfg)
+        state = RegulationState()
+        result = reg.compute(
+            setpoint_c=5.0,
+            room_temp_c=10.0,   # room much warmer → negative correction
+            tado_internal_c=10.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+        assert result.target_for_tado_c >= cfg.min_target_c
+
+    def test_regulation_clamps_to_max(self):
+        """Computed target above max_target_c is clamped to 30.0."""
+        cfg = RegulationConfig()
+        reg = FeedforwardPiRegulator(cfg)
+        state = RegulationState()
+        result = reg.compute(
+            setpoint_c=30.0,
+            room_temp_c=15.0,   # room much colder → large positive correction
+            tado_internal_c=20.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+        assert result.target_for_tado_c <= cfg.max_target_c
