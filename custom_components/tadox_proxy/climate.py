@@ -231,19 +231,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         )
 
     @property
-    def icon(self) -> str | None:
-        """Return a distinct icon based on the active preset mode."""
-        icons = {
-            PRESET_COMFORT: "mdi:sofa",
-            PRESET_ECO: "mdi:leaf",
-            PRESET_BOOST: "mdi:rocket-launch",
-            PRESET_AWAY: "mdi:home-export-outline",
-            PRESET_FROST_PROTECTION: "mdi:snowflake",
-            PRESET_NONE: "mdi:hand-back-right",
-        }
-        return icons.get(self._preset_mode)
-
-    @property
     def device_info(self) -> DeviceInfo:
         """Return device information for the proxy."""
         return DeviceInfo(

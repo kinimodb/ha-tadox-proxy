@@ -23,19 +23,54 @@
     "step": {
       "init": {
         "title": "Proxy-Optionen",
-        "description": "Regelparameter anpassen, Boost-Dauer konfigurieren und Sensoren auswählen.",
+        "description": "Verhalten des Proxy-Thermostats konfigurieren.",
         "data": {
-          "correction_kp": "Proportionale Korrektur (Kp)",
-          "correction_ki": "Integrale Korrektur (Ki)",
-          "boost_duration": "Boost-Dauer (Minuten)",
           "external_temperature_entity_id": "Externer Temperatursensor",
-          "window_sensor_id": "Fenstersensor",
-          "window_delay_s": "Verzögerung Fenstererkennung (Sekunden)",
-          "window_close_delay_s": "Verzögerung Fenster-Schließen (Sekunden)",
-          "presence_sensor_id": "Präsenzsensor",
-          "presence_away_delay_s": "Verzögerung Abwesenheit (Sekunden)",
-          "presence_home_delay_s": "Verzögerung Heimkehr (Sekunden)",
-          "overlay_refresh_s": "Overlay-Refresh-Intervall (0 = aus)"
+          "boost_duration": "Boost-Dauer"
+        },
+        "data_description": {
+          "boost_duration": "Wie lange der Boost-Modus aktiv bleibt, bevor zum vorherigen Preset zurückgekehrt wird."
+        },
+        "sections": {
+          "window_sensor": {
+            "name": "Fenstersensor",
+            "data": {
+              "window_sensor_id": "Fenstersensor",
+              "window_delay_s": "Verzögerung Fenster öffnen",
+              "window_close_delay_s": "Verzögerung Fenster schließen"
+            },
+            "data_description": {
+              "window_sensor_id": "Binärsensor zur Fenstererkennung. Bei Auslösung wird die Heizung pausiert.",
+              "window_delay_s": "Verzögerung bevor die Heizung pausiert wird, nachdem das Fenster geöffnet wurde.",
+              "window_close_delay_s": "Verzögerung bevor die Heizung fortgesetzt wird, nachdem das Fenster geschlossen wurde."
+            }
+          },
+          "presence_sensor": {
+            "name": "Präsenzsensor",
+            "data": {
+              "presence_sensor_id": "Präsenzsensor",
+              "presence_away_delay_s": "Verzögerung Abwesenheit",
+              "presence_home_delay_s": "Verzögerung Heimkehr"
+            },
+            "data_description": {
+              "presence_sensor_id": "Binärsensor zur Präsenzerkennung. Wechselt bei fehlender Präsenz in den Abwesend-Modus.",
+              "presence_away_delay_s": "Verzögerung bevor in den Abwesend-Modus gewechselt wird.",
+              "presence_home_delay_s": "Verzögerung bevor nach erkannter Präsenz zum Komfort-Modus zurückgekehrt wird."
+            }
+          },
+          "other_options": {
+            "name": "Sonstige Optionen",
+            "data": {
+              "correction_kp": "Proportionale Korrektur (Kp)",
+              "correction_ki": "Integrale Korrektur (Ki)",
+              "overlay_refresh_s": "Overlay-Refresh-Intervall"
+            },
+            "data_description": {
+              "correction_kp": "Proportionalanteil des PI-Reglers. Höhere Werte reagieren schneller auf Temperaturabweichungen.",
+              "correction_ki": "Integralanteil des PI-Reglers. Höhere Werte korrigieren anhaltende Abweichungen aggressiver.",
+              "overlay_refresh_s": "Sollwert periodisch erneut an das TRV senden, um Cloud-API-Overlays aktiv zu halten. 0 = aus."
+            }
+          }
         }
       }
     },
