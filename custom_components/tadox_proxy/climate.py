@@ -139,6 +139,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
         # Build regulation + behaviour config from defaults + options
         self._config = self._build_config(config_entry)
+        self._attr_min_temp = self._config.min_target_c
+        self._attr_max_temp = self._config.max_target_c
         self._behaviour = self._build_behaviour(config_entry)
         self._regulator = FeedforwardPiRegulator(self._config)
         self._reg_state = RegulationState()
@@ -374,6 +376,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         """Called when config entry options change (e.g. from number entities)."""
         self._config_entry = entry
         self._config = self._build_config(entry)
+        self._attr_min_temp = self._config.min_target_c
+        self._attr_max_temp = self._config.max_target_c
         self._behaviour = self._build_behaviour(entry)
         self._regulator = FeedforwardPiRegulator(self._config)
         self._sensor_grace_s = entry.options.get(
@@ -1085,16 +1089,6 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     # ------------------------------------------------------------------
     # Properties for HA UI
     # ------------------------------------------------------------------
-
-    @property
-    def min_temp(self) -> float:
-        """Return minimum temperature (from RegulationConfig)."""
-        return self._config.min_target_c
-
-    @property
-    def max_temp(self) -> float:
-        """Return maximum temperature (from RegulationConfig)."""
-        return self._config.max_target_c
 
     @property
     def current_temperature(self) -> float | None:
