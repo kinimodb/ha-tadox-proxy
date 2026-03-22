@@ -1088,15 +1088,13 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
 
     @property
     def min_temp(self) -> float:
-        """Return minimum temperature from the source Tado entity."""
-        tado_min = self.coordinator.data.get("tado_min_temp")
-        return tado_min if tado_min is not None else self._config.min_target_c
+        """Return minimum temperature (from RegulationConfig)."""
+        return self._config.min_target_c
 
     @property
     def max_temp(self) -> float:
-        """Return maximum temperature from the source Tado entity."""
-        tado_max = self.coordinator.data.get("tado_max_temp")
-        return tado_max if tado_max is not None else self._config.max_target_c
+        """Return maximum temperature (from RegulationConfig)."""
+        return self._config.max_target_c
 
     @property
     def current_temperature(self) -> float | None:
