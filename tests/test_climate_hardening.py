@@ -1,6 +1,14 @@
 """Regression tests for climate.py hardening fixes.
 
-These tests cover two bug-fixes that were identified during the audit:
+These tests cover bug-fixes that were identified during the audit:
+
+Bug 0 – min/max temperature range showing 7/35 instead of 5/30 (climate.py)
+    HA's CachedProperties metaclass caches min_temp / max_temp on first access.
+    If _attr_min_temp / _attr_max_temp are only set as instance attributes in
+    __init__ (after super().__init__()), the cached value falls through to HA's
+    DEFAULT_MIN_TEMP (7) / DEFAULT_MAX_TEMP (35).
+    Fix: declare _attr_min_temp / _attr_max_temp as CLASS-LEVEL attributes so
+    they exist before any metaclass machinery runs.
 
 Bug 1 – Rate-limiter with no Tado baseline (climate.py)
     Previously, when _last_sent_setpoint was None AND coordinator had no
@@ -20,6 +28,7 @@ relevant code (same pattern used by test_sensor_resilience.py for its resolver).
 """
 from __future__ import annotations
 
+import ast
 import importlib.util
 import math
 import os
@@ -58,6 +67,75 @@ RegulationConfig = _params.RegulationConfig
 BehaviourConfig = _params.BehaviourConfig
 FeedforwardPiRegulator = _reg.FeedforwardPiRegulator
 RegulationState = _reg.RegulationState
+
+
+# ---------------------------------------------------------------------------
+# Bug 0: Class-level _attr_min_temp / _attr_max_temp (AST-based guard)
+# ---------------------------------------------------------------------------
+
+_CLIMATE_PY = os.path.join(_COMP_DIR, "climate.py")
+
+
+class TestClassLevelTempLimits:
+    """Ensure _attr_min_temp and _attr_max_temp are CLASS-LEVEL attributes.
+
+    HA's CachedProperties metaclass caches min_temp/max_temp on first access.
+    If the _attr_* variants only exist as instance attributes (set in __init__
+    after super().__init__()), the cache sees HA's defaults (7/35) instead of
+    our 5/30.  This AST-based test guarantees the class-level declarations
+    survive future refactoring.
+    """
+
+    @staticmethod
+    def _get_class_level_assigns() -> dict[str, float]:
+        """Parse climate.py and return class-level _attr_*_temp assignments."""
+        with open(_CLIMATE_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="climate.py")
+
+        results: dict[str, float] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if node.name != "TadoXProxyClimate":
+                continue
+            for item in node.body:
+                # Handle both plain assignment and annotated assignment
+                targets: list[str] = []
+                value = None
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    targets = [item.target.id]
+                    value = item.value
+                elif isinstance(item, ast.Assign):
+                    targets = [
+                        t.id for t in item.targets if isinstance(t, ast.Name)
+                    ]
+                    value = item.value
+                for t in targets:
+                    if t in ("_attr_min_temp", "_attr_max_temp") and value is not None:
+                        if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)):
+                            results[t] = float(value.value)
+        return results
+
+    def test_min_temp_class_level_is_5(self):
+        assigns = self._get_class_level_assigns()
+        assert "_attr_min_temp" in assigns, (
+            "_attr_min_temp must be a class-level attribute in TadoXProxyClimate"
+        )
+        assert assigns["_attr_min_temp"] == 5.0
+
+    def test_max_temp_class_level_is_30(self):
+        assigns = self._get_class_level_assigns()
+        assert "_attr_max_temp" in assigns, (
+            "_attr_max_temp must be a class-level attribute in TadoXProxyClimate"
+        )
+        assert assigns["_attr_max_temp"] == 30.0
+
+    def test_values_match_regulation_config(self):
+        """Class-level defaults must match RegulationConfig defaults."""
+        assigns = self._get_class_level_assigns()
+        cfg = RegulationConfig()
+        assert assigns["_attr_min_temp"] == cfg.min_target_c
+        assert assigns["_attr_max_temp"] == cfg.max_target_c
 
 
 # ---------------------------------------------------------------------------

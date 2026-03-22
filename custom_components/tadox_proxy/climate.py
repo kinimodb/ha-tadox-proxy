@@ -129,6 +129,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_preset_modes = PRESET_LIST
     _attr_translation_key = "tadox_proxy"
+    # Class-level defaults so HA's CachedProperties metaclass sees 5/30
+    # BEFORE super().__init__() runs (prevents fallback to HA's 7/35).
+    _attr_min_temp: float = 5.0
+    _attr_max_temp: float = 30.0
 
     def __init__(self, coordinator, unique_id: str, config_entry: ConfigEntry):
         """Initialize the proxy thermostat."""
@@ -141,6 +145,10 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._config = self._build_config(config_entry)
         self._attr_min_temp = self._config.min_target_c
         self._attr_max_temp = self._config.max_target_c
+        # Invalidate HA's CachedProperties cache for min/max_temp so the
+        # instance-level values from _config take effect immediately.
+        self.__dict__.pop("min_temp", None)
+        self.__dict__.pop("max_temp", None)
         self._behaviour = self._build_behaviour(config_entry)
         self._regulator = FeedforwardPiRegulator(self._config)
         self._reg_state = RegulationState()
@@ -378,6 +386,8 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         self._config = self._build_config(entry)
         self._attr_min_temp = self._config.min_target_c
         self._attr_max_temp = self._config.max_target_c
+        self.__dict__.pop("min_temp", None)
+        self.__dict__.pop("max_temp", None)
         self._behaviour = self._build_behaviour(entry)
         self._regulator = FeedforwardPiRegulator(self._config)
         self._sensor_grace_s = entry.options.get(
