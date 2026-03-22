@@ -117,9 +117,9 @@ class TestFeedforward:
         )
 
         # Offset = 7°C, Error = 2°C, P = 1.6
-        # Raw = 21 + 7 + 1.6 = 29.6 → clamped to 25.0
-        assert result.target_for_tado_c == 25.0
-        assert result.is_saturated is True
+        # Raw = 21 + 7 + 1.6 = 29.6 → clamped to 30.0 (max_target_c)
+        assert result.target_for_tado_c == 29.6
+        assert result.is_saturated is False
 
     def test_overshoot_reduces_command(self):
         """When room exceeds setpoint, command should drop below tado_internal."""
@@ -521,8 +521,8 @@ class TestPresetConfig:
             state=state,
         )
 
-        # Command should be at maximum (clamped to 25°C)
-        assert result.target_for_tado_c == 25.0
+        # Raw = 25 + 2 + 5.6 = 32.6 → clamped to 30.0 (max_target_c)
+        assert result.target_for_tado_c == 30.0
         assert result.is_saturated is True
 
     def test_regulation_with_frost_protection_setpoint(self):
@@ -751,19 +751,19 @@ class TestNanInfGuard:
 
     def test_nan_fallback_clamped_to_bounds(self):
         """When sensor is NaN and setpoint exceeds max_target_c, fallback must be clamped."""
-        reg = make_regulator()  # max_target_c = 25.0
+        reg = make_regulator()  # max_target_c = 30.0
         state = RegulationState()
 
         result = reg.compute(
-            setpoint_c=28.0,
+            setpoint_c=32.0,
             room_temp_c=float("nan"),
             tado_internal_c=22.0,
             time_delta_s=60.0,
             state=state,
         )
 
-        # 28.0 exceeds max_target_c (25.0), must be clamped
-        assert result.target_for_tado_c == 25.0
+        # 32.0 exceeds max_target_c (30.0), must be clamped
+        assert result.target_for_tado_c == 30.0
 
     def test_valid_inputs_still_work_normally(self):
         """Normal inputs must not be affected by the NaN guard."""
