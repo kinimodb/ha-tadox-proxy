@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Behavioural thresholds (climate-entity logic, independent of the PI engine)
 # ---------------------------------------------------------------------------

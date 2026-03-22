@@ -2,31 +2,32 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import math
 import time
-import datetime
 from typing import Any
 
 from homeassistant.components.climate import (
-    ClimateEntity,
-    ClimateEntityFeature,
-    HVACAction,
-    HVACMode,
     PRESET_AWAY,
     PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
     PRESET_NONE,
+    ClimateEntity,
+    ClimateEntityFeature,
+    HVACAction,
+    HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
@@ -34,45 +35,44 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.device_registry import DeviceInfo
 
+from .climate_controllers import (
+    FollowPhysicalController,
+    PresenceAutomationController,
+    WindowAutomationController,
+)
 from .const import (
-    DOMAIN,
+    CONF_AWAY_TARGET,
+    CONF_BOOST_DURATION,
+    CONF_BOOST_TARGET,
     CONF_COMFORT_TARGET,
     CONF_ECO_TARGET,
-    CONF_BOOST_TARGET,
-    CONF_BOOST_DURATION,
-    CONF_AWAY_TARGET,
-    CONF_FROST_PROTECTION_TARGET,
+    CONF_FOLLOW_GRACE_S,
     CONF_FOLLOW_TADO_INPUT,
-    CONF_WINDOW_SENSOR_ID,
-    CONF_WINDOW_DELAY_S,
-    CONF_WINDOW_CLOSE_DELAY_S,
-    CONF_PRESENCE_SENSOR_ID,
+    CONF_FOLLOW_THRESHOLD_C,
+    CONF_FROST_PROTECTION_TARGET,
+    CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
-    CONF_FOLLOW_THRESHOLD_C,
-    CONF_FOLLOW_GRACE_S,
-    CONF_URGENT_DECREASE_THRESHOLD_C,
+    CONF_PRESENCE_SENSOR_ID,
     CONF_SENSOR_GRACE_S,
-    CONF_OVERLAY_REFRESH_S,
+    CONF_URGENT_DECREASE_THRESHOLD_C,
+    CONF_WINDOW_CLOSE_DELAY_S,
+    CONF_WINDOW_DELAY_S,
+    CONF_WINDOW_SENSOR_ID,
+    DOMAIN,
     PRESET_FROST_PROTECTION,
 )
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
     DEFAULT_SENSOR_GRACE_S,
     FROST_PROTECT_C,
-    RegulationConfig,
     BehaviourConfig,
     CorrectionTuning,
     PresetConfig,
+    RegulationConfig,
 )
 from .regulation import FeedforwardPiRegulator, RegulationState
-from .climate_controllers import (
-    WindowAutomationController,
-    PresenceAutomationController,
-    FollowPhysicalController,
-)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -264,7 +264,7 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
                     self._preset_mode = PRESET_COMFORT
                 # Don't restore frost protection – it's window-driven and the
                 # controller state is not persisted across restarts
-                if self._preset_mode == PRESET_FROST_PROTECTION:
+                elif self._preset_mode == PRESET_FROST_PROTECTION:
                     self._preset_mode = PRESET_COMFORT
 
         # If the active preset is COMFORT, the comfort_target in options is
@@ -963,44 +963,57 @@ class TadoXProxyClimate(CoordinatorEntity, ClimateEntity, RestoreEntity):
         # 5. Rate limiting & send decision
         # Prefer our own last-sent value (always fresh) over coordinator data
         # (which may be up to 60s stale from the polling interval).
+        # NOTE: do NOT fall back to 0.0 – an unknown baseline makes the
+        # urgent-decrease check (target < baseline - threshold) always False
+        # for realistic temperatures, so a needed fast cooldown would be
+        # suppressed.  Instead, skip rate limiting entirely when no baseline
+        # is known (e.g. after a quick HVAC OFF → HEAT cycle).
         current_tado_setpoint = (
             self._last_sent_setpoint
             if self._last_sent_setpoint is not None
-            else self.coordinator.data.get("tado_setpoint", 0.0)
+            else self.coordinator.data.get("tado_setpoint")  # None if Tado is off/unavailable
         )
-        diff = abs(result.target_for_tado_c - current_tado_setpoint)
         time_since_last = now - self._last_command_sent_ts
         is_rate_limited = time_since_last < self._config.min_command_interval_s
 
         should_send = False
         reason = "noop"
 
-        # Overlay refresh: resend the same setpoint if overlay_refresh_s has
-        # elapsed, keeping timer-based overlays alive (cloud-API integrations).
-        overlay_refresh_due = (
-            self._overlay_refresh_s > 0
-            and time_since_last >= self._overlay_refresh_s
-        )
-
-        if diff < self._config.min_change_threshold_c and not overlay_refresh_due:
-            reason = "already_at_target"
-        elif diff < self._config.min_change_threshold_c and overlay_refresh_due:
+        if current_tado_setpoint is None:
+            # No known Tado baseline – send immediately to establish one.
+            # Rate-limit decisions (including urgent-decrease) are meaningless
+            # without a reference point, so we skip them here.
             should_send = True
-            reason = "overlay_refresh"
-        elif is_rate_limited:
-            is_urgent_decrease = (
-                result.target_for_tado_c
-                < current_tado_setpoint - self._behaviour.urgent_decrease_threshold_c
-            )
-            if is_urgent_decrease:
-                should_send = True
-                reason = "urgent_decrease"
-            else:
-                remaining = int(self._config.min_command_interval_s - time_since_last)
-                reason = f"rate_limited({remaining}s)"
+            reason = "no_baseline"
         else:
-            should_send = True
-            reason = "normal_update"
+            diff = abs(result.target_for_tado_c - current_tado_setpoint)
+
+            # Overlay refresh: resend the same setpoint if overlay_refresh_s has
+            # elapsed, keeping timer-based overlays alive (cloud-API integrations).
+            overlay_refresh_due = (
+                self._overlay_refresh_s > 0
+                and time_since_last >= self._overlay_refresh_s
+            )
+
+            if diff < self._config.min_change_threshold_c and not overlay_refresh_due:
+                reason = "already_at_target"
+            elif diff < self._config.min_change_threshold_c and overlay_refresh_due:
+                should_send = True
+                reason = "overlay_refresh"
+            elif is_rate_limited:
+                is_urgent_decrease = (
+                    result.target_for_tado_c
+                    < current_tado_setpoint - self._behaviour.urgent_decrease_threshold_c
+                )
+                if is_urgent_decrease:
+                    should_send = True
+                    reason = "urgent_decrease"
+                else:
+                    remaining = int(self._config.min_command_interval_s - time_since_last)
+                    reason = f"rate_limited({remaining}s)"
+            else:
+                should_send = True
+                reason = "normal_update"
 
         # 6. Send command to Tado
         if should_send:
