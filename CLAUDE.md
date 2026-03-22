@@ -106,11 +106,12 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.7)
+## Aktueller Stand (v1.0.8)
 
 - Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
 - HVAC OFF wird an den Tado-TRV weitergeleitet; Fehler beim Senden werden korrekt behandelt
-- 90 Tests grün, CI aktiv
+- Frontend-Polish: icons.json, Sektionen im Options-Flow, NumberSelector für alle Zahlenfelder
+- 141 Tests grün, CI aktiv
 
 ## Bekannte offene Bugs
 
