@@ -15,10 +15,17 @@
       "tadox_proxy": {
         "default": "mdi:thermostat",
         "state": {
-          "heat": "mdi:fire",
+          "heat": "mdi:thermostat",
           "off": "mdi:power"
         },
         "state_attributes": {
+          "hvac_action": {
+            "state": {
+              "heating": "mdi:fire",
+              "idle": "mdi:thermostat",
+              "off": "mdi:power"
+            }
+          },
           "preset_mode": {
             "state": {
               "none": "mdi:hand-back-right",
