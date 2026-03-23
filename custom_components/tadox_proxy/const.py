@@ -1,5 +1,18 @@
 """Constants for the Tado X Proxy integration."""
 
+from __future__ import annotations
+
+import math
+from typing import Any
+
+from homeassistant.components.climate import (
+    PRESET_AWAY,
+    PRESET_BOOST,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_NONE,
+)
+
 DOMAIN = "tadox_proxy"
 
 CONF_SOURCE_ENTITY_ID = "source_entity_id"
@@ -40,3 +53,30 @@ CONF_SENSOR_GRACE_S = "sensor_grace_s"
 
 # Overlay refresh (for cloud-API integrations with timer-based overlays)
 CONF_OVERLAY_REFRESH_S = "overlay_refresh_s"
+
+
+# ---------------------------------------------------------------------------
+# Shared utilities (used by climate.py, climate_presets.py, climate_regulation.py)
+# ---------------------------------------------------------------------------
+
+def safe_float(value: Any) -> float | None:
+    """Convert value to float, returning None for non-finite or unparseable values."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (ValueError, TypeError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+# Ordered list of presets shown in the UI.
+# PRESET_NONE ("Manuell") activates when the user moves the temperature
+# slider directly instead of selecting a named preset.
+PRESET_LIST = [
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_BOOST,
+    PRESET_AWAY,
+    PRESET_FROST_PROTECTION,
+]
