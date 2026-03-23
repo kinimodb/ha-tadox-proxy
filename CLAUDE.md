@@ -273,11 +273,7 @@ Wenn eine neue AI-Session beginnt (neuer Claude Code Chat), sollte die AI:
 
 ## Brand-Assets (Logo/Icon)
 
-Es gibt **zwei unabhängige Systeme**, die Logos anzeigen:
-
-### 1. Home Assistant Integrationsseite (ab HA 2026.3)
-
-HA sucht lokal in `custom_components/<domain>/brand/` nach Icons (Brands Proxy API).
+Seit HA 2026.3 und HACS PR #5128 (Feb 2026) gibt es **nur noch einen Weg**:
 
 ```
 custom_components/tadox_proxy/
@@ -287,16 +283,11 @@ custom_components/tadox_proxy/
     └── logo.png      (256×256)
 ```
 
-→ Funktioniert **ohne Internet und ohne PR**. ✅
-
-### 2. HACS Store-Ansicht
-
-HACS löst Icons über das CDN `https://brands.home-assistant.io/` auf.
-Das CDN wird aus dem `home-assistant/brands`-Repo gespeist.
-Für Custom Integrations: `custom_integrations/<domain>/` im brands-Repo.
-
-→ Erfordert einen **PR ans `home-assistant/brands`-Repo** (Legacy, aber nötig für HACS).
+Dieser Ordner wird sowohl von **Home Assistant** (Brands Proxy API, `/api/brands/integration/{domain}/{image}`)
+als auch von **HACS** (seit PR #5128) erkannt. Kein PR ans `home-assistant/brands`-Repo nötig –
+das Repo nimmt keine Custom Integrations mehr an.
 
 **Wichtig:**
-- Ein `brand/`-Ordner im **Repository-Root** wird von **niemandem** ausgelesen – nicht von HA, nicht von HACS.
-- Keine `logo.png` direkt in `custom_components/tadox_proxy/` ablegen (nur im `brand/` Unterordner).
+- Ein `brand/`-Ordner im **Repository-Root** wird von niemandem ausgelesen → nicht anlegen.
+- Keine `logo.png` direkt in `custom_components/tadox_proxy/` ablegen (nur im `brand/`-Unterordner).
+- Mindestvoraussetzung: HA 2026.3+ (in `hacs.json` via `"homeassistant": "2026.3.0"` gesetzt).
