@@ -106,11 +106,13 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.8)
+## Aktueller Stand (v1.0.9)
 
 - Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
 - HVAC OFF wird an den Tado-TRV weitergeleitet; Fehler beim Senden werden korrekt behandelt
 - Frontend-Polish: icons.json, Sektionen im Options-Flow, NumberSelector für alle Zahlenfelder
+- Icon-Verbesserungen: neutrales Icon für Heat-Modus, Feuer-Icon nur bei aktiver Heizung
+- Bereinigung: ungenutzter Root-`brand/`-Ordner entfernt, CLAUDE.md-Dokumentation überarbeitet
 - 141 Tests grün, CI aktiv
 
 ## Bekannte offene Bugs
