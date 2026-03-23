@@ -271,31 +271,32 @@ Wenn eine neue AI-Session beginnt (neuer Claude Code Chat), sollte die AI:
 
 ---
 
-## Brand-Assets (HACS Logo)
+## Brand-Assets (Logo/Icon)
 
-Brand-Assets müssen an **zwei Orten** liegen – sie werden von unterschiedlichen Systemen gelesen:
+Es gibt **zwei unabhängige Systeme**, die Logos anzeigen:
+
+### 1. Home Assistant Integrationsseite (ab HA 2026.3)
+
+HA sucht lokal in `custom_components/<domain>/brand/` nach Icons (Brands Proxy API).
 
 ```
-ha-tadox-proxy/                          ← Repository-Root
-├── brand/                               ← Von HACS gelesen (beim Download/Anzeige im Store)
-│   ├── icon.png      (256×256)
-│   ├── icon@2x.png   (512×512)
-│   └── logo.png      (256×256)
-├── custom_components/tadox_proxy/
-│   └── brand/                           ← Von HA 2026.3+ lokal gelesen (Integrationsseite)
-│       ├── icon.png      (256×256)
-│       ├── icon@2x.png   (512×512)
-│       └── logo.png      (256×256)
+custom_components/tadox_proxy/
+└── brand/
+    ├── icon.png      (256×256)
+    ├── icon@2x.png   (512×512)
+    └── logo.png      (256×256)
 ```
+
+→ Funktioniert **ohne Internet und ohne PR**. ✅
+
+### 2. HACS Store-Ansicht
+
+HACS löst Icons über das CDN `https://brands.home-assistant.io/` auf.
+Das CDN wird aus dem `home-assistant/brands`-Repo gespeist.
+Für Custom Integrations: `custom_integrations/<domain>/` im brands-Repo.
+
+→ Erfordert einen **PR ans `home-assistant/brands`-Repo** (Legacy, aber nötig für HACS).
 
 **Wichtig:**
-- **Repository-Root `brand/`** → wird von **HACS** beim Download und in der Store-Ansicht ausgelesen.
-- **`custom_components/tadox_proxy/brand/`** → wird von **Home Assistant 2026.3+** lokal auf der Integrationsseite ausgelesen.
+- Ein `brand/`-Ordner im **Repository-Root** wird von **niemandem** ausgelesen – nicht von HA, nicht von HACS.
 - Keine `logo.png` direkt in `custom_components/tadox_proxy/` ablegen (nur im `brand/` Unterordner).
-- Bei Änderungen an den Icons: **Beide Ordner synchron halten!**
-
-Falls das Logo in HACS nicht angezeigt wird:
-1. Home Assistant komplett neu starten (nicht nur Reload).
-2. Browser-Cache leeren (Strg+Shift+R / Cmd+Shift+R).
-3. In HACS: Integration entfernen und neu installieren.
-4. Prüfen ob `hacs.json` die Mindest-HA-Version `"homeassistant": "2026.3.0"` enthält.
