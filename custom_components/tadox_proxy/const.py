@@ -10,7 +10,6 @@ from homeassistant.components.climate import (
     PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
-    PRESET_NONE,
 )
 
 DOMAIN = "tadox_proxy"
