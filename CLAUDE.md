@@ -8,7 +8,7 @@ Nutzt Feedforward + PI Regelung mit externem Raumsensor.
 ## Sprache
 
 - Code und Kommentare: **Englisch**
-- Dokumentation (README, ROADMAP, TUNING, CONTEXT): **Deutsch** (Zielgruppe: deutschsprachige Nutzer)
+- Dokumentation: **Englisch** (README.md, TUNING.md)
 - Commit-Messages: **Englisch**
 - Kommunikation mit dem Nutzer: **Deutsch**
 
@@ -42,6 +42,7 @@ python -m pytest tests/ -v
 | `regulation.py` | Feedforward + PI Engine | Bei Regelungs-Änderungen |
 | `climate.py` | HA ClimateEntity, Presets, Boost-Timer, State Restore | Bei UI/HA-Features |
 | `number.py` | NumberEntity für Preset-Temperaturen (Boost, Comfort, Eco, Away, Frostschutz) | Bei neuen Preset-Parametern als Entitäten |
+| `binary_sensor.py` | BinarySensorEntity für Sensor-Degraded-Diagnose | Bei neuen Diagnose-Entitäten |
 | `switch.py` | SwitchEntity für optionale Verhaltensflags (z.B. Follow Tado Input) | Bei neuen Toggle-Features |
 | `config_flow.py` | Setup + Options Flow | Bei neuen konfigurierbaren Parametern |
 | `const.py` | DOMAIN, Config-Keys, Custom Preset Names | Bei neuen Config-Keys |
@@ -52,9 +53,19 @@ python -m pytest tests/ -v
 
 Bei jeder Feature-Änderung diese Dateien aktualisieren:
 
-1. **ROADMAP.md** – Meilenstein-Status, Changelog-Eintrag
-2. **README.md** – User-facing Dokumentation
-3. **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
+1. **README.md** – User-facing Dokumentation
+2. **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
+
+## Versionierung
+
+Bei jedem Release müssen **alle** Versionsnummern synchron aktualisiert werden:
+
+| Datei | Feld/Stelle |
+|-------|-------------|
+| `manifest.json` | `"version": "x.y.z"` |
+| `README.md` | Version-Badge (`img.shields.io/badge/version-x.y.z-blue`) |
+
+**Wichtig:** Vor dem Commit prüfen, dass die Version überall konsistent ist.
 
 ## Commit-Konventionen
 
@@ -96,22 +107,19 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.0)
+## Aktueller Stand (v1.0.12)
 
-- M1 (Core Stability) ✅
-- M2 (Advanced Configuration) ✅
-- M3 (Presets: Comfort, Eco, Boost, Away, Frostschutz) ✅
-- M3.1 (Preset-Setpoint-Fix + Number/Switch-Entitäten) ✅
-- M4 (Externe Trigger: Fensterkontakt → Frostschutz, Präsenzsensor → Away) ✅
-- M4.1 (UX-Polish: Frostschutz-Umbenennung, Icons, Sortierung) ✅
-- M4.2 (Sensor-Resilienz: Last-Valid-Bridging, Timer-Revalidierung) ✅
-- M5 (Multi-Room & Community → v1.0.0) ✅
-- Mehrere Räume getestet, stabil (±0.3–0.5°C um Sollwert, 11h+ Nachtbetrieb bestätigt)
+- Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
+- HVAC OFF wird an den Tado-TRV weitergeleitet; Fehler beim Senden werden korrekt behandelt
+- Frontend-Polish: icons.json, Sektionen im Options-Flow, NumberSelector für alle Zahlenfelder
+- Icon-Verbesserungen: neutrales Icon für Heat-Modus, Feuer-Icon nur bei aktiver Heizung
+- `binary_sensor.*_sensor_degraded` Entity für Dashboard-Anzeige und Automationen
+- Bereinigung: ungenutzter Root-`brand/`-Ordner entfernt, CLAUDE.md-Dokumentation überarbeitet
+- 141 Tests grün, CI aktiv
 
 ## Bekannte offene Bugs
 
-1. **iOS Companion App: EntitySelector-Crash** – HA-Frontend-Bug in `ha-entity-picker` (`ReferenceError: elementId` im iOS WebView). Nicht unser Code. **Workaround:** Konfiguration über den Browser. Mehrere Lösungsansätze getestet und verworfen (Registry-Validierung, Two-Step-Flow, SelectSelector-Dropdown).
-2. **Sortierung Steuerelemente** – nicht/nur teilweise umgesetzt.
+1. **iOS Companion App: EntitySelector-Crash** – HA-Frontend-Bug in `ha-entity-picker` (`ReferenceError: elementId` im iOS WebView). Nicht unser Code. **Workaround:** Konfiguration über den Browser.
 
 ---
 
@@ -246,8 +254,7 @@ git push origin dev
 Wenn eine neue AI-Session beginnt (neuer Claude Code Chat), sollte die AI:
 
 1. **CLAUDE.md lesen** – enthält alle Projektregeln, Architektur, Workflows.
-2. **ROADMAP.md lesen** – aktueller Stand, was erledigt ist, was noch kommt.
-3. **README.md lesen** – User-facing Doku, aktuelle Features.
+2. **README.md lesen** – User-facing Doku, aktuelle Features.
 4. **Git-Status prüfen:**
    ```bash
    git branch -a          # Welche Branches existieren?
@@ -268,21 +275,32 @@ Wenn eine neue AI-Session beginnt (neuer Claude Code Chat), sollte die AI:
 
 ---
 
-## Brand-Assets (HACS Logo)
+## Brand-Assets (Logo/Icon)
 
-Die Integration liefert ihre eigenen Brand-Assets mit (seit HA 2026.3):
+Es gibt **zwei unabhängige Systeme**, die Logos anzeigen:
+
+### 1. Home Assistant Integrationsseite (ab HA 2026.3)
+
+HA sucht lokal in `custom_components/<domain>/brand/` nach Icons (Brands Proxy API).
 
 ```
-custom_components/tadox_proxy/brand/
-├── icon.png      (256×256 – Haupticon)
-├── icon@2x.png   (512×512 – HiDPI-Version)
-└── logo.png      (256×256 – Logo für HACS/Integrationsseite)
+custom_components/tadox_proxy/
+└── brand/
+    ├── icon.png      (256×256)
+    ├── icon@2x.png   (512×512)
+    └── logo.png      (256×256)
 ```
 
-**Wichtig:** Keine `logo.png` auf Root-Level (`custom_components/tadox_proxy/logo.png`) ablegen – nur der `brand/` Ordner wird von HA ausgewertet.
+→ Funktioniert **ohne Internet und ohne PR**. ✅
 
-Falls das Logo in HACS nicht angezeigt wird:
-1. Home Assistant komplett neu starten (nicht nur Reload).
-2. Browser-Cache leeren (Strg+Shift+R / Cmd+Shift+R).
-3. In HACS: Integration entfernen und neu installieren.
-4. Prüfen ob `hacs.json` die Mindest-HA-Version `"homeassistant": "2026.3.0"` enthält.
+### 2. HACS Store-Ansicht
+
+HACS löst Icons über das CDN `https://brands.home-assistant.io/` auf.
+Das CDN wird aus dem `home-assistant/brands`-Repo gespeist.
+Für Custom Integrations: `custom_integrations/<domain>/` im brands-Repo.
+
+→ Erfordert einen **PR ans `home-assistant/brands`-Repo** (Legacy, aber nötig für HACS).
+
+**Wichtig:**
+- Ein `brand/`-Ordner im **Repository-Root** wird von **niemandem** ausgelesen – nicht von HA, nicht von HACS.
+- Keine `logo.png` direkt in `custom_components/tadox_proxy/` ablegen (nur im `brand/` Unterordner).

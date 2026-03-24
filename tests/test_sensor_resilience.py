@@ -8,8 +8,8 @@ _async_regulation_cycle sensor resolution.
 from __future__ import annotations
 
 import importlib.util
-import sys
 import os
+import sys
 import types
 
 import pytest

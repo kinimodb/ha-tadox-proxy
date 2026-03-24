@@ -5,8 +5,8 @@ Home Assistant to be installed.  We import the modules directly
 to avoid triggering the HA-dependent __init__.py.
 """
 import importlib
-import sys
 import os
+import sys
 import types
 
 import pytest
@@ -117,9 +117,9 @@ class TestFeedforward:
         )
 
         # Offset = 7°C, Error = 2°C, P = 1.6
-        # Raw = 21 + 7 + 1.6 = 29.6 → clamped to 25.0
-        assert result.target_for_tado_c == 25.0
-        assert result.is_saturated is True
+        # Raw = 21 + 7 + 1.6 = 29.6 → clamped to 30.0 (max_target_c)
+        assert result.target_for_tado_c == 29.6
+        assert result.is_saturated is False
 
     def test_overshoot_reduces_command(self):
         """When room exceeds setpoint, command should drop below tado_internal."""
@@ -521,8 +521,8 @@ class TestPresetConfig:
             state=state,
         )
 
-        # Command should be at maximum (clamped to 25°C)
-        assert result.target_for_tado_c == 25.0
+        # Raw = 25 + 2 + 5.6 = 32.6 → clamped to 30.0 (max_target_c)
+        assert result.target_for_tado_c == 30.0
         assert result.is_saturated is True
 
     def test_regulation_with_frost_protection_setpoint(self):
@@ -751,19 +751,19 @@ class TestNanInfGuard:
 
     def test_nan_fallback_clamped_to_bounds(self):
         """When sensor is NaN and setpoint exceeds max_target_c, fallback must be clamped."""
-        reg = make_regulator()  # max_target_c = 25.0
+        reg = make_regulator()  # max_target_c = 30.0
         state = RegulationState()
 
         result = reg.compute(
-            setpoint_c=28.0,
+            setpoint_c=32.0,
             room_temp_c=float("nan"),
             tado_internal_c=22.0,
             time_delta_s=60.0,
             state=state,
         )
 
-        # 28.0 exceeds max_target_c (25.0), must be clamped
-        assert result.target_for_tado_c == 25.0
+        # 32.0 exceeds max_target_c (30.0), must be clamped
+        assert result.target_for_tado_c == 30.0
 
     def test_valid_inputs_still_work_normally(self):
         """Normal inputs must not be affected by the NaN guard."""
@@ -782,3 +782,47 @@ class TestNanInfGuard:
         # command = 21 + 2 + 0.8 = 23.8
         assert result.target_for_tado_c == 23.8
         assert result.error_c == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Temperature range limits
+# ---------------------------------------------------------------------------
+
+class TestTemperatureRangeLimits:
+    """Verify that RegulationConfig defaults match Tado X TRV limits (5–30°C)."""
+
+    def test_default_min_target(self):
+        cfg = RegulationConfig()
+        assert cfg.min_target_c == 5.0
+
+    def test_default_max_target(self):
+        cfg = RegulationConfig()
+        assert cfg.max_target_c == 30.0
+
+    def test_regulation_clamps_to_min(self):
+        """Computed target below min_target_c is clamped to 5.0."""
+        cfg = RegulationConfig()
+        reg = FeedforwardPiRegulator(cfg)
+        state = RegulationState()
+        result = reg.compute(
+            setpoint_c=5.0,
+            room_temp_c=10.0,   # room much warmer → negative correction
+            tado_internal_c=10.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+        assert result.target_for_tado_c >= cfg.min_target_c
+
+    def test_regulation_clamps_to_max(self):
+        """Computed target above max_target_c is clamped to 30.0."""
+        cfg = RegulationConfig()
+        reg = FeedforwardPiRegulator(cfg)
+        state = RegulationState()
+        result = reg.compute(
+            setpoint_c=30.0,
+            room_temp_c=15.0,   # room much colder → large positive correction
+            tado_internal_c=20.0,
+            time_delta_s=60.0,
+            state=state,
+        )
+        assert result.target_for_tado_c <= cfg.max_target_c

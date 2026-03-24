@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # ---------------------------------------------------------------------------
 # Behavioural thresholds (climate-entity logic, independent of the PI engine)
 # ---------------------------------------------------------------------------
@@ -83,7 +82,7 @@ class RegulationConfig:
 
     # Absolute temperature limits for commands sent to Tado
     min_target_c: float = 5.0
-    max_target_c: float = 25.0
+    max_target_c: float = 30.0
 
     # Anti-windup limits for the integral correction term
     integral_min_c: float = -2.0
