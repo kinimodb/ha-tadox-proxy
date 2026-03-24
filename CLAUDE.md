@@ -107,15 +107,17 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.13)
+## Aktueller Stand (v1.1.0)
 
 - Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
+- **Adaptive Gain Scheduling**: Automatische Kp-Skalierung (1.5× bei Kaltstart, 0.7× nahe Ziel)
+- Sensor-Rauschfilter (EMA) für stabilere Regelung
+- `binary_sensor.*_sensor_degraded` Entity für Dashboard-Anzeige und Automationen
+- `sensor.*_boost_remaining` Entity für Boost-Timer-Anzeige
+- Konfigurierbare Sensor Grace Period
 - HVAC OFF wird an den Tado-TRV weitergeleitet; Fehler beim Senden werden korrekt behandelt
 - Frontend-Polish: icons.json, Sektionen im Options-Flow, NumberSelector für alle Zahlenfelder
-- Icon-Verbesserungen: neutrales Icon für Heat-Modus, Feuer-Icon nur bei aktiver Heizung
-- `binary_sensor.*_sensor_degraded` Entity für Dashboard-Anzeige und Automationen
-- Bereinigung: ungenutzter Root-`brand/`-Ordner entfernt, CLAUDE.md-Dokumentation überarbeitet
-- 141 Tests grün, CI aktiv
+- 188 Tests grün, CI aktiv
 
 ## Bekannte offene Bugs
 

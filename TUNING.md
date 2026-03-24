@@ -129,6 +129,32 @@ new room. It is aimed at users without a control engineering background.
 
 **Rule of thumb:** Higher Ki = target temperature is reached more accurately, but overshoot risk increases.
 
+### Adaptive Gain Scheduling
+
+When enabled (default: on), the proportional gain Kp is automatically scaled based on
+the current error magnitude. This gives you the best of both worlds: fast heat-up on
+cold start and gentle control near the target temperature.
+
+| Error Zone | Condition | Kp Multiplier | Effect |
+|-----------|-----------|---------------|--------|
+| **Startup** | \|error\| > 2.0°C | × 1.5 | Aggressive heating on cold start |
+| **Transition** | 0.5°C ≤ \|error\| ≤ 2.0°C | × 0.7–1.0 (linear) | Smooth transition |
+| **Fine** | \|error\| < 0.5°C | × 0.7 | Gentle, reduced overshoot |
+
+**When to disable:** If you have already tuned Kp carefully for your room and are
+satisfied with both heat-up speed and steady-state stability, you can disable adaptive
+scheduling in the options flow under "Other options". The base Kp value will then be
+used unchanged.
+
+### Sensor Noise Filter (EMA)
+
+The external temperature sensor reading is smoothed using an Exponential Moving Average
+(EMA) filter before it enters the control loop. This prevents the controller from
+reacting to sensor noise (e.g., ±0.1°C fluctuations common with Zigbee sensors).
+
+The EMA filter runs automatically — no configuration needed. It adapts to the sensor's
+update rate and provides a good balance between responsiveness and noise rejection.
+
 ### Additional Internal Parameters (Not Adjustable via UI)
 
 These values are defined in `parameters.py` and optimized for Tado X:
