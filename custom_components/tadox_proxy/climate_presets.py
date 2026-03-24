@@ -397,6 +397,15 @@ class PresetMixin:
         # PRESET_NONE (manual mode) is not in PRESET_LIST and would be rejected
         # by async_set_preset_mode, so handle it directly.
         if restore_preset == PRESET_NONE:
+            # Don't override active window/presence automation – save for later.
+            if self._window_ctrl.is_active:
+                self._window_ctrl.update_saved(PRESET_NONE, self._boost_saved_temp)
+                _LOGGER.info("Boost expired during window-open: PRESET_NONE saved for restore")
+                return
+            if self._presence_ctrl.is_active:
+                self._presence_ctrl.update_saved(PRESET_NONE, self._boost_saved_temp)
+                _LOGGER.info("Boost expired during presence-away: PRESET_NONE saved for restore")
+                return
             if self._boost_saved_temp is not None:
                 self._target_temp = self._boost_saved_temp
             self._preset_mode = PRESET_NONE
