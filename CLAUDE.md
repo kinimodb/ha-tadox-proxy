@@ -42,6 +42,7 @@ python -m pytest tests/ -v
 | `regulation.py` | Feedforward + PI Engine | Bei Regelungs-Änderungen |
 | `climate.py` | HA ClimateEntity, Presets, Boost-Timer, State Restore | Bei UI/HA-Features |
 | `number.py` | NumberEntity für Preset-Temperaturen (Boost, Comfort, Eco, Away, Frostschutz) | Bei neuen Preset-Parametern als Entitäten |
+| `binary_sensor.py` | BinarySensorEntity für Sensor-Degraded-Diagnose | Bei neuen Diagnose-Entitäten |
 | `switch.py` | SwitchEntity für optionale Verhaltensflags (z.B. Follow Tado Input) | Bei neuen Toggle-Features |
 | `config_flow.py` | Setup + Options Flow | Bei neuen konfigurierbaren Parametern |
 | `const.py` | DOMAIN, Config-Keys, Custom Preset Names | Bei neuen Config-Keys |
@@ -106,12 +107,13 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Über HACS → Integration → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.0.9)
+## Aktueller Stand (v1.0.11)
 
 - Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
 - HVAC OFF wird an den Tado-TRV weitergeleitet; Fehler beim Senden werden korrekt behandelt
 - Frontend-Polish: icons.json, Sektionen im Options-Flow, NumberSelector für alle Zahlenfelder
 - Icon-Verbesserungen: neutrales Icon für Heat-Modus, Feuer-Icon nur bei aktiver Heizung
+- `binary_sensor.*_sensor_degraded` Entity für Dashboard-Anzeige und Automationen
 - Bereinigung: ungenutzter Root-`brand/`-Ordner entfernt, CLAUDE.md-Dokumentation überarbeitet
 - 141 Tests grün, CI aktiv
 

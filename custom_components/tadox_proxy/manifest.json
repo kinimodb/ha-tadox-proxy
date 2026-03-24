@@ -1,9 +1,9 @@
 {
   "domain": "tadox_proxy",
   "name": "Tado X Proxy Thermostat",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "config_flow": true,
-  "platforms": ["climate", "number", "switch"],
+  "platforms": ["binary_sensor", "climate", "number", "switch"],
   "iot_class": "local_push",
   "documentation": "https://github.com/kinimodb/ha-tadox-proxy",
   "issue_tracker": "https://github.com/kinimodb/ha-tadox-proxy/issues"
