@@ -89,6 +89,7 @@ async def async_setup_entry(
         unique_id=entry.entry_id,
         config_entry=entry,
     )
+    coordinator.climate_entity = entity
     async_add_entities([entity])
 
 

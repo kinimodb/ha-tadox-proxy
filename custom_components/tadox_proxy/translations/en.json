@@ -120,6 +120,11 @@
         "name": "Frost protection temperature"
       }
     },
+    "binary_sensor": {
+      "sensor_degraded": {
+        "name": "Sensor degraded"
+      }
+    },
     "switch": {
       "follow_tado_input": {
         "name": "Follow physical thermostat"

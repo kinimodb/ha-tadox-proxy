@@ -120,6 +120,11 @@
         "name": "Frostschutz-Temperatur"
       }
     },
+    "binary_sensor": {
+      "sensor_degraded": {
+        "name": "Sensor beeinträchtigt"
+      }
+    },
     "switch": {
       "follow_tado_input": {
         "name": "Physischem Thermostat folgen"
