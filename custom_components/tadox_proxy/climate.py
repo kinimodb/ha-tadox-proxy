@@ -415,6 +415,14 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         ):
             return
 
+        # Don't override window frost protection or presence-away automation.
+        if self._window_ctrl.is_active:
+            _LOGGER.info("Follow-tado ignored: window automation active (frost protection)")
+            return
+        if self._presence_ctrl.is_active:
+            _LOGGER.info("Follow-tado ignored: presence automation active (away)")
+            return
+
         _LOGGER.info(
             "Physical Tado change detected: %.1f°C → following (last sent: %.1f°C)",
             tado_setpoint,
@@ -465,6 +473,20 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             # Returning from OFF → reset timestamp so the first HEAT cycle uses
             # dt=0 and avoids an integral spike from the long OFF period.
             self._last_regulation_ts = 0
+            # Re-evaluate window sensor: if the window is still open after
+            # OFF→HEAT, restart frost protection so we don't heat into the void.
+            window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
+            if window_sensor:
+                ws = self.hass.states.get(window_sensor)
+                if ws and ws.state == "on":
+                    delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
+                    self._window_ctrl.handle_window_opened(
+                        self.hass, delay, self._async_window_action
+                    )
+                    _LOGGER.info(
+                        "HVAC OFF→HEAT: window still open, frost action in %ds",
+                        delay,
+                    )
             # Reactivate the TRV, then run regulation to send the correct setpoint.
             await self._async_send_hvac_mode_to_tado(HVACMode.HEAT)
             await self._async_regulation_cycle(trigger="hvac_mode_change")
@@ -490,6 +512,24 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             return
         # Clamp to safe range
         temp_f = max(self._config.min_target_c, min(self._config.max_target_c, temp_f))
+
+        # If window or presence automation is active, save the temperature
+        # for later restoration instead of overriding the active automation.
+        if self._window_ctrl.is_active:
+            self._window_ctrl.update_saved(PRESET_NONE, temp_f)
+            _LOGGER.info(
+                "Window open: temperature %.1f°C saved for restore", temp_f
+            )
+            self.async_write_ha_state()
+            return
+        if self._presence_ctrl.is_active:
+            self._presence_ctrl.update_saved(PRESET_NONE, temp_f)
+            _LOGGER.info(
+                "Presence away: temperature %.1f°C saved for restore", temp_f
+            )
+            self.async_write_ha_state()
+            return
+
         self._target_temp = temp_f
 
         # Cancel window close delay if user manually changes temperature
