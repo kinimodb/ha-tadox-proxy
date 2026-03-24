@@ -24,7 +24,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up Tado X Proxy binary sensor entities."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([TadoXProxySensorDegradedBinarySensor(coordinator, entry)])
+    entity = TadoXProxySensorDegradedBinarySensor(coordinator, entry)
+    coordinator.binary_sensor_entity = entity
+    async_add_entities([entity])
 
 
 class TadoXProxySensorDegradedBinarySensor(CoordinatorEntity, BinarySensorEntity):

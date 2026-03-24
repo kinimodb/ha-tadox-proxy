@@ -15,6 +15,13 @@ _LOGGER = logging.getLogger(__name__)
 class RegulationMixin:
     """Regulation cycle methods extracted from TadoXProxyClimate."""
 
+    def _write_state_with_binary_sensor(self) -> None:
+        """Write HA state for this entity and the linked binary sensor."""
+        self.async_write_ha_state()
+        bs = getattr(self.coordinator, "binary_sensor_entity", None)
+        if bs is not None:
+            bs.async_write_ha_state()
+
     async def _async_regulation_cycle_timer(self, _now) -> None:
         """Periodic timer callback."""
         await self._async_regulation_cycle(trigger="timer")
@@ -27,14 +34,14 @@ class RegulationMixin:
         # no regulation needed.
         if self._hvac_mode == HVACMode.OFF:
             self._last_reason = "hvac_off"
-            self.async_write_ha_state()
+            self._write_state_with_binary_sensor()
             return
 
         # Guard: skip when coordinator data is stale (update method raised an exception).
         if not self.coordinator.last_update_success:
             _LOGGER.debug("Skipping regulation cycle – coordinator update failed")
             self._last_reason = "coordinator_unavailable"
-            self.async_write_ha_state()
+            self._write_state_with_binary_sensor()
             return
 
         # 1. Gather sensor data from coordinator
@@ -72,7 +79,7 @@ class RegulationMixin:
 
         if room_temp is None or tado_internal is None:
             self._last_reason = "waiting_for_sensors"
-            self.async_write_ha_state()
+            self._write_state_with_binary_sensor()
             return
 
         # 2. Time delta
@@ -162,7 +169,7 @@ class RegulationMixin:
         else:
             self._last_reason = reason
 
-        self.async_write_ha_state()
+        self._write_state_with_binary_sensor()
 
     async def _async_send_hvac_mode_to_tado(self, mode: HVACMode) -> None:
         """Forward an HVAC mode change to the source Tado entity."""
