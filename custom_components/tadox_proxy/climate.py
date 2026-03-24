@@ -327,6 +327,20 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                         self.hass, delay, self._async_presence_away_action
                     )
                     _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
+            elif presence_state and presence_state.state not in ("unavailable", "unknown"):
+                # Presence shows home but preset was restored as AWAY.
+                # This happens when the user returned while HA was down.
+                if self._preset_mode == PRESET_AWAY:
+                    self._preset_mode = PRESET_COMFORT
+                    opts_comfort = safe_float(
+                        self._config_entry.options.get(CONF_COMFORT_TARGET)
+                    )
+                    if opts_comfort is not None:
+                        self._target_temp = opts_comfort
+                    _LOGGER.info(
+                        "Startup: presence is home but preset was AWAY, "
+                        "switching to COMFORT"
+                    )
 
         # Start periodic regulation
         self.async_on_remove(

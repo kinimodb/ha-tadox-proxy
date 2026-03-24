@@ -481,3 +481,162 @@ class TestPresetRestoreGuard:
         assert result == "comfort"
         # Applying normalization again (idempotent check)
         assert self._normalize_restored_preset(result) == "comfort"
+
+
+# ---------------------------------------------------------------------------
+# Bug 4: AWAY preset stuck after HA restart – regression guards
+# ---------------------------------------------------------------------------
+
+def _presence_away_save_logic(
+    current_preset: str,
+    current_temp: float,
+    comfort_target: float,
+) -> tuple[str, float]:
+    """Mirror of the save logic in _async_presence_away_action (Fix 1).
+
+    Returns (saved_preset, saved_temp) that would be stored by the
+    presence controller when switching to AWAY.
+    """
+    saved_preset = current_preset
+    saved_temp = current_temp
+    # Fix 1: never save AWAY as restore state
+    if saved_preset == "away":
+        saved_preset = "comfort"
+        saved_temp = comfort_target
+    return saved_preset, saved_temp
+
+
+def _startup_presence_logic(
+    restored_preset: str,
+    presence_state: str | None,
+    comfort_target: float,
+) -> str:
+    """Mirror of the startup presence handling (Fix 2).
+
+    Returns the preset that should be active after startup.
+    """
+    preset = restored_preset
+    if presence_state == "off":
+        # Controller would be pre-activated; preset stays as-is
+        pass
+    elif presence_state not in (None, "unavailable", "unknown"):
+        # Presence is home but preset was AWAY → switch to COMFORT
+        if preset == "away":
+            preset = "comfort"
+    return preset
+
+
+def _window_restore_logic(
+    saved_preset: str,
+    presence_state: str | None,
+) -> str:
+    """Mirror of _restore_window_state with presence check (Fix 3).
+
+    Returns the preset that should be restored after window closes.
+    """
+    preset = saved_preset
+    if preset == "frost_protection":
+        preset = "comfort"
+    if preset == "away" and presence_state not in (None, "off", "unavailable", "unknown"):
+        preset = "comfort"
+    return preset
+
+
+class TestPresenceAwaySaveLogic:
+    """Regression tests for Bug 4, Fix 1: AWAY never saved as restore state."""
+
+    def test_away_preset_saved_as_comfort(self):
+        """If current preset is AWAY, save COMFORT as restore state."""
+        preset, temp = _presence_away_save_logic("away", 17.0, 21.0)
+        assert preset == "comfort"
+        assert temp == 21.0
+
+    def test_comfort_preset_saved_as_is(self):
+        preset, temp = _presence_away_save_logic("comfort", 21.0, 21.0)
+        assert preset == "comfort"
+        assert temp == 21.0
+
+    def test_eco_preset_saved_as_is(self):
+        preset, temp = _presence_away_save_logic("eco", 17.0, 21.0)
+        assert preset == "eco"
+        assert temp == 17.0
+
+    def test_manual_preset_saved_as_is(self):
+        preset, temp = _presence_away_save_logic("none", 19.5, 21.0)
+        assert preset == "none"
+        assert temp == 19.5
+
+    def test_away_uses_comfort_target_not_away_temp(self):
+        """When falling back from AWAY, the comfort target is used, not the
+        away temperature (which would be meaningless as a restore target)."""
+        preset, temp = _presence_away_save_logic("away", 17.0, 22.5)
+        assert temp == 22.5
+
+
+class TestStartupPresenceLogic:
+    """Regression tests for Bug 4, Fix 2: presence home at startup + AWAY."""
+
+    def test_presence_on_and_away_switches_to_comfort(self):
+        result = _startup_presence_logic("away", "on", 21.0)
+        assert result == "comfort"
+
+    def test_presence_on_and_comfort_stays_comfort(self):
+        result = _startup_presence_logic("comfort", "on", 21.0)
+        assert result == "comfort"
+
+    def test_presence_off_keeps_away(self):
+        """When presence is off, AWAY stays (controller is pre-activated)."""
+        result = _startup_presence_logic("away", "off", 21.0)
+        assert result == "away"
+
+    def test_presence_unavailable_keeps_away(self):
+        """When presence is unavailable at boot, no action taken."""
+        result = _startup_presence_logic("away", "unavailable", 21.0)
+        assert result == "away"
+
+    def test_presence_unknown_keeps_away(self):
+        result = _startup_presence_logic("away", "unknown", 21.0)
+        assert result == "away"
+
+    def test_presence_none_keeps_away(self):
+        """No presence sensor state at all → no action."""
+        result = _startup_presence_logic("away", None, 21.0)
+        assert result == "away"
+
+    def test_presence_home_and_eco_stays_eco(self):
+        """Non-AWAY presets are not changed regardless of presence."""
+        result = _startup_presence_logic("eco", "on", 21.0)
+        assert result == "eco"
+
+
+class TestWindowRestorePresenceCheck:
+    """Regression tests for Bug 4, Fix 3: window restore checks presence."""
+
+    def test_away_overridden_when_presence_home(self):
+        result = _window_restore_logic("away", "on")
+        assert result == "comfort"
+
+    def test_away_kept_when_presence_off(self):
+        result = _window_restore_logic("away", "off")
+        assert result == "away"
+
+    def test_away_kept_when_presence_unavailable(self):
+        result = _window_restore_logic("away", "unavailable")
+        assert result == "away"
+
+    def test_comfort_unchanged_regardless_of_presence(self):
+        result = _window_restore_logic("comfort", "on")
+        assert result == "comfort"
+
+    def test_frost_always_overridden_to_comfort(self):
+        result = _window_restore_logic("frost_protection", "on")
+        assert result == "comfort"
+
+    def test_eco_unchanged_when_presence_home(self):
+        result = _window_restore_logic("eco", "on")
+        assert result == "eco"
+
+    def test_away_kept_when_no_presence_state(self):
+        """No presence sensor → AWAY is kept (can't verify)."""
+        result = _window_restore_logic("away", None)
+        assert result == "away"
