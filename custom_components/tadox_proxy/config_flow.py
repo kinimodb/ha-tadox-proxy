@@ -10,6 +10,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_BOOST_DURATION,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_GAIN_SCHEDULING,
     CONF_NAME,
     CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_AWAY_DELAY_S,
@@ -244,6 +245,10 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                     unit_of_measurement="s",
                                 )
                             ),
+                            vol.Required(
+                                CONF_GAIN_SCHEDULING,
+                                default=opts.get(CONF_GAIN_SCHEDULING, defaults.gain_scheduling_enabled),
+                            ): selector.BooleanSelector(),
                         }
                     ),
                     {"collapsed": True},

@@ -63,12 +63,14 @@
             "data": {
               "correction_kp": "Proportional correction (Kp)",
               "correction_ki": "Integral correction (Ki)",
-              "overlay_refresh_s": "Overlay refresh interval"
+              "overlay_refresh_s": "Overlay refresh interval",
+              "gain_scheduling_enabled": "Adaptive gain scheduling"
             },
             "data_description": {
               "correction_kp": "Proportional gain of the PI controller. Higher values react faster to temperature deviations.",
               "correction_ki": "Integral gain of the PI controller. Higher values correct persistent offsets more aggressively.",
-              "overlay_refresh_s": "Periodically resend the setpoint to the TRV to keep cloud-API overlays alive. 0 = off."
+              "overlay_refresh_s": "Periodically resend the setpoint to the TRV to keep cloud-API overlays alive. 0 = off.",
+              "gain_scheduling_enabled": "Faster heating on cold start, gentler near target."
             }
           }
         }

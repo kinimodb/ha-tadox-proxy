@@ -97,9 +97,9 @@ class TestFeedforward:
             state=state,
         )
 
-        # Offset = 0, Error = 4°C, P = 0.8 * 4 = 3.2
-        # Command = 21 + 0 + 3.2 = 24.2°C
-        assert result.target_for_tado_c == 24.2
+        # Offset = 0, Error = 4°C, |error| > 2.0 → Kp = 0.8 * 1.5 = 1.2
+        # P = 1.2 * 4 = 4.8, Command = 21 + 0 + 4.8 = 25.8°C
+        assert result.target_for_tado_c == 25.8
         assert result.error_c == 4.0
 
     def test_heating_phase_with_hot_radiator(self):
@@ -135,9 +135,9 @@ class TestFeedforward:
             state=state,
         )
 
-        # Offset = 1°C, Error = -0.5°C, P = -0.4
-        # Command = 21 + 1 - 0.4 = 21.6
-        assert result.target_for_tado_c == 21.6
+        # Offset = 1°C, Error = -0.5°C, |error| < 0.5 → Kp = 0.8 * 0.7 = 0.56
+        # P = 0.56 * -0.5 = -0.28, Command = 21 + 1 - 0.28 = 21.72 → 21.7
+        assert result.target_for_tado_c == 21.7
         assert result.error_c == -0.5
 
 
@@ -589,11 +589,13 @@ class TestNegativeFeedforward:
             state=state,
         )
 
-        # offset = 18 - 20 = -2.0; error = 21 - 20 = 1.0; P = 0.8 * 1 = 0.8
-        # command = 21 + (-2) + 0.8 = 19.8°C
+        # offset = 18 - 20 = -2.0; error = 21 - 20 = 1.0
+        # |error|=1.0 in interpolation zone: t=(1.0-0.5)/(2.0-0.5)=1/3
+        # multiplier = 0.7 + 1/3 * 0.3 = 0.8; Kp = 0.8 * 0.8 = 0.64
+        # P = 0.64; command = 21 + (-2) + 0.64 = 19.64°C
         assert result.feedforward_offset_c == -2.0
-        assert result.p_correction_c == pytest.approx(0.8, abs=0.01)
-        assert result.target_for_tado_c == pytest.approx(19.8, abs=0.05)
+        assert result.p_correction_c == pytest.approx(0.64, abs=0.01)
+        assert result.target_for_tado_c == pytest.approx(19.6, abs=0.05)
 
     def test_negative_offset_clamped_at_minimum(self):
         """A very large negative offset should be clamped at min_target_c."""
@@ -778,10 +780,118 @@ class TestNanInfGuard:
             state=state,
         )
 
-        # Normal computation: offset=2, error=1, P=0.8
-        # command = 21 + 2 + 0.8 = 23.8
-        assert result.target_for_tado_c == 23.8
+        # Normal computation: offset=2, error=1
+        # |error|=1.0 → interpolation: multiplier=0.8, Kp=0.64, P=0.64
+        # command = 21 + 2 + 0.64 = 23.64 → 23.6
+        assert result.target_for_tado_c == 23.6
         assert result.error_c == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Adaptive gain scheduling
+# ---------------------------------------------------------------------------
+
+
+class TestAdaptiveGainScheduling:
+    """Verify that Kp is scaled based on error magnitude."""
+
+    def test_large_error_uses_startup_multiplier(self):
+        """Error > startup_threshold → Kp × startup_multiplier (1.5)."""
+        config = RegulationConfig()
+        kp = FeedforwardPiRegulator._effective_kp(5.0, config)
+        assert kp == pytest.approx(config.tuning.kp * 1.5, abs=0.001)
+
+    def test_small_error_uses_fine_multiplier(self):
+        """Error < fine_threshold → Kp × fine_multiplier (0.7)."""
+        config = RegulationConfig()
+        kp = FeedforwardPiRegulator._effective_kp(0.2, config)
+        assert kp == pytest.approx(config.tuning.kp * 0.7, abs=0.001)
+
+    def test_mid_error_linear_interpolation(self):
+        """Error between fine and startup thresholds → linear interpolation."""
+        config = RegulationConfig()
+        # |error| = 1.0, fine=0.5, startup=2.0
+        # t = (1.0 - 0.5) / (2.0 - 0.5) = 0.5/1.5 = 1/3
+        # multiplier = 0.7 + 1/3 * (1.0 - 0.7) = 0.7 + 0.1 = 0.8
+        expected_kp = config.tuning.kp * 0.8
+        kp = FeedforwardPiRegulator._effective_kp(1.0, config)
+        assert kp == pytest.approx(expected_kp, abs=0.001)
+
+    def test_scheduling_disabled_returns_base_kp(self):
+        """When gain_scheduling_enabled=False → Kp unchanged."""
+        config = RegulationConfig(gain_scheduling_enabled=False)
+        kp = FeedforwardPiRegulator._effective_kp(5.0, config)
+        assert kp == pytest.approx(config.tuning.kp, abs=0.001)
+
+    def test_cold_start_adaptive_faster_than_static(self):
+        """Cold start (15→20°C): adaptive scheduling produces higher initial command."""
+        config_adaptive = RegulationConfig(gain_scheduling_enabled=True)
+        config_static = RegulationConfig(gain_scheduling_enabled=False)
+        reg_adaptive = FeedforwardPiRegulator(config_adaptive)
+        reg_static = FeedforwardPiRegulator(config_static)
+        state = RegulationState()
+
+        # Cold start: room 15°C, target 20°C, error=5°C → startup zone
+        result_adaptive = reg_adaptive.compute(
+            setpoint_c=20.0, room_temp_c=15.0,
+            tado_internal_c=15.0, time_delta_s=0.0, state=state,
+        )
+        result_static = reg_static.compute(
+            setpoint_c=20.0, room_temp_c=15.0,
+            tado_internal_c=15.0, time_delta_s=0.0, state=state,
+        )
+
+        # Adaptive should command higher (more aggressive P-term)
+        assert result_adaptive.target_for_tado_c > result_static.target_for_tado_c
+        # P-correction should be 1.5× larger
+        assert result_adaptive.p_correction_c == pytest.approx(
+            result_static.p_correction_c * 1.5, abs=0.1
+        )
+
+    def test_steady_state_adaptive_gentler_than_static(self):
+        """Near target (19.8→20°C): adaptive scheduling produces lower P-correction."""
+        config_adaptive = RegulationConfig(gain_scheduling_enabled=True)
+        config_static = RegulationConfig(gain_scheduling_enabled=False)
+        reg_adaptive = FeedforwardPiRegulator(config_adaptive)
+        reg_static = FeedforwardPiRegulator(config_static)
+        state = RegulationState()
+
+        # Near target: room 19.8°C, target 20°C, error=0.2°C → fine zone
+        result_adaptive = reg_adaptive.compute(
+            setpoint_c=20.0, room_temp_c=19.8,
+            tado_internal_c=21.0, time_delta_s=0.0, state=state,
+        )
+        result_static = reg_static.compute(
+            setpoint_c=20.0, room_temp_c=19.8,
+            tado_internal_c=21.0, time_delta_s=0.0, state=state,
+        )
+
+        # Adaptive should have smaller P-correction (0.7×)
+        assert abs(result_adaptive.p_correction_c) < abs(result_static.p_correction_c)
+        assert result_adaptive.p_correction_c == pytest.approx(
+            result_static.p_correction_c * 0.7, abs=0.05
+        )
+
+    def test_negative_error_uses_abs_value(self):
+        """Negative error (overshoot) should use |error| for threshold comparison."""
+        config = RegulationConfig()
+        # error = -3.0, |error| = 3.0 > startup_threshold → startup multiplier
+        kp = FeedforwardPiRegulator._effective_kp(-3.0, config)
+        assert kp == pytest.approx(config.tuning.kp * 1.5, abs=0.001)
+
+    def test_exact_threshold_boundaries(self):
+        """Error exactly at thresholds should be handled correctly."""
+        config = RegulationConfig()
+        # At fine_threshold (0.5) → fine zone (< check is strict)
+        kp_at_fine = FeedforwardPiRegulator._effective_kp(0.5, config)
+        # 0.5 is NOT < 0.5, so it falls into interpolation zone
+        # t = (0.5 - 0.5) / (2.0 - 0.5) = 0 → multiplier = 0.7
+        assert kp_at_fine == pytest.approx(config.tuning.kp * 0.7, abs=0.001)
+
+        # At startup_threshold (2.0) → NOT > 2.0, so interpolation zone
+        # t = (2.0 - 0.5) / (2.0 - 0.5) = 1.0 → multiplier = 0.7 + 1.0*(1.0-0.7) = 1.0
+        kp_at_startup = FeedforwardPiRegulator._effective_kp(2.0, config)
+        assert kp_at_startup == pytest.approx(config.tuning.kp * 1.0, abs=0.001)
 
 
 # ---------------------------------------------------------------------------

@@ -102,3 +102,10 @@ class RegulationConfig:
 
     # Minimum difference to current Tado setpoint before sending a new command
     min_change_threshold_c: float = 0.3
+
+    # Adaptive gain scheduling: scale Kp based on error magnitude
+    gain_scheduling_enabled: bool = True
+    gain_startup_multiplier: float = 1.5   # Kp multiplier when |error| > startup_threshold
+    gain_fine_multiplier: float = 0.7      # Kp multiplier when |error| < fine_threshold
+    gain_startup_threshold_c: float = 2.0  # error threshold for startup (aggressive) zone
+    gain_fine_threshold_c: float = 0.5     # error threshold for fine (gentle) zone
