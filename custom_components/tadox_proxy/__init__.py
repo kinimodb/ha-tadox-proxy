@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -36,6 +37,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         data = {
             "room_temp": None,
+            "room_temp_ts": None,
             "tado_internal_temp": None,
             "tado_setpoint": None,
         }
@@ -48,6 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     value = float(state.state)
                     if math.isfinite(value):
                         data["room_temp"] = value
+                        data["room_temp_ts"] = time.time()
                     else:
                         _LOGGER.warning(
                             "Room temperature from %s is not finite: %s",

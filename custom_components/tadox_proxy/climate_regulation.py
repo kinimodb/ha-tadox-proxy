@@ -51,7 +51,7 @@ class RegulationMixin:
         # Sensor resilience: bridge short gaps with last-valid value
         if room_temp is not None:
             self._last_valid_room_temp = room_temp
-            self._last_valid_room_temp_ts = now
+            self._last_valid_room_temp_ts = self.coordinator.data.get("room_temp_ts") or now
             self._sensor_degraded = False
         elif (
             self._last_valid_room_temp is not None
