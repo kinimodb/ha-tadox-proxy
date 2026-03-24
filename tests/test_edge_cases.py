@@ -444,7 +444,7 @@ class TestComplexScenarios:
         assert wc.is_active
 
         # Window closes with delay
-        close_cb = lambda _: None
+        def close_cb(_): return None
         result = wc.handle_window_closed(None, 120, close_cb, call_later=cl)
         assert result is False  # close delay scheduled
         assert wc.close_delay_active
