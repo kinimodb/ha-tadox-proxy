@@ -112,6 +112,17 @@ class PresetMixin:
             # Safety net: never restore frost protection from window automation
             if preset_to_restore == PRESET_FROST_PROTECTION:
                 preset_to_restore = PRESET_COMFORT
+            # Safety net: don't restore AWAY when presence sensor shows home
+            if preset_to_restore == PRESET_AWAY:
+                presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
+                if presence_sensor:
+                    ps = self.hass.states.get(presence_sensor)
+                    if ps and ps.state not in ("off", "unavailable", "unknown"):
+                        preset_to_restore = PRESET_COMFORT
+                        _LOGGER.info(
+                            "Window restore: AWAY overridden to COMFORT "
+                            "(presence is home)"
+                        )
             self._preset_mode = preset_to_restore
             if preset_to_restore == PRESET_COMFORT:
                 comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
@@ -208,6 +219,13 @@ class PresetMixin:
         else:
             saved_preset = self._preset_mode
             saved_temp = self._target_temp
+        # Never save AWAY as restore state – fall back to COMFORT so the user
+        # isn't stuck in AWAY→AWAY after restore (e.g. after HA restart where
+        # the presence sensor was briefly unavailable at boot).
+        if saved_preset == PRESET_AWAY:
+            saved_preset = PRESET_COMFORT
+            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+            saved_temp = comfort if comfort is not None else self._config.presets.comfort_target_c
         self._presence_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_AWAY
         _LOGGER.info("Presence away: switching to AWAY preset")
