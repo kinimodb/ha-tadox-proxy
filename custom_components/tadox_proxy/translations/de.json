@@ -120,6 +120,11 @@
         "name": "Frostschutz-Temperatur"
       }
     },
+    "sensor": {
+      "boost_remaining": {
+        "name": "Boost verbleibend"
+      }
+    },
     "binary_sensor": {
       "sensor_degraded": {
         "name": "Sensor beeinträchtigt"
