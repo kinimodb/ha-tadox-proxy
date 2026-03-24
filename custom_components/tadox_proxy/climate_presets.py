@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import time
 
 from homeassistant.components.climate import (
     PRESET_AWAY,
@@ -39,6 +41,18 @@ def async_call_later_boost(hass, delay_s, callback):
 
 class PresetMixin:
     """Preset management methods extracted from TadoXProxyClimate."""
+
+    # ------------------------------------------------------------------
+    # Boost timer helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def boost_remaining_minutes(self) -> int:
+        """Return remaining boost minutes (0 when boost is not active)."""
+        if self._boost_cancel is None:
+            return 0
+        remaining = max(0.0, self._boost_end_ts - time.time())
+        return math.ceil(remaining / 60)
 
     # ------------------------------------------------------------------
     # Window sensor
@@ -82,6 +96,7 @@ class PresetMixin:
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
+            self._boost_end_ts = 0.0
             saved_preset = self._boost_saved_preset
             saved_temp = self._boost_saved_temp
         else:
@@ -214,6 +229,7 @@ class PresetMixin:
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
+            self._boost_end_ts = 0.0
             saved_preset = self._boost_saved_preset
             saved_temp = self._boost_saved_temp
         else:
@@ -361,6 +377,7 @@ class PresetMixin:
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
+            self._boost_end_ts = 0.0
 
         # When switching to COMFORT, restore the stored comfort target
         if preset_mode == PRESET_COMFORT:
@@ -377,6 +394,7 @@ class PresetMixin:
                 self._boost_saved_preset = old_preset
                 self._boost_saved_temp = self._target_temp
             duration_s = self._config.presets.boost_duration_min * 60
+            self._boost_end_ts = time.time() + duration_s
             self._boost_cancel = async_call_later_boost(
                 self.hass, duration_s, self._async_boost_expired
             )
@@ -391,6 +409,7 @@ class PresetMixin:
     async def _async_boost_expired(self, _now) -> None:
         """Called when the boost timer expires – revert to previous preset."""
         self._boost_cancel = None
+        self._boost_end_ts = 0.0
         restore_preset = self._boost_saved_preset
         _LOGGER.info("Boost expired, reverting to %s", restore_preset)
 

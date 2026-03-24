@@ -141,6 +141,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._boost_cancel: CALLBACK_TYPE | None = None
         self._boost_saved_preset: str = PRESET_COMFORT
         self._boost_saved_temp: float | None = None
+        self._boost_end_ts: float = 0.0
 
         # Timing
         self._last_regulation_ts = 0.0
@@ -358,6 +359,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
+            self._boost_end_ts = 0.0
         await super().async_will_remove_from_hass()
 
     async def _async_config_entry_updated(self, hass, entry) -> None:
@@ -433,6 +435,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
+            self._boost_end_ts = 0.0
         self.async_write_ha_state()
         # Trigger immediate regulation so the new target takes effect fast.
         self.hass.async_create_task(
@@ -542,6 +545,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             if self._boost_cancel is not None:
                 self._boost_cancel()
                 self._boost_cancel = None
+                self._boost_end_ts = 0.0
             self._preset_mode = PRESET_NONE
 
         self.async_write_ha_state()

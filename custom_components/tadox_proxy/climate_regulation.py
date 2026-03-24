@@ -16,11 +16,14 @@ class RegulationMixin:
     """Regulation cycle methods extracted from TadoXProxyClimate."""
 
     def _write_state_with_binary_sensor(self) -> None:
-        """Write HA state for this entity and the linked binary sensor."""
+        """Write HA state for this entity and linked sub-entities."""
         self.async_write_ha_state()
         bs = getattr(self.coordinator, "binary_sensor_entity", None)
         if bs is not None:
             bs.async_write_ha_state()
+        se = getattr(self.coordinator, "sensor_entity", None)
+        if se is not None:
+            se.async_write_ha_state()
 
     async def _async_regulation_cycle_timer(self, _now) -> None:
         """Periodic timer callback."""
