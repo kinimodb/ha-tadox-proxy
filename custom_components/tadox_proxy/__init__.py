@@ -10,16 +10,16 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID
+from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 # List the platforms that you want to support.
-PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.NUMBER, Platform.SWITCH]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.CLIMATE, Platform.NUMBER, Platform.SWITCH]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tado X Proxy from a config entry."""
-    
+
     # 1. Ensure DOMAIN dict exists in hass.data
     hass.data.setdefault(DOMAIN, {})
 
@@ -27,19 +27,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def async_update_data():
         """Fetch data from entities (Source & External Sensor)."""
         source_entity_id = entry.data.get("source_entity_id")
-        
+
         # Priority: Options (Dynamic) > Data (Initial Config)
         external_sensor_id = entry.options.get(
             CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
             entry.data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
         )
-        
+
         data = {
             "room_temp": None,
+            "room_temp_ts": None,
             "tado_internal_temp": None,
-            "tado_setpoint": None
+            "tado_setpoint": None,
         }
-        
+
         # Get Room Temp from External Sensor
         if external_sensor_id:
             state = hass.states.get(external_sensor_id)
@@ -48,6 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     value = float(state.state)
                     if math.isfinite(value):
                         data["room_temp"] = value
+                        data["room_temp_ts"] = state.last_updated.timestamp()
                     else:
                         _LOGGER.warning(
                             "Room temperature from %s is not finite: %s",
@@ -96,7 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             "Cannot parse tado setpoint from %s: %r",
                             source_entity_id, state.attributes.get("temperature"),
                         )
-        
+
         return data
 
     # 3. Create the Coordinator

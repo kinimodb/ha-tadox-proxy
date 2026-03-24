@@ -1,6 +1,8 @@
 """Number entities for Tado X Proxy preset temperatures."""
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass
 
 from homeassistant.components.number import (
@@ -11,19 +13,21 @@ from homeassistant.components.number import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
-    DOMAIN,
+    CONF_AWAY_TARGET,
+    CONF_BOOST_TARGET,
     CONF_COMFORT_TARGET,
     CONF_ECO_TARGET,
-    CONF_BOOST_TARGET,
-    CONF_AWAY_TARGET,
     CONF_FROST_PROTECTION_TARGET,
+    DOMAIN,
 )
 from .parameters import PresetConfig
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -110,6 +114,12 @@ class PresetTemperatureNumber(CoordinatorEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Persist the new preset temperature to config entry options."""
+        # Reject NaN / Inf – Python's max/min do not propagate NaN correctly
+        # (nan comparisons return False, so max(5.0, nan) == nan in some paths),
+        # and storing a non-finite value would silently corrupt preset logic.
+        if not math.isfinite(value):
+            _LOGGER.warning("Ignoring non-finite preset temperature value: %s", value)
+            return
         # Clamp to configured bounds (service calls bypass frontend validation)
         value = max(self._attr_native_min_value, min(self._attr_native_max_value, value))
         new_opts = {**self._entry.options, self._desc.conf_key: value}

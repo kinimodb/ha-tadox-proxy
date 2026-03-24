@@ -1,236 +1,175 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.0.12-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
-Ein Home Assistant Custom Component (HACS), das einen virtuellen Proxy-Thermostaten
-für Tado X Heizkörperthermostate (TRVs) erzeugt. Kern der Integration ist eine
-Feedforward+PI-Regelung, die den Tado-internen Sensor mithilfe eines externen
-Raumsensors kompensiert – für präzise Raumtemperaturregelung statt
-Heizkörperoberflächentemperatur.
-
-> **v1.0.0** – Stable Release. Validiert in mehreren Räumen mit ±0.3–0.5°C Genauigkeit.
+A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
+for Tado X radiator thermostats (TRVs). Uses feedforward + PI control with an
+external room sensor for precise room temperature control (±0.3–0.5°C accuracy).
 
 ---
 
-## Das Problem – und die Lösung
+## The Problem
 
-Tado X TRVs messen ihre eigene Oberflächentemperatur direkt am Heizkörper – nicht
-die tatsächliche Raumtemperatur. Das führt dazu, dass die Heizung zu früh abschaltet
-(der Heizkörper ist bereits warm, der Raum noch nicht). Ergebnis: dauerhaftes
-Unterschwingen um 1–3 °C.
+Tado X TRVs measure temperature at the radiator surface – not the room.
+This causes the heating to shut off too early, resulting in a persistent 1–3°C undershoot.
 
-**Tado X Proxy** löst dieses Problem mit einem Feedforward-Ansatz:
-- Ein externer Raumsensor (z. B. Zigbee-Temperatursensor) liefert die echte Raumtemperatur.
-- Der Proxy berechnet aus der Differenz `Tado-intern – Raum` einen Korrekturoffset.
-- Dieser Offset wird direkt auf den Sollwert aufaddiert – ohne Verzögerung.
-- Eine PI-Regelung gleicht verbliebene Restfehler aus (Kp=0.8, Ki=0.003).
-
-Ergebnis: ±0.3–0.5 °C Genauigkeit, bestätigt über 11+ Stunden Nachtbetrieb.
+**Tado X Proxy** compensates this offset using an external room sensor and a
+feedforward + PI control loop. The correction is applied directly to the setpoint,
+working *with* Tado's internal controller rather than against it.
 
 ---
 
-## Voraussetzungen
+## Prerequisites
 
-- Home Assistant **2026.3** oder neuer
-- [HACS](https://hacs.xyz) installiert
-- Mindestens ein Tado X TRV als `climate.*`-Entity in HA
-- Ein Temperatur-Sensor (`sensor.*`, `device_class: temperature`) im Raum
+- Home Assistant **2026.3** or newer
+- [HACS](https://hacs.xyz) installed
+- At least one Tado X TRV as a `climate.*` entity in HA
+- A temperature sensor (`sensor.*`, `device_class: temperature`) in the room
 
 ---
 
 ## Installation
 
-1. HACS öffnen → **Integrationen** → Menü (drei Punkte oben rechts) → **Benutzerdefinierte Repositories**
-2. URL eintragen: `https://github.com/kinimodb/ha-tadox-proxy`
-3. Kategorie: **Integration** → **Hinzufügen**
-4. **Tado X Proxy Thermostat** in HACS suchen und installieren
-5. Home Assistant neu starten
-6. **Einstellungen** → **Geräte & Dienste** → **Integration hinzufügen** → *Tado X Proxy Thermostat*
+1. Open HACS → **Integrations** → Menu (three dots, top right) → **Custom repositories**
+2. Enter URL: `https://github.com/kinimodb/ha-tadox-proxy`
+3. Category: **Integration** → **Add**
+4. Search for **Tado X Proxy Thermostat** in HACS and install
+5. Restart Home Assistant
+6. **Settings** → **Devices & Services** → **Add Integration** → *Tado X Proxy Thermostat*
 
 ---
 
-## Konfiguration
+## Configuration
 
-Beim erstmaligen Einrichten werden drei Felder abgefragt:
+Three fields are required during initial setup:
 
-| Feld | Beschreibung |
-|------|-------------|
-| Quell-Climate-Entity | Der echte Tado X TRV (`climate.*`) |
-| Externer Temperatursensor | Ein `sensor.*` mit `device_class: temperature` im Raum |
-| Name | Anzeigename des Proxy-Thermostaten |
+| Field | Description |
+|-------|-------------|
+| Source Climate Entity | The real Tado X TRV (`climate.*`) |
+| External Temperature Sensor | A `sensor.*` with `device_class: temperature` in the room |
+| Name | Display name for the proxy thermostat |
+
+Additional options are available under **Settings → Devices & Services → Tado X Proxy → Configure** (control parameters, window/presence sensors).
 
 ---
 
 ## Presets
 
-Der Proxy-Thermostat kennt sechs Betriebsmodi:
+| Preset | Default | Description |
+|--------|---------|-------------|
+| **Comfort** | 20.0°C | Standard target temperature |
+| **Eco** | 17.0°C | Energy-saving mode |
+| **Boost** | 25.0°C | Short-term heating burst, auto-reverts after timer (default: 30 min) |
+| **Away** | 17.0°C | Reduced temperature for absences |
+| **Frost Protection** | 7.0°C | Minimum temperature (window open, extended absence) |
+| **Manual** | — | Free temperature selection via slider, no preset active |
 
-| Preset | Beschreibung |
-|--------|-------------|
-| **Komfort** | Zieltemperatur aus der Komfort-Einstellung (konfigurierbar) |
-| **Eco** | Feste Eco-Temperatur (konfigurierbar, Standard: 17 °C) |
-| **Boost** | Kurzzeitiges Hochheizen auf Boost-Temperatur, dann automatisch zurück |
-| **Abwesend** | Reduzierte Temperatur für kurze Abwesenheit |
-| **Frostschutz** | Minimale Temperatur für Frostschutz (z.B. bei Fensteröffnung oder langer Abwesenheit) |
-| **Manuell** | Freie Temperaturwahl über den Slider – kein Preset aktiv |
+Each preset temperature is exposed as a `number.*` entity (e.g., `number.*_comfort_temperature`),
+adjustable in 0.5°C steps (range 5–30°C) and usable in automations.
 
-Der **Manuell**-Modus wird automatisch aktiviert, wenn der Temperatur-Slider verschoben
-wird, ohne ein Preset auszuwählen. Die manuell gesetzte Temperatur verändert **nicht**
-die gespeicherte Komfort-Temperatur.
-
-Der **Boost**-Timer schaltet nach der konfigurierten Dauer (Standard: 30 Minuten)
-automatisch zurück auf Komfort. Ein aktiver Boost-Modus wird beim HA-Neustart
-aus Sicherheitsgründen ebenfalls auf Komfort zurückgesetzt.
+Moving the temperature slider without selecting a preset activates **Manual** mode
+without changing the stored comfort temperature.
 
 ---
 
-## Preset-Temperaturen als Entitäten
+## Automation Features
 
-Jede Preset-Temperatur ist als `number.*`-Entität in HA verfügbar und kann direkt
-in Automationen verwendet werden:
+### Window Detection
 
-| Entität | Beschreibung | Standard |
-|---------|-------------|---------|
-| `number.*_comfort_temperature` | Komfort-Zieltemperatur | 20.0 °C |
-| `number.*_eco_temperature` | Eco-Zieltemperatur | 17.0 °C |
-| `number.*_boost_temperature` | Boost-Zieltemperatur | 25.0 °C |
-| `number.*_away_temperature` | Abwesend-Zieltemperatur | 17.0 °C |
-| `number.*_frost_protection_temperature` | Frostschutz-Temperatur | 7.0 °C |
+An optional `binary_sensor.*` (e.g., window contact) can trigger automatic frost protection:
 
-Alle Entitäten sind im Bereich 5–30 °C in 0.5-°C-Schritten einstellbar.
+- **Window opens:** After a configurable delay (default: 30s), switches to Frost Protection.
+- **Window closes:** After a configurable close delay (default: 120s), restores the previous preset.
+  The close delay prevents aggressive heating bursts after ventilation.
+- If the window closes before the open delay expires, nothing happens.
 
----
+### Presence Sensor
 
-## Schalter: Physischem Thermostat folgen
+An optional `binary_sensor.*` (e.g., person tracker) can trigger automatic away mode:
 
-Der Schalter `switch.*_follow_physical_thermostat` aktiviert einen optionalen Modus:
+- **Nobody home:** After a configurable delay (default: 30 min), switches to Away.
+- **Someone returns:** Immediately restores the previous preset.
 
-Wenn jemand am physischen Tado TRV direkt eine neue Temperatur einstellt
-(Differenz > 1.5 °C zur zuletzt gesendeten Solltemperatur), übernimmt der Proxy
-diese Änderung automatisch und wechselt in den **Manuell**-Modus.
+Both sensors work independently and can be active simultaneously.
 
-> Standardmäßig **deaktiviert**. Muss bewusst eingeschaltet werden.
+### HVAC OFF
 
----
+When the proxy thermostat is turned off (HVAC mode → OFF), the OFF command is forwarded
+directly to the source Tado TRV. If the command fails (e.g., TRV unreachable), the proxy
+reverts to its previous mode to stay in sync with the actual device state.
 
-## Fenstererkennung
+### Follow Physical Thermostat
 
-Ein optionaler Binärsensor (z. B. Fensterkontakt) kann konfiguriert werden.
-Wenn das Fenster geöffnet wird (`state: on`):
-
-1. Ein konfigurierbarer Timer startet (Standard: 30 Sekunden).
-2. Nach Ablauf: Wechsel auf das **Frostschutz**-Preset – Temperatur wird auf Frostschutz-Niveau gesenkt.
-3. Beim Schließen des Fensters: Vorheriges Preset wird automatisch **wiederhergestellt**.
-
-Wenn das Fenster vor Ablauf des Timers wieder geschlossen wird, wird der Timer
-abgebrochen – kein Eingriff in die Heizung.
-
-**Nach dem Schließen:** Ein konfigurierbarer **Close-Delay** (Standard: 120 Sekunden)
-wartet ab, bevor das vorherige Preset wiederhergestellt wird. Das verhindert einen
-aggressiven Heiz-Burst nach dem Stoßlüften – die thermische Masse der Wände und
-Möbel gleicht die Raumtemperatur innerhalb weniger Minuten teilweise von selbst aus.
-
-Wird das Fenster während des Close-Delays erneut geöffnet, bleibt der Proxy im
-Frostschutz-Modus (ohne erneuten Open-Delay).
-
-**Konfiguration** (in den Optionen der Integration):
-- *Fenstersensor*: `binary_sensor.*` (optional)
-- *Verzögerung Fenstererkennung*: 0–3600 Sekunden (Wartezeit vor Frostschutz)
-- *Verzögerung Fenster-Schließen*: 0–600 Sekunden (Wartezeit vor Preset-Restore, 0 = sofort)
-
-Die Attribute `window_open_active` und `window_close_delay_active` zeigen den aktuellen Zustand an.
+The switch `switch.*_follow_physical_thermostat` (disabled by default) lets the proxy
+adopt manual temperature changes made directly on the physical TRV (>1.5°C difference).
 
 ---
 
-## Präsenzsensor
+## Control Parameters
 
-Ein optionaler Präsenzsensor (z. B. Personen-Tracker) kann konfiguriert werden.
-Wenn niemand mehr zu Hause ist (`state: off`):
+| Parameter | Default | Range | Description |
+|-----------|---------|-------|-------------|
+| **Kp (Proportional)** | 0.8 | 0.0–5.0 | Strength of immediate error correction |
+| **Ki (Integral)** | 0.003 | 0.0–0.1 | Speed of long-term drift correction |
 
-1. Ein konfigurierbarer Timer startet (Standard: 30 Minuten).
-2. Nach Ablauf: Wechsel auf das **Abwesend**-Preset.
-3. Wenn jemand zurückkommt (`state: on`): Automatische Rückkehr auf das **vorherige Preset**.
-
-Wenn jemand vor Ablauf des Timers zurückkommt, wird der Timer abgebrochen.
-
-**Konfiguration** (in den Optionen der Integration):
-- *Präsenzsensor*: `binary_sensor.*` (optional)
-- *Verzögerung Abwesenheit*: 0–7200 Sekunden
-
-Das Attribut `presence_away_active` zeigt den aktuellen Zustand an.
-
-> Fenster- und Präsenzsensor sind **unabhängig voneinander**: Das Fenster steuert
-> das Preset (Frostschutz), der Präsenzsensor steuert das Preset
-> (Abwesend). Beide können gleichzeitig aktiv sein.
+> For detailed tuning guidance, see [TUNING.md](TUNING.md).
 
 ---
 
-## Regelparameter (Optionen)
+## Sensor Resilience
 
-Über **Einstellungen → Geräte & Dienste → Tado X Proxy → Konfigurieren** anpassbar:
+During brief sensor outages (e.g., Zigbee connectivity issues), the integration
+falls back to the last valid reading for up to 300 seconds (**Last-Valid-Bridging**).
+Window and presence timer actions are re-validated before execution to prevent
+false switching from sensor glitches.
 
-| Parameter | Standard | Bereich | Beschreibung |
-|-----------|---------|---------|-------------|
-| **Kp (Proportional)** | 0.8 | 0.0–5.0 | Stärke der sofortigen Fehlerkorrektur |
-| **Ki (Integral)** | 0.003 | 0.0–0.1 | Geschwindigkeit der Langzeit-Drift-Korrektur |
-
-> Für Details zur Feinjustierung siehe [TUNING.md](TUNING.md).
-
----
-
-## Diagnose-Attribute
-
-Die Proxy-Entität stellt folgende Attribute bereit (sichtbar unter **Entwicklerwerkzeuge → Zustände**):
-
-| Attribut | Beschreibung |
-|----------|-------------|
-| `room_temp` | Aktuelle Raumtemperatur (externer Sensor) |
-| `tado_internal_temp` | Tado-interne Temperaturmessung |
-| `correction_applied` | Aktuell angewendete Korrektur (°C) |
-| `integral` | Aktueller Integral-Wert der PI-Regelung |
-| `effective_setpoint_c` | Tatsächlich genutzter Sollwert (inkl. Preset) |
-| `last_sent_setpoint` | Zuletzt an Tado gesendeter Sollwert |
-| `window_open_active` | Fenstererkennung aktiv (`true`/`false`) |
-| `window_close_delay_active` | Close-Delay nach Fensterschließen aktiv (`true`/`false`) |
-| `presence_away_active` | Präsenz-Abwesenheit aktiv (`true`/`false`) |
-| `sensor_degraded` | Externer Sensor nicht verfügbar, Bridging aktiv (`true`/`false`) |
-| `room_temp_last_valid_c` | Letzter gültiger Messwert des externen Sensors |
-| `room_temp_last_valid_age_s` | Alter des letzten gültigen Messwerts (Sekunden) |
+A dedicated diagnostic entity `binary_sensor.*_sensor_degraded` turns on when the
+external sensor becomes unavailable. Use it in dashboards or automations (e.g., send
+a notification when the sensor is offline). Extra attributes: `last_valid_reading`,
+`last_valid_age_s`, `grace_period_s`.
 
 ---
 
-## Sensor-Resilienz
+## Diagnostic Attributes
 
-Bei kurzen Sensorausfällen (z. B. Zigbee-Verbindungsproblem) greift die Integration
-auf den letzten gültigen Messwert zurück (**Last-Valid-Bridging**). Die Grace-Zeit
-beträgt standardmäßig 300 Sekunden (5 Minuten). Während dieser Zeit zeigt das
-Attribut `sensor_degraded` den Wert `true`.
+Visible under **Developer Tools → States**:
 
-Fenster- und Präsenz-Aktionen werden vor Ausführung nochmals gegen den aktuellen
-Sensorzustand validiert (**Timer-Revalidierung**), um Fehlschaltungen durch
-kurze Sensor-Glitches zu verhindern.
+| Attribute | Description |
+|-----------|-------------|
+| `effective_setpoint_c` | Effective setpoint including preset (°C) |
+| `regulation_reason` | Reason for the last regulation decision |
+| `tado_internal_temp_c` | Tado internal temperature reading (°C) |
+| `feedforward_offset_c` | Feedforward correction offset (°C) |
+| `p_correction_c` / `i_correction_c` | P and I correction components (°C) |
+| `error_c` | Current error between target and room temperature (°C) |
+| `target_for_tado_c` | Calculated setpoint sent to Tado (°C) |
+| `correction_kp` / `correction_ki` | Active Kp/Ki gains |
+| `window_open_active` | Window detection active |
+| `window_close_delay_active` | Close delay active |
+| `presence_away_active` | Presence-away mode active |
+| `sensor_degraded` | External sensor unavailable, bridging active |
+| `is_saturated` | Controller saturation active |
 
----
-
-## Projekt-Dateien
-
-| Datei | Zweck |
-|-------|-------|
-| [TUNING.md](TUNING.md) | Detaillierte Tuning-Anleitung für neue Räume |
-| [ROADMAP.md](ROADMAP.md) | Feature-Roadmap und Meilensteine |
-| [CLAUDE.md](CLAUDE.md) | Projektanweisungen für AI-gestützte Entwicklung |
-
-
----
-
-## Bekannte Einschränkungen
-
-- **iOS Companion App:** Die Konfiguration (Entity-Auswahl) funktioniert in der iOS Companion App nicht zuverlässig – ein HA-Frontend-Bug in der `ha-entity-picker`-Komponente verursacht einen Crash. **Workaround:** Die Erst-Konfiguration und die Optionen über den Browser (nicht die App) öffnen.
+When sensor bridging is active, `room_temp_last_valid_c` and `room_temp_last_valid_age_s` are also shown.
 
 ---
 
-## Lizenz
+## Known Limitations
 
-MIT License – siehe [LICENSE](LICENSE)
+- **iOS Companion App:** Entity selection crashes due to an HA frontend bug in `ha-entity-picker`. **Workaround:** Use a browser for configuration.
+
+---
+
+## Project Files
+
+| File | Purpose |
+|------|---------|
+| [TUNING.md](TUNING.md) | Tuning guide for new rooms |
+
+---
+
+## License
+
+MIT License – see [LICENSE](LICENSE)
