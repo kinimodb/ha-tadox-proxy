@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.0.10-blue)
+![Version](https://img.shields.io/badge/version-1.0.11-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -124,6 +124,11 @@ During brief sensor outages (e.g., Zigbee connectivity issues), the integration
 falls back to the last valid reading for up to 300 seconds (**Last-Valid-Bridging**).
 Window and presence timer actions are re-validated before execution to prevent
 false switching from sensor glitches.
+
+A dedicated diagnostic entity `binary_sensor.*_sensor_degraded` turns on when the
+external sensor becomes unavailable. Use it in dashboards or automations (e.g., send
+a notification when the sensor is offline). Extra attributes: `last_valid_reading`,
+`last_valid_age_s`, `grace_period_s`.
 
 ---
 
