@@ -88,30 +88,29 @@ refactor: kurze Beschreibung # Code-Umbau ohne Funktionsänderung
 
 Nach vollständiger Implementierung (Tests grün, Commit, Push):
 1. **Merge-Anleitung** ausgeben: Step-by-step, welche GitHub-Schritte nötig sind (PR erstellen, Review, Merge, Release).
-2. **Release-Beschreibung** (Deutsch) nach folgendem Format ausgeben – copy-pasteable:
+2. **Release-Beschreibung** (Englisch, Markdown) nach folgendem Format ausgeben – copy-pasteable:
 
 ```
-## v0.X.Y – Kurztitel
+## v0.X.Y – Short Title
 
-### Neues
-- Stichpunkt 1
-- Stichpunkt 2
+### New
+- Bullet 1
+- Bullet 2
 
 ### Fixes
-- Stichpunkt
+- Bullet
 
-### Breaking Changes (falls vorhanden)
-- Was sich ändert und was Nutzer tun müssen
+### Breaking Changes (if any)
+- What changed and what users need to do
 
 ### Installation
-Über HACS → Integration → Tado X Proxy → Update.
+Via HACS → Integrations → Tado X Proxy → Update.
 ```
 
 ## Aktueller Stand (v1.1.0)
 
 - Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
 - **Adaptive Gain Scheduling**: Automatische Kp-Skalierung (1.5× bei Kaltstart, 0.7× nahe Ziel)
-- Sensor-Rauschfilter (EMA) für stabilere Regelung
 - `binary_sensor.*_sensor_degraded` Entity für Dashboard-Anzeige und Automationen
 - `sensor.*_boost_remaining` Entity für Boost-Timer-Anzeige
 - Konfigurierbare Sensor Grace Period
