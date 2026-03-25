@@ -136,12 +136,6 @@ falls back to the last valid reading for a configurable grace period (default: 3
 adjustable in options). Window and presence timer actions are re-validated before
 execution to prevent false switching from sensor glitches.
 
-### Sensor Noise Filter (EMA)
-
-The external temperature sensor reading is smoothed using an Exponential Moving
-Average (EMA) filter. This reduces noise from sensor fluctuations and prevents
-unnecessary command updates caused by jittery readings.
-
 ### Diagnostic Entities
 
 - **`binary_sensor.*_sensor_degraded`** — turns on when the external sensor becomes

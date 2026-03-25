@@ -146,15 +146,6 @@ satisfied with both heat-up speed and steady-state stability, you can disable ad
 scheduling in the options flow under "Other options". The base Kp value will then be
 used unchanged.
 
-### Sensor Noise Filter (EMA)
-
-The external temperature sensor reading is smoothed using an Exponential Moving Average
-(EMA) filter before it enters the control loop. This prevents the controller from
-reacting to sensor noise (e.g., ±0.1°C fluctuations common with Zigbee sensors).
-
-The EMA filter runs automatically — no configuration needed. It adapts to the sensor's
-update rate and provides a good balance between responsiveness and noise rejection.
-
 ### Additional Internal Parameters (Not Adjustable via UI)
 
 These values are defined in `parameters.py` and optimized for Tado X:
