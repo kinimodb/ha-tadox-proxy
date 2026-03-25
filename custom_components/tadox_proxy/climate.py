@@ -52,6 +52,7 @@ from .const import (
     CONF_FOLLOW_TADO_INPUT,
     CONF_FOLLOW_THRESHOLD_C,
     CONF_FROST_PROTECTION_TARGET,
+    CONF_GAIN_SCHEDULING,
     CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -193,6 +194,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             )
             # Ensure max_target_c is at least as high as boost_target_c
             config.max_target_c = max(config.max_target_c, config.presets.boost_target_c)
+            # Adaptive gain scheduling
+            config.gain_scheduling_enabled = opts.get(
+                CONF_GAIN_SCHEDULING, config.gain_scheduling_enabled
+            )
         return config
 
     @staticmethod

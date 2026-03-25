@@ -53,6 +53,9 @@ CONF_SENSOR_GRACE_S = "sensor_grace_s"
 # Overlay refresh (for cloud-API integrations with timer-based overlays)
 CONF_OVERLAY_REFRESH_S = "overlay_refresh_s"
 
+# Adaptive gain scheduling
+CONF_GAIN_SCHEDULING = "gain_scheduling_enabled"
+
 
 # ---------------------------------------------------------------------------
 # Shared utilities (used by climate.py, climate_presets.py, climate_regulation.py)

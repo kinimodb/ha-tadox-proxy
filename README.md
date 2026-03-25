@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.0.13-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -113,6 +113,17 @@ adopt manual temperature changes made directly on the physical TRV (>1.5°C diff
 |-----------|---------|-------|-------------|
 | **Kp (Proportional)** | 0.8 | 0.0–5.0 | Strength of immediate error correction |
 | **Ki (Integral)** | 0.003 | 0.0–0.1 | Speed of long-term drift correction |
+| **Adaptive Gain Scheduling** | On | Toggle | Scales Kp automatically: 1.5× during cold start, 0.7× near target |
+
+### Adaptive Gain Scheduling
+
+When enabled (default), the proportional gain Kp is automatically scaled based on the current error:
+
+- **Cold start** (error > 2°C): Kp × 1.5 — heats up faster
+- **Near target** (error < 0.5°C): Kp × 0.7 — gentler, less overshoot
+- **Transition zone** (0.5–2°C): Linear interpolation between 0.7× and 1.0×
+
+This eliminates the need to compromise between fast heat-up and stable steady-state control. Can be disabled in the options flow under "Other options".
 
 > For detailed tuning guidance, see [TUNING.md](TUNING.md).
 
@@ -121,14 +132,24 @@ adopt manual temperature changes made directly on the physical TRV (>1.5°C diff
 ## Sensor Resilience
 
 During brief sensor outages (e.g., Zigbee connectivity issues), the integration
-falls back to the last valid reading for up to 300 seconds (**Last-Valid-Bridging**).
-Window and presence timer actions are re-validated before execution to prevent
-false switching from sensor glitches.
+falls back to the last valid reading for a configurable grace period (default: 300s,
+adjustable in options). Window and presence timer actions are re-validated before
+execution to prevent false switching from sensor glitches.
 
-A dedicated diagnostic entity `binary_sensor.*_sensor_degraded` turns on when the
-external sensor becomes unavailable. Use it in dashboards or automations (e.g., send
-a notification when the sensor is offline). Extra attributes: `last_valid_reading`,
-`last_valid_age_s`, `grace_period_s`.
+### Sensor Noise Filter (EMA)
+
+The external temperature sensor reading is smoothed using an Exponential Moving
+Average (EMA) filter. This reduces noise from sensor fluctuations and prevents
+unnecessary command updates caused by jittery readings.
+
+### Diagnostic Entities
+
+- **`binary_sensor.*_sensor_degraded`** — turns on when the external sensor becomes
+  unavailable. Use it in dashboards or automations (e.g., send a notification when
+  the sensor is offline). Extra attributes: `last_valid_reading`, `last_valid_age_s`,
+  `grace_period_s`.
+- **`sensor.*_boost_remaining`** — shows the remaining time (in minutes) when boost
+  mode is active. Returns to 0 when boost expires or is cancelled.
 
 ---
 

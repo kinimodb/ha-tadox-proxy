@@ -70,6 +70,31 @@ class FeedforwardPiRegulator:
     def __init__(self, config: RegulationConfig) -> None:
         self.cfg = config
 
+    @staticmethod
+    def _effective_kp(error_c: float, config: RegulationConfig) -> float:
+        """Return the effective Kp, scaled by adaptive gain scheduling.
+
+        When gain scheduling is enabled the proportional gain is amplified
+        for large errors (cold-start) and attenuated near the setpoint
+        (fine control).  In the transition zone a linear interpolation
+        between the two multipliers is used.
+        """
+        if not config.gain_scheduling_enabled:
+            return config.tuning.kp
+
+        abs_error = abs(error_c)
+        if abs_error > config.gain_startup_threshold_c:
+            multiplier = config.gain_startup_multiplier
+        elif abs_error < config.gain_fine_threshold_c:
+            multiplier = config.gain_fine_multiplier
+        else:
+            # Linear interpolation between fine and 1.0 (base)
+            span = config.gain_startup_threshold_c - config.gain_fine_threshold_c
+            t = (abs_error - config.gain_fine_threshold_c) / span
+            multiplier = config.gain_fine_multiplier + t * (1.0 - config.gain_fine_multiplier)
+
+        return config.tuning.kp * multiplier
+
     def compute(
         self,
         setpoint_c: float,
@@ -126,8 +151,9 @@ class FeedforwardPiRegulator:
         # 2. Room error
         error = setpoint_c - room_temp_c
 
-        # 3. Proportional correction
-        p_correction = self.cfg.tuning.kp * error
+        # 3. Proportional correction (adaptive gain scheduling)
+        effective_kp = self._effective_kp(error, self.cfg)
+        p_correction = effective_kp * error
 
         # 4. Integral correction (carried from previous cycles)
         i_correction = state.integral_c

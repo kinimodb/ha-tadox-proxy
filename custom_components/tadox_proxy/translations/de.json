@@ -63,12 +63,14 @@
             "data": {
               "correction_kp": "Proportionale Korrektur (Kp)",
               "correction_ki": "Integrale Korrektur (Ki)",
-              "overlay_refresh_s": "Overlay-Refresh-Intervall"
+              "overlay_refresh_s": "Overlay-Refresh-Intervall",
+              "gain_scheduling_enabled": "Adaptive Verstärkung"
             },
             "data_description": {
               "correction_kp": "Proportionalanteil des PI-Reglers. Höhere Werte reagieren schneller auf Temperaturabweichungen.",
               "correction_ki": "Integralanteil des PI-Reglers. Höhere Werte korrigieren anhaltende Abweichungen aggressiver.",
-              "overlay_refresh_s": "Sollwert periodisch erneut an das TRV senden, um Cloud-API-Overlays aktiv zu halten. 0 = aus."
+              "overlay_refresh_s": "Sollwert periodisch erneut an das TRV senden, um Cloud-API-Overlays aktiv zu halten. 0 = aus.",
+              "gain_scheduling_enabled": "Schnelleres Aufheizen bei Kaltstart, sanftere Regelung nahe am Ziel."
             }
           }
         }
