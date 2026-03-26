@@ -52,7 +52,12 @@ from .const import (
     CONF_FOLLOW_TADO_INPUT,
     CONF_FOLLOW_THRESHOLD_C,
     CONF_FROST_PROTECTION_TARGET,
+    CONF_GAIN_FINE_MULTIPLIER,
     CONF_GAIN_SCHEDULING,
+    CONF_GAIN_STARTUP_MULTIPLIER,
+    CONF_INTEGRAL_DEADBAND_C,
+    CONF_MIN_CHANGE_THRESHOLD_C,
+    CONF_MIN_COMMAND_INTERVAL_S,
     CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -197,6 +202,21 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             # Adaptive gain scheduling
             config.gain_scheduling_enabled = opts.get(
                 CONF_GAIN_SCHEDULING, config.gain_scheduling_enabled
+            )
+            config.gain_fine_multiplier = opts.get(
+                CONF_GAIN_FINE_MULTIPLIER, config.gain_fine_multiplier
+            )
+            config.gain_startup_multiplier = opts.get(
+                CONF_GAIN_STARTUP_MULTIPLIER, config.gain_startup_multiplier
+            )
+            config.min_command_interval_s = opts.get(
+                CONF_MIN_COMMAND_INTERVAL_S, config.min_command_interval_s
+            )
+            config.min_change_threshold_c = opts.get(
+                CONF_MIN_CHANGE_THRESHOLD_C, config.min_change_threshold_c
+            )
+            config.integral_deadband_c = opts.get(
+                CONF_INTEGRAL_DEADBAND_C, config.integral_deadband_c
             )
         return config
 
