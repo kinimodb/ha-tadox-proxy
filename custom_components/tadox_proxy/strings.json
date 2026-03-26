@@ -58,19 +58,38 @@
               "presence_home_delay_s": "Delay before switching back to comfort mode after presence is detected."
             }
           },
-          "other_options": {
-            "name": "Other options",
+          "regulation": {
+            "name": "Regulation",
+            "description": "PI controller tuning and gain scheduling parameters.",
             "data": {
               "correction_kp": "Proportional correction (Kp)",
               "correction_ki": "Integral correction (Ki)",
-              "overlay_refresh_s": "Overlay refresh interval",
-              "gain_scheduling_enabled": "Adaptive gain scheduling"
+              "gain_scheduling_enabled": "Adaptive gain scheduling",
+              "gain_fine_multiplier": "Near-target strength",
+              "gain_startup_multiplier": "Cold-start boost",
+              "min_command_interval_s": "Minimum command interval",
+              "overlay_refresh_s": "Overlay refresh interval"
             },
             "data_description": {
               "correction_kp": "Proportional gain of the PI controller. Higher values react faster to temperature deviations.",
               "correction_ki": "Integral gain of the PI controller. Higher values correct persistent offsets more aggressively.",
-              "overlay_refresh_s": "Periodically resend the setpoint to the TRV to keep cloud-API overlays alive. 0 = off.",
-              "gain_scheduling_enabled": "Faster heating on cold start, gentler near target."
+              "gain_scheduling_enabled": "Faster heating on cold start, gentler near target.",
+              "gain_fine_multiplier": "Kp multiplier when close to target. Only active when adaptive gain scheduling is enabled.",
+              "gain_startup_multiplier": "Kp multiplier during cold start (large error). Only active when adaptive gain scheduling is enabled.",
+              "min_command_interval_s": "Minimum time between commands sent to the TRV (battery conservation).",
+              "overlay_refresh_s": "Periodically resend the setpoint to the TRV to keep cloud-API overlays alive. 0 = off."
+            }
+          },
+          "advanced_tuning": {
+            "name": "Advanced tuning",
+            "description": "Fine-tuning parameters for experienced users.",
+            "data": {
+              "min_change_threshold_c": "Minimum change threshold",
+              "integral_deadband_c": "Integral precision zone"
+            },
+            "data_description": {
+              "min_change_threshold_c": "Minimum difference to the current Tado setpoint before a new command is sent.",
+              "integral_deadband_c": "Integral only accumulates when the error is within this zone. Prevents overshoot during large transients."
             }
           }
         }

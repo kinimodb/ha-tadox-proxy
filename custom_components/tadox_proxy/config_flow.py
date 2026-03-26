@@ -10,7 +10,12 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_BOOST_DURATION,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_GAIN_FINE_MULTIPLIER,
     CONF_GAIN_SCHEDULING,
+    CONF_GAIN_STARTUP_MULTIPLIER,
+    CONF_INTEGRAL_DEADBAND_C,
+    CONF_MIN_CHANGE_THRESHOLD_C,
+    CONF_MIN_COMMAND_INTERVAL_S,
     CONF_NAME,
     CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_AWAY_DELAY_S,
@@ -213,8 +218,8 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     {"collapsed": True},
                 ),
 
-                # Section: Other options (regulation tuning + overlay)
-                vol.Required("other_options"): section(
+                # Section: Regulation (PI tuning + gain scheduling + overlay)
+                vol.Required("regulation"): section(
                     vol.Schema(
                         {
                             vol.Required(
@@ -236,6 +241,38 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                 )
                             ),
                             vol.Required(
+                                CONF_GAIN_SCHEDULING,
+                                default=opts.get(CONF_GAIN_SCHEDULING, defaults.gain_scheduling_enabled),
+                            ): selector.BooleanSelector(),
+                            vol.Required(
+                                CONF_GAIN_FINE_MULTIPLIER,
+                                default=opts.get(CONF_GAIN_FINE_MULTIPLIER, defaults.gain_fine_multiplier),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.3, max=1.5, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_GAIN_STARTUP_MULTIPLIER,
+                                default=opts.get(CONF_GAIN_STARTUP_MULTIPLIER, defaults.gain_startup_multiplier),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=1.0, max=3.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_MIN_COMMAND_INTERVAL_S,
+                                default=opts.get(CONF_MIN_COMMAND_INTERVAL_S, defaults.min_command_interval_s),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=60, max=600, step=30,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="s",
+                                )
+                            ),
+                            vol.Required(
                                 CONF_OVERLAY_REFRESH_S,
                                 default=opts.get(CONF_OVERLAY_REFRESH_S, 0),
                             ): selector.NumberSelector(
@@ -245,10 +282,35 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                     unit_of_measurement="s",
                                 )
                             ),
+                        }
+                    ),
+                    {"collapsed": True},
+                ),
+
+                # Section: Advanced tuning
+                vol.Required("advanced_tuning"): section(
+                    vol.Schema(
+                        {
                             vol.Required(
-                                CONF_GAIN_SCHEDULING,
-                                default=opts.get(CONF_GAIN_SCHEDULING, defaults.gain_scheduling_enabled),
-                            ): selector.BooleanSelector(),
+                                CONF_MIN_CHANGE_THRESHOLD_C,
+                                default=opts.get(CONF_MIN_CHANGE_THRESHOLD_C, defaults.min_change_threshold_c),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.1, max=1.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
+                            vol.Required(
+                                CONF_INTEGRAL_DEADBAND_C,
+                                default=opts.get(CONF_INTEGRAL_DEADBAND_C, defaults.integral_deadband_c),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.1, max=1.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
                         }
                     ),
                     {"collapsed": True},

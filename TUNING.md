@@ -137,27 +137,62 @@ cold start and gentle control near the target temperature.
 
 | Error Zone | Condition | Kp Multiplier | Effect |
 |-----------|-----------|---------------|--------|
-| **Startup** | \|error\| > 2.0°C | × 1.5 | Aggressive heating on cold start |
-| **Transition** | 0.5°C ≤ \|error\| ≤ 2.0°C | × 0.7–1.0 (linear) | Smooth transition |
-| **Fine** | \|error\| < 0.5°C | × 0.7 | Gentle, reduced overshoot |
+| **Startup** | \|error\| > 2.0°C | × 1.5 (configurable) | Aggressive heating on cold start |
+| **Transition** | 0.5°C ≤ \|error\| ≤ 2.0°C | × 1.0–1.0 (linear) | Smooth transition |
+| **Fine** | \|error\| < 0.5°C | × 1.0 (configurable) | No attenuation by default |
+
+Both multipliers are now configurable in the options flow under "Regulation".
 
 **When to disable:** If you have already tuned Kp carefully for your room and are
 satisfied with both heat-up speed and steady-state stability, you can disable adaptive
-scheduling in the options flow under "Other options". The base Kp value will then be
+scheduling in the options flow under "Regulation". The base Kp value will then be
 used unchanged.
 
-### Additional Internal Parameters (Not Adjustable via UI)
+### Configurable Parameters (Options → Regulation)
+
+These parameters can be adjusted in the options flow under "Regulation":
+
+| Parameter | Default | Range | Meaning |
+|-----------|---------|-------|---------|
+| `gain_fine_multiplier` | 1.0 | 0.3–1.5 | Kp multiplier near target (gain scheduling) |
+| `gain_startup_multiplier` | 1.5 | 1.0–3.0 | Kp multiplier on cold start (gain scheduling) |
+| `min_command_interval_s` | 180s | 60–600s | Minimum interval between commands (battery conservation) |
+
+### Configurable Parameters (Options → Advanced Tuning)
+
+These parameters can be adjusted in the options flow under "Advanced Tuning":
+
+| Parameter | Default | Range | Meaning |
+|-----------|---------|-------|---------|
+| `min_change_threshold_c` | 0.3°C | 0.1–1.0°C | Only send when difference exceeds this value |
+| `integral_deadband_c` | 0.3°C | 0.1–1.0°C | Integral only accumulates when error is within this zone |
+
+### Internal Parameters (Not Adjustable)
 
 These values are defined in `parameters.py` and optimized for Tado X:
 
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
-| `integral_deadband_c` | 0.3°C | Integral only accumulates when error < 0.3°C |
 | `integral_decay` | 0.95 | Integral loses 5% per cycle when error > deadband |
 | `integral_min_c / max_c` | ±2.0°C | Absolute limit for integral accumulation |
-| `min_command_interval_s` | 180s | Minimum interval between commands (battery conservation) |
-| `min_change_threshold_c` | 0.3°C | Only send when difference > 0.3°C |
-| `min_target_c / max_target_c` | 5 / 25°C | Safety limits for Tado commands |
+| `min_target_c / max_target_c` | 5 / 30°C | Safety limits for Tado commands |
+
+### Tuning by Radiator Type
+
+The Tado X TRV works with hot-water radiators that have a thermostatic valve (TRV) connection.
+Different radiator types have different thermal characteristics. Use these recommendations as
+a starting point and fine-tune from there.
+
+| Radiator Type | Near-target | Cold-start | Interval | Notes |
+|--------------|-------------|------------|----------|-------|
+| **Type 22 panel** (standard) | 1.0 | 1.5 | 180s | Defaults work well |
+| **Type 11 / small panel** | 0.7–0.8 | 1.5–2.0 | 180s | Fast thermal response, lower near-target to avoid oscillation |
+| **Column radiator** (Gliederheizkörper) | 1.0 | 1.5 | 180–300s | Similar to Type 22 |
+| **Cast iron** (old building) | 0.8–1.0 | 1.3–1.5 | 180–300s | High thermal mass, self-buffering |
+| **Towel radiator** | 0.7 | 1.5 | 120–180s | Small and fast |
+| **Poorly insulated room** | 1.0 | 2.0–2.5 | 120–180s | High heat loss needs more aggression |
+
+**Not compatible:** underfloor heating, electric radiators, steam heating.
 
 ---
 
@@ -204,14 +239,16 @@ regulation_reason: rate_limited(95s)
 ### Strong Overshoot (> 1°C)
 
 1. Reduce Kp (e.g., from 0.8 to 0.5).
-2. Check `i_correction_c`: If > 1.0 during heat-up → possible issue, please report as an issue.
-3. Consider room thermal mass: underfloor heating has more inertia than radiators.
+2. If gain scheduling is enabled, reduce the near-target strength (e.g., 0.7).
+3. Check `i_correction_c`: If > 1.0 during heat-up → possible issue, please report as an issue.
+4. Reduce `integral_deadband_c` (Options → Advanced Tuning) to tighten the precision zone.
 
 ### Temperature Oscillates Strongly
 
 1. Reduce Kp (e.g., to 0.5).
-2. `min_command_interval_s` is set to 180s – more frequent commands would drain the battery.
-3. Check if the Tado app has its own schedules active (conflicts).
+2. Increase `min_command_interval_s` (Options → Regulation) if oscillation is fast.
+3. Increase `min_change_threshold_c` (Options → Advanced Tuning) to filter small fluctuations.
+4. Check if the Tado app has its own schedules active (conflicts).
 
 ### External Sensor Goes Down Briefly
 
