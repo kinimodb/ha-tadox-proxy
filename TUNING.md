@@ -138,7 +138,7 @@ cold start and gentle control near the target temperature.
 | Error Zone | Condition | Kp Multiplier | Effect |
 |-----------|-----------|---------------|--------|
 | **Startup** | \|error\| > 2.0°C | × 1.5 (configurable) | Aggressive heating on cold start |
-| **Transition** | 0.5°C ≤ \|error\| ≤ 2.0°C | × 1.0–1.0 (linear) | Smooth transition |
+| **Transition** | 0.5°C ≤ \|error\| ≤ 2.0°C | × 1.0–1.5 (linear) | Smooth interpolation between fine and startup |
 | **Fine** | \|error\| < 0.5°C | × 1.0 (configurable) | No attenuation by default |
 
 Both multipliers are now configurable in the options flow under "Regulation".

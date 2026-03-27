@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.1.1-blue)
+![Version](https://img.shields.io/badge/version-1.1.2-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -135,7 +135,7 @@ When enabled (default), the proportional gain Kp is automatically scaled based o
 
 - **Cold start** (error > 2°C): Kp × 1.5 (configurable) — heats up faster
 - **Near target** (error < 0.5°C): Kp × 1.0 (configurable, was 0.7 before v1.1.1) — no attenuation by default
-- **Transition zone** (0.5–2°C): Linear interpolation between near-target and 1.0×
+- **Transition zone** (0.5–2°C): Linear interpolation between near-target and cold-start multiplier
 
 This eliminates the need to compromise between fast heat-up and stable steady-state control. All multipliers are configurable in the options flow under "Regulation".
 
