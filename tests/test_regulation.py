@@ -116,10 +116,11 @@ class TestFeedforward:
             state=state,
         )
 
-        # Offset = 7°C, Error = 2°C, P = 1.6
-        # Raw = 21 + 7 + 1.6 = 29.6 → clamped to 30.0 (max_target_c)
-        assert result.target_for_tado_c == 29.6
-        assert result.is_saturated is False
+        # Offset = 7°C, Error = 2°C, |error|=2.0 at startup boundary
+        # t = (2.0-0.5)/(2.0-0.5) = 1.0 → multiplier = 1.5, Kp = 1.2
+        # P = 2.0 * 1.2 = 2.4; Raw = 21 + 7 + 2.4 = 30.4 → clamped to 30.0
+        assert result.target_for_tado_c == 30.0
+        assert result.is_saturated is True
 
     def test_overshoot_reduces_command(self):
         """When room exceeds setpoint, command should drop below tado_internal."""
@@ -593,11 +594,11 @@ class TestNegativeFeedforward:
 
         # offset = 18 - 20 = -2.0; error = 21 - 20 = 1.0
         # |error|=1.0 in interpolation zone: t=(1.0-0.5)/(2.0-0.5)=1/3
-        # multiplier = 1.0 + 1/3 * (1.0 - 1.0) = 1.0; Kp = 0.8 * 1.0 = 0.8
-        # P = 0.8; command = 21 + (-2) + 0.8 = 19.8°C
+        # multiplier = 1.0 + 1/3 * (1.5 - 1.0) ≈ 1.167; Kp = 0.8 * 1.167 ≈ 0.933
+        # P ≈ 0.933; command = 21 + (-2) + 0.933 ≈ 19.93°C
         assert result.feedforward_offset_c == -2.0
-        assert result.p_correction_c == pytest.approx(0.8, abs=0.01)
-        assert result.target_for_tado_c == pytest.approx(19.8, abs=0.05)
+        assert result.p_correction_c == pytest.approx(0.933, abs=0.01)
+        assert result.target_for_tado_c == pytest.approx(19.93, abs=0.05)
 
     def test_negative_offset_clamped_at_minimum(self):
         """A very large negative offset should be clamped at min_target_c."""
@@ -783,9 +784,9 @@ class TestNanInfGuard:
         )
 
         # Normal computation: offset=2, error=1
-        # |error|=1.0 → interpolation: multiplier=1.0, Kp=0.8, P=0.8
-        # command = 21 + 2 + 0.8 = 23.8
-        assert result.target_for_tado_c == 23.8
+        # |error|=1.0 → interpolation: t=1/3, multiplier≈1.167, Kp≈0.933
+        # P ≈ 0.933; command = 21 + 2 + 0.933 ≈ 23.93
+        assert result.target_for_tado_c == pytest.approx(23.93, abs=0.05)
         assert result.error_c == 1.0
 
 
@@ -820,8 +821,9 @@ class TestAdaptiveGainScheduling:
         config = RegulationConfig()
         # |error| = 1.0, fine=0.5, startup=2.0
         # t = (1.0 - 0.5) / (2.0 - 0.5) = 0.5/1.5 = 1/3
-        # multiplier = 1.0 + 1/3 * (1.0 - 1.0) = 1.0; Kp = 0.8 * 1.0 = 0.8
-        expected_kp = config.tuning.kp * 1.0
+        # multiplier = 1.0 + 1/3 * (1.5 - 1.0) = 1.167; Kp = 0.8 * 1.167 ≈ 0.933
+        expected_multiplier = 1.0 + (1.0 / 3.0) * (1.5 - 1.0)
+        expected_kp = config.tuning.kp * expected_multiplier
         kp = FeedforwardPiRegulator._effective_kp(1.0, config)
         assert kp == pytest.approx(expected_kp, abs=0.001)
 
@@ -896,9 +898,9 @@ class TestAdaptiveGainScheduling:
         assert kp_at_fine == pytest.approx(config.tuning.kp * 1.0, abs=0.001)
 
         # At startup_threshold (2.0) → NOT > 2.0, so interpolation zone
-        # t = (2.0 - 0.5) / (2.0 - 0.5) = 1.0 → multiplier = 1.0 + 1.0*(1.0-1.0) = 1.0
+        # t = (2.0 - 0.5) / (2.0 - 0.5) = 1.0 → multiplier = 1.0 + 1.0*(1.5-1.0) = 1.5
         kp_at_startup = FeedforwardPiRegulator._effective_kp(2.0, config)
-        assert kp_at_startup == pytest.approx(config.tuning.kp * 1.0, abs=0.001)
+        assert kp_at_startup == pytest.approx(config.tuning.kp * 1.5, abs=0.001)
 
 
 # ---------------------------------------------------------------------------
