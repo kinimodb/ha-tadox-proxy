@@ -141,31 +141,41 @@ cold start and gentle control near the target temperature.
 | **Transition** | 0.5°C ≤ \|error\| ≤ 2.0°C | × 1.0–1.5 (linear) | Smooth interpolation between fine and startup |
 | **Fine** | \|error\| < 0.5°C | × 1.0 (configurable) | No attenuation by default |
 
-Both multipliers are now configurable in the options flow under "Regulation".
+Both multipliers are now configurable in the options flow under "Gain Scheduling".
 
 **When to disable:** If you have already tuned Kp carefully for your room and are
 satisfied with both heat-up speed and steady-state stability, you can disable adaptive
-scheduling in the options flow under "Regulation". The base Kp value will then be
+scheduling in the options flow under "Gain Scheduling". The base Kp value will then be
 used unchanged.
 
-### Configurable Parameters (Options → Regulation)
+### Configurable Parameters (Options → PI Controller)
 
-These parameters can be adjusted in the options flow under "Regulation":
+These parameters can be adjusted in the options flow under "PI Controller":
+
+| Parameter | Default | Range | Meaning |
+|-----------|---------|-------|---------|
+| `correction_kp` | 0.8 | 0.0–5.0 | Proportional gain of the PI controller |
+| `correction_ki` | 0.003 | 0.0–0.1 | Integral gain of the PI controller |
+| `integral_deadband_c` | 0.3°C | 0.1–1.0°C | Integral only accumulates when error is within this zone |
+
+### Configurable Parameters (Options → Gain Scheduling)
+
+These parameters can be adjusted in the options flow under "Gain Scheduling":
 
 | Parameter | Default | Range | Meaning |
 |-----------|---------|-------|---------|
 | `gain_fine_multiplier` | 1.0 | 0.3–1.5 | Kp multiplier near target (gain scheduling) |
 | `gain_startup_multiplier` | 1.5 | 1.0–3.0 | Kp multiplier on cold start (gain scheduling) |
-| `min_command_interval_s` | 180s | 60–600s | Minimum interval between commands (battery conservation) |
 
-### Configurable Parameters (Options → Advanced Tuning)
+### Configurable Parameters (Options → TRV Communication)
 
-These parameters can be adjusted in the options flow under "Advanced Tuning":
+These parameters can be adjusted in the options flow under "TRV Communication":
 
 | Parameter | Default | Range | Meaning |
 |-----------|---------|-------|---------|
+| `min_command_interval_s` | 180s | 60–600s | Minimum interval between commands (battery conservation) |
 | `min_change_threshold_c` | 0.3°C | 0.1–1.0°C | Only send when difference exceeds this value |
-| `integral_deadband_c` | 0.3°C | 0.1–1.0°C | Integral only accumulates when error is within this zone |
+| `overlay_refresh_s` | 0s | 0–3600s | Periodically resend setpoint to keep cloud overlays alive (0 = off) |
 
 ### Internal Parameters (Not Adjustable)
 
@@ -241,13 +251,13 @@ regulation_reason: rate_limited(95s)
 1. Reduce Kp (e.g., from 0.8 to 0.5).
 2. If gain scheduling is enabled, reduce the near-target strength (e.g., 0.7).
 3. Check `i_correction_c`: If > 1.0 during heat-up → possible issue, please report as an issue.
-4. Reduce `integral_deadband_c` (Options → Advanced Tuning) to tighten the precision zone.
+4. Reduce `integral_deadband_c` (Options → PI Controller) to tighten the precision zone.
 
 ### Temperature Oscillates Strongly
 
 1. Reduce Kp (e.g., to 0.5).
-2. Increase `min_command_interval_s` (Options → Regulation) if oscillation is fast.
-3. Increase `min_change_threshold_c` (Options → Advanced Tuning) to filter small fluctuations.
+2. Increase `min_command_interval_s` (Options → TRV Communication) if oscillation is fast.
+3. Increase `min_change_threshold_c` (Options → TRV Communication) to filter small fluctuations.
 4. Check if the Tado app has its own schedules active (conflicts).
 
 ### External Sensor Goes Down Briefly

@@ -218,8 +218,8 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     {"collapsed": True},
                 ),
 
-                # Section: Regulation (PI tuning + gain scheduling + overlay)
-                vol.Required("regulation"): section(
+                # Section: PI Controller
+                vol.Required("pi_controller"): section(
                     vol.Schema(
                         {
                             vol.Required(
@@ -240,6 +240,25 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                     mode=selector.NumberSelectorMode.BOX,
                                 )
                             ),
+                            vol.Required(
+                                CONF_INTEGRAL_DEADBAND_C,
+                                default=opts.get(CONF_INTEGRAL_DEADBAND_C, defaults.integral_deadband_c),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.1, max=1.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
+                        }
+                    ),
+                    {"collapsed": True},
+                ),
+
+                # Section: Gain Scheduling
+                vol.Required("gain_scheduling"): section(
+                    vol.Schema(
+                        {
                             vol.Required(
                                 CONF_GAIN_SCHEDULING,
                                 default=opts.get(CONF_GAIN_SCHEDULING, defaults.gain_scheduling_enabled),
@@ -262,6 +281,15 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                     mode=selector.NumberSelectorMode.BOX,
                                 )
                             ),
+                        }
+                    ),
+                    {"collapsed": True},
+                ),
+
+                # Section: TRV Communication
+                vol.Required("trv_communication"): section(
+                    vol.Schema(
+                        {
                             vol.Required(
                                 CONF_MIN_COMMAND_INTERVAL_S,
                                 default=opts.get(CONF_MIN_COMMAND_INTERVAL_S, defaults.min_command_interval_s),
@@ -273,25 +301,6 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                 )
                             ),
                             vol.Required(
-                                CONF_OVERLAY_REFRESH_S,
-                                default=opts.get(CONF_OVERLAY_REFRESH_S, 0),
-                            ): selector.NumberSelector(
-                                selector.NumberSelectorConfig(
-                                    min=0, max=3600, step=60,
-                                    mode=selector.NumberSelectorMode.BOX,
-                                    unit_of_measurement="s",
-                                )
-                            ),
-                        }
-                    ),
-                    {"collapsed": True},
-                ),
-
-                # Section: Advanced tuning
-                vol.Required("advanced_tuning"): section(
-                    vol.Schema(
-                        {
-                            vol.Required(
                                 CONF_MIN_CHANGE_THRESHOLD_C,
                                 default=opts.get(CONF_MIN_CHANGE_THRESHOLD_C, defaults.min_change_threshold_c),
                             ): selector.NumberSelector(
@@ -302,13 +311,13 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                 )
                             ),
                             vol.Required(
-                                CONF_INTEGRAL_DEADBAND_C,
-                                default=opts.get(CONF_INTEGRAL_DEADBAND_C, defaults.integral_deadband_c),
+                                CONF_OVERLAY_REFRESH_S,
+                                default=opts.get(CONF_OVERLAY_REFRESH_S, 0),
                             ): selector.NumberSelector(
                                 selector.NumberSelectorConfig(
-                                    min=0.1, max=1.0, step=0.1,
+                                    min=0, max=3600, step=60,
                                     mode=selector.NumberSelectorMode.BOX,
-                                    unit_of_measurement="°C",
+                                    unit_of_measurement="s",
                                 )
                             ),
                         }

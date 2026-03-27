@@ -58,38 +58,46 @@
               "presence_home_delay_s": "Verzögerung bevor nach erkannter Präsenz zum Komfort-Modus zurückgekehrt wird."
             }
           },
-          "regulation": {
-            "name": "Regelung",
-            "description": "PI-Regler-Tuning und Gain-Scheduling-Parameter.",
+          "pi_controller": {
+            "name": "PI-Regler",
+            "description": "Parameter für den Proportional-Integral-Regler.",
             "data": {
               "correction_kp": "Proportionale Korrektur (Kp)",
               "correction_ki": "Integrale Korrektur (Ki)",
-              "gain_scheduling_enabled": "Adaptive Verstärkung",
-              "gain_fine_multiplier": "Nahziel-Stärke",
-              "gain_startup_multiplier": "Kaltstart-Boost",
-              "min_command_interval_s": "Mindest-Befehlsintervall",
-              "overlay_refresh_s": "Overlay-Refresh-Intervall"
+              "integral_deadband_c": "Integral-Präzisionszone"
             },
             "data_description": {
               "correction_kp": "Proportionalanteil des PI-Reglers. Höhere Werte reagieren schneller auf Temperaturabweichungen.",
               "correction_ki": "Integralanteil des PI-Reglers. Höhere Werte korrigieren anhaltende Abweichungen aggressiver.",
-              "gain_scheduling_enabled": "Schnelleres Aufheizen bei Kaltstart, sanftere Regelung nahe am Ziel.",
-              "gain_fine_multiplier": "Kp-Multiplikator nahe am Ziel. Nur aktiv wenn adaptive Verstärkung aktiviert ist.",
-              "gain_startup_multiplier": "Kp-Multiplikator bei Kaltstart (großer Fehler). Nur aktiv wenn adaptive Verstärkung aktiviert ist.",
-              "min_command_interval_s": "Mindestzeit zwischen Befehlen an das TRV (Batterieschonung).",
-              "overlay_refresh_s": "Sollwert periodisch erneut an das TRV senden, um Cloud-API-Overlays aktiv zu halten. 0 = aus."
+              "integral_deadband_c": "Integral sammelt nur innerhalb dieser Zone. Verhindert Überschwingen bei großen Temperaturänderungen."
             }
           },
-          "advanced_tuning": {
-            "name": "Erweiterte Feinabstimmung",
-            "description": "Feinabstimmungs-Parameter für erfahrene Benutzer.",
+          "gain_scheduling": {
+            "name": "Adaptive Verstärkung",
+            "description": "Automatische Kp-Skalierung basierend auf der Temperaturabweichung.",
             "data": {
-              "min_change_threshold_c": "Mindest-Änderungsschwelle",
-              "integral_deadband_c": "Integral-Präzisionszone"
+              "gain_scheduling_enabled": "Adaptive Verstärkung",
+              "gain_fine_multiplier": "Nahziel-Stärke",
+              "gain_startup_multiplier": "Kaltstart-Boost"
             },
             "data_description": {
+              "gain_scheduling_enabled": "Schnelleres Aufheizen bei Kaltstart, sanftere Regelung nahe am Ziel.",
+              "gain_fine_multiplier": "Kp-Multiplikator nahe am Ziel. Nur aktiv wenn adaptive Verstärkung aktiviert ist.",
+              "gain_startup_multiplier": "Kp-Multiplikator bei Kaltstart (großer Fehler). Nur aktiv wenn adaptive Verstärkung aktiviert ist."
+            }
+          },
+          "trv_communication": {
+            "name": "TRV-Kommunikation",
+            "description": "Befehlsintervalle und Batterieschonung.",
+            "data": {
+              "min_command_interval_s": "Mindest-Befehlsintervall",
+              "min_change_threshold_c": "Mindest-Änderungsschwelle",
+              "overlay_refresh_s": "Overlay-Refresh-Intervall"
+            },
+            "data_description": {
+              "min_command_interval_s": "Mindestzeit zwischen Befehlen an das TRV (Batterieschonung).",
               "min_change_threshold_c": "Mindestdifferenz zum aktuellen Tado-Sollwert, bevor ein neuer Befehl gesendet wird.",
-              "integral_deadband_c": "Integral sammelt nur innerhalb dieser Zone. Verhindert Überschwingen bei großen Temperaturänderungen."
+              "overlay_refresh_s": "Sollwert periodisch erneut an das TRV senden, um Cloud-API-Overlays aktiv zu halten. 0 = aus."
             }
           }
         }

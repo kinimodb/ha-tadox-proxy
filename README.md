@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.1.2-blue)
+![Version](https://img.shields.io/badge/version-1.1.3-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -111,23 +111,29 @@ adopt manual temperature changes made directly on the physical TRV (>1.5°C diff
 
 Configurable via **Settings → Devices & Services → Tado X Proxy → Configure**.
 
-### Regulation Section
+### PI Controller Section
 
 | Parameter | Default | Range | Description |
 |-----------|---------|-------|-------------|
 | **Kp (Proportional)** | 0.8 | 0.0–5.0 | Strength of immediate error correction |
 | **Ki (Integral)** | 0.003 | 0.0–0.1 | Speed of long-term drift correction |
-| **Adaptive Gain Scheduling** | On | Toggle | Scales Kp automatically based on error magnitude |
-| **Near-target strength** | 1.0 | 0.3–1.5 | Kp multiplier when close to target (gain scheduling) |
-| **Cold-start boost** | 1.5 | 1.0–3.0 | Kp multiplier during heat-up (gain scheduling) |
-| **Min command interval** | 180s | 60–600s | Minimum time between TRV commands (battery vs. responsiveness) |
+| **Integral precision zone** | 0.3°C | 0.1–1.0°C | Integral only accumulates within this error band |
 
-### Advanced Tuning Section
+### Gain Scheduling Section
 
 | Parameter | Default | Range | Description |
 |-----------|---------|-------|-------------|
+| **Adaptive Gain Scheduling** | On | Toggle | Scales Kp automatically based on error magnitude |
+| **Near-target strength** | 1.0 | 0.3–1.5 | Kp multiplier when close to target (gain scheduling) |
+| **Cold-start boost** | 1.5 | 1.0–3.0 | Kp multiplier during heat-up (gain scheduling) |
+
+### TRV Communication Section
+
+| Parameter | Default | Range | Description |
+|-----------|---------|-------|-------------|
+| **Min command interval** | 180s | 60–600s | Minimum time between TRV commands (battery vs. responsiveness) |
 | **Min change threshold** | 0.3°C | 0.1–1.0°C | Hysteresis: only send when difference exceeds this |
-| **Integral precision zone** | 0.3°C | 0.1–1.0°C | Integral only accumulates within this error band |
+| **Overlay refresh interval** | 0s | 0–3600s | Periodically resend setpoint to keep cloud overlays alive (0 = off) |
 
 ### Adaptive Gain Scheduling
 
@@ -137,7 +143,7 @@ When enabled (default), the proportional gain Kp is automatically scaled based o
 - **Near target** (error < 0.5°C): Kp × 1.0 (configurable, was 0.7 before v1.1.1) — no attenuation by default
 - **Transition zone** (0.5–2°C): Linear interpolation between near-target and cold-start multiplier
 
-This eliminates the need to compromise between fast heat-up and stable steady-state control. All multipliers are configurable in the options flow under "Regulation".
+This eliminates the need to compromise between fast heat-up and stable steady-state control. All multipliers are configurable in the options flow under "Gain Scheduling".
 
 > For detailed tuning guidance, see [TUNING.md](TUNING.md).
 
