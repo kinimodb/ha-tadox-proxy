@@ -1,6 +1,7 @@
 """Climate Entity for Tado X Proxy."""
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 import math
@@ -48,13 +49,17 @@ from .const import (
     CONF_BOOST_TARGET,
     CONF_COMFORT_TARGET,
     CONF_ECO_TARGET,
+    CONF_CORRECTION_KI,
+    CONF_CORRECTION_KP,
     CONF_FOLLOW_GRACE_S,
     CONF_FOLLOW_TADO_INPUT,
     CONF_FOLLOW_THRESHOLD_C,
     CONF_FROST_PROTECTION_TARGET,
     CONF_GAIN_FINE_MULTIPLIER,
+    CONF_GAIN_FINE_THRESHOLD_C,
     CONF_GAIN_SCHEDULING,
     CONF_GAIN_STARTUP_MULTIPLIER,
+    CONF_GAIN_STARTUP_THRESHOLD_C,
     CONF_INTEGRAL_DEADBAND_C,
     CONF_MIN_CHANGE_THRESHOLD_C,
     CONF_MIN_COMMAND_INTERVAL_S,
@@ -150,6 +155,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._boost_end_ts: float = 0.0
 
         # Timing
+        self._regulation_lock = asyncio.Lock()
         self._last_regulation_ts = 0.0
         self._last_command_sent_ts = 0.0
         self._last_sent_setpoint: float | None = None
@@ -187,8 +193,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         config = RegulationConfig()
         opts = entry.options
         if opts:
-            kp = opts.get("correction_kp", config.tuning.kp)
-            ki = opts.get("correction_ki", config.tuning.ki)
+            kp = opts.get(CONF_CORRECTION_KP, config.tuning.kp)
+            ki = opts.get(CONF_CORRECTION_KI, config.tuning.ki)
             config.tuning = CorrectionTuning(kp=kp, ki=ki)
             config.presets = PresetConfig(
                 eco_target_c=opts.get(CONF_ECO_TARGET, config.presets.eco_target_c),
@@ -208,6 +214,12 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             )
             config.gain_startup_multiplier = opts.get(
                 CONF_GAIN_STARTUP_MULTIPLIER, config.gain_startup_multiplier
+            )
+            config.gain_startup_threshold_c = opts.get(
+                CONF_GAIN_STARTUP_THRESHOLD_C, config.gain_startup_threshold_c
+            )
+            config.gain_fine_threshold_c = opts.get(
+                CONF_GAIN_FINE_THRESHOLD_C, config.gain_fine_threshold_c
             )
             config.min_command_interval_s = opts.get(
                 CONF_MIN_COMMAND_INTERVAL_S, config.min_command_interval_s
@@ -396,7 +408,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self.__dict__.pop("min_temp", None)
         self.__dict__.pop("max_temp", None)
         self._behaviour = self._build_behaviour(entry)
-        self._regulator = FeedforwardPiRegulator(self._config)
+        self._regulator.cfg = self._config
         self._sensor_grace_s = entry.options.get(
             CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S
         )

@@ -53,10 +53,16 @@ CONF_SENSOR_GRACE_S = "sensor_grace_s"
 # Overlay refresh (for cloud-API integrations with timer-based overlays)
 CONF_OVERLAY_REFRESH_S = "overlay_refresh_s"
 
+# PI controller tuning keys (stored in options)
+CONF_CORRECTION_KP = "correction_kp"
+CONF_CORRECTION_KI = "correction_ki"
+
 # Adaptive gain scheduling
 CONF_GAIN_SCHEDULING = "gain_scheduling_enabled"
 CONF_GAIN_FINE_MULTIPLIER = "gain_fine_multiplier"
 CONF_GAIN_STARTUP_MULTIPLIER = "gain_startup_multiplier"
+CONF_GAIN_STARTUP_THRESHOLD_C = "gain_startup_threshold_c"
+CONF_GAIN_FINE_THRESHOLD_C = "gain_fine_threshold_c"
 CONF_MIN_COMMAND_INTERVAL_S = "min_command_interval_s"
 CONF_MIN_CHANGE_THRESHOLD_C = "min_change_threshold_c"
 CONF_INTEGRAL_DEADBAND_C = "integral_deadband_c"

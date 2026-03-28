@@ -5,7 +5,10 @@
         "sections": {
           "window_sensor": "mdi:window-open-variant",
           "presence_sensor": "mdi:motion-sensor",
-          "other_options": "mdi:cog"
+          "pi_controller": "mdi:chart-bell-curve-cumulative",
+          "gain_scheduling": "mdi:tune-vertical",
+          "trv_communication": "mdi:radiator",
+          "behaviour": "mdi:cog-outline"
         }
       }
     }
@@ -54,6 +57,16 @@
       },
       "frost_protection_target": {
         "default": "mdi:snowflake"
+      }
+    },
+    "sensor": {
+      "boost_remaining": {
+        "default": "mdi:timer"
+      }
+    },
+    "binary_sensor": {
+      "sensor_degraded": {
+        "default": "mdi:alert-circle"
       }
     },
     "switch": {

@@ -9,10 +9,16 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BOOST_DURATION,
+    CONF_CORRECTION_KI,
+    CONF_CORRECTION_KP,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_FOLLOW_GRACE_S,
+    CONF_FOLLOW_THRESHOLD_C,
     CONF_GAIN_FINE_MULTIPLIER,
+    CONF_GAIN_FINE_THRESHOLD_C,
     CONF_GAIN_SCHEDULING,
     CONF_GAIN_STARTUP_MULTIPLIER,
+    CONF_GAIN_STARTUP_THRESHOLD_C,
     CONF_INTEGRAL_DEADBAND_C,
     CONF_MIN_CHANGE_THRESHOLD_C,
     CONF_MIN_COMMAND_INTERVAL_S,
@@ -21,13 +27,15 @@ from .const import (
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
+    CONF_SENSOR_GRACE_S,
     CONF_SOURCE_ENTITY_ID,
+    CONF_URGENT_DECREASE_THRESHOLD_C,
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
     DOMAIN,
 )
-from .parameters import RegulationConfig
+from .parameters import DEFAULT_SENSOR_GRACE_S, BehaviourConfig, RegulationConfig
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -110,6 +118,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
         opts = self.config_entry.options
         data = self.config_entry.data
         defaults = RegulationConfig()
+        beh_defaults = BehaviourConfig()
 
         current_ext_temp = opts.get(
             CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
@@ -223,8 +232,8 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     vol.Schema(
                         {
                             vol.Required(
-                                "correction_kp",
-                                default=opts.get("correction_kp", defaults.tuning.kp),
+                                CONF_CORRECTION_KP,
+                                default=opts.get(CONF_CORRECTION_KP, defaults.tuning.kp),
                             ): selector.NumberSelector(
                                 selector.NumberSelectorConfig(
                                     min=0.0, max=5.0, step=0.1,
@@ -232,8 +241,8 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                 )
                             ),
                             vol.Required(
-                                "correction_ki",
-                                default=opts.get("correction_ki", defaults.tuning.ki),
+                                CONF_CORRECTION_KI,
+                                default=opts.get(CONF_CORRECTION_KI, defaults.tuning.ki),
                             ): selector.NumberSelector(
                                 selector.NumberSelectorConfig(
                                     min=0.0, max=0.1, step=0.001,
@@ -281,6 +290,26 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                     mode=selector.NumberSelectorMode.BOX,
                                 )
                             ),
+                            vol.Required(
+                                CONF_GAIN_STARTUP_THRESHOLD_C,
+                                default=opts.get(CONF_GAIN_STARTUP_THRESHOLD_C, defaults.gain_startup_threshold_c),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.5, max=5.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
+                            vol.Required(
+                                CONF_GAIN_FINE_THRESHOLD_C,
+                                default=opts.get(CONF_GAIN_FINE_THRESHOLD_C, defaults.gain_fine_threshold_c),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.1, max=2.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
                         }
                     ),
                     {"collapsed": True},
@@ -318,6 +347,55 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                     min=0, max=3600, step=60,
                                     mode=selector.NumberSelectorMode.BOX,
                                     unit_of_measurement="s",
+                                )
+                            ),
+                        }
+                    ),
+                    {"collapsed": True},
+                ),
+
+                # Section: Behaviour thresholds
+                vol.Required("behaviour"): section(
+                    vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_SENSOR_GRACE_S,
+                                default=opts.get(CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0, max=1800, step=30,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="s",
+                                )
+                            ),
+                            vol.Required(
+                                CONF_FOLLOW_THRESHOLD_C,
+                                default=opts.get(CONF_FOLLOW_THRESHOLD_C, beh_defaults.follow_threshold_c),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.1, max=2.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
+                            vol.Required(
+                                CONF_FOLLOW_GRACE_S,
+                                default=opts.get(CONF_FOLLOW_GRACE_S, beh_defaults.follow_grace_s),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=5, max=120, step=5,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="s",
+                                )
+                            ),
+                            vol.Required(
+                                CONF_URGENT_DECREASE_THRESHOLD_C,
+                                default=opts.get(CONF_URGENT_DECREASE_THRESHOLD_C, beh_defaults.urgent_decrease_threshold_c),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.5, max=3.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
                                 )
                             ),
                         }

@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.1.3-blue)
+![Version](https://img.shields.io/badge/version-1.1.4-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -89,8 +89,8 @@ An optional `binary_sensor.*` (e.g., window contact) can trigger automatic frost
 
 An optional `binary_sensor.*` (e.g., person tracker) can trigger automatic away mode:
 
-- **Nobody home:** After a configurable delay (default: 30 min), switches to Away.
-- **Someone returns:** Immediately restores the previous preset.
+- **Nobody home:** After a configurable delay (default: 10 min), switches to Away.
+- **Someone returns:** After a configurable home delay (default: 30s), restores the previous preset.
 
 Both sensors work independently and can be active simultaneously.
 
@@ -126,6 +126,8 @@ Configurable via **Settings → Devices & Services → Tado X Proxy → Configur
 | **Adaptive Gain Scheduling** | On | Toggle | Scales Kp automatically based on error magnitude |
 | **Near-target strength** | 1.0 | 0.3–1.5 | Kp multiplier when close to target (gain scheduling) |
 | **Cold-start boost** | 1.5 | 1.0–3.0 | Kp multiplier during heat-up (gain scheduling) |
+| **Cold-start zone threshold** | 2.0°C | 0.5–5.0°C | Error above this activates the cold-start multiplier |
+| **Near-target zone threshold** | 0.5°C | 0.1–2.0°C | Error below this activates the near-target multiplier |
 
 ### TRV Communication Section
 
@@ -134,6 +136,15 @@ Configurable via **Settings → Devices & Services → Tado X Proxy → Configur
 | **Min command interval** | 180s | 60–600s | Minimum time between TRV commands (battery vs. responsiveness) |
 | **Min change threshold** | 0.3°C | 0.1–1.0°C | Hysteresis: only send when difference exceeds this |
 | **Overlay refresh interval** | 0s | 0–3600s | Periodically resend setpoint to keep cloud overlays alive (0 = off) |
+
+### Behaviour Section
+
+| Parameter | Default | Range | Description |
+|-----------|---------|-------|-------------|
+| **Sensor grace period** | 300s | 0–1800s | How long to use the last valid reading when the external sensor is unavailable |
+| **Follow-tado threshold** | 0.5°C | 0.1–2.0°C | Min divergence from last-sent setpoint to treat as physical user input |
+| **Follow-tado grace period** | 20s | 5–120s | Ignore Tado setpoint changes for this long after sending a command |
+| **Urgent decrease threshold** | 1.0°C | 0.5–3.0°C | Bypass rate limiting when the new target is this much below the current Tado setpoint |
 
 ### Adaptive Gain Scheduling
 
@@ -164,8 +175,8 @@ The Tado X TRV is designed for **hot-water radiators with thermostatic valves (T
 
 During brief sensor outages (e.g., Zigbee connectivity issues), the integration
 falls back to the last valid reading for a configurable grace period (default: 300s,
-adjustable in options). Window and presence timer actions are re-validated before
-execution to prevent false switching from sensor glitches.
+adjustable in **Configure → Behaviour → Sensor grace period**). Window and presence
+timer actions are re-validated before execution to prevent false switching from sensor glitches.
 
 ### Diagnostic Entities
 

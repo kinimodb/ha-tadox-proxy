@@ -31,6 +31,11 @@ class RegulationMixin:
 
     async def _async_regulation_cycle(self, trigger: str) -> None:
         """Execute one control cycle."""
+        async with self._regulation_lock:
+            await self._async_regulation_cycle_locked(trigger)
+
+    async def _async_regulation_cycle_locked(self, trigger: str) -> None:
+        """Inner regulation cycle body, protected by _regulation_lock."""
         now = time.time()
 
         # Guard: skip when HVAC is OFF – the TRV has been turned off directly,

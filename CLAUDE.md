@@ -107,16 +107,18 @@ Nach vollständiger Implementierung (Tests grün, Commit, Push):
 Via HACS → Integrations → Tado X Proxy → Update.
 ```
 
-## Aktueller Stand (v1.1.0)
+## Aktueller Stand (v1.1.4)
 
 - Alle Kernfeatures stabil (Presets, Externe Trigger, Sensor-Resilienz, Multi-Room)
-- **Adaptive Gain Scheduling**: Automatische Kp-Skalierung (1.5× bei Kaltstart, 0.7× nahe Ziel)
+- **Adaptive Gain Scheduling**: Automatische Kp-Skalierung (1.5× bei Kaltstart, 1.0× nahe Ziel)
+- **Gain-Scheduling-Zonenschwellen** konfigurierbar (cold-start/near-target thresholds)
+- **Behaviour-Section** im Options-Flow: Sensor Grace, Follow-Tado, Urgent Decrease konfigurierbar
 - `binary_sensor.*_sensor_degraded` Entity für Dashboard-Anzeige und Automationen
 - `sensor.*_boost_remaining` Entity für Boost-Timer-Anzeige
-- Konfigurierbare Sensor Grace Period
+- Regulation-Cycle per `asyncio.Lock` gegen Race Conditions geschützt
 - HVAC OFF wird an den Tado-TRV weitergeleitet; Fehler beim Senden werden korrekt behandelt
-- Frontend-Polish: icons.json, Sektionen im Options-Flow, NumberSelector für alle Zahlenfelder
-- 188 Tests grün, CI aktiv
+- Frontend-Polish: icons.json (inkl. sensor/binary_sensor), Sektionen im Options-Flow, NumberSelector für alle Zahlenfelder
+- 189+ Tests grün, CI aktiv
 
 ## Bekannte offene Bugs
 

@@ -78,12 +78,16 @@
             "data": {
               "gain_scheduling_enabled": "Adaptive gain scheduling",
               "gain_fine_multiplier": "Near-target strength",
-              "gain_startup_multiplier": "Cold-start boost"
+              "gain_startup_multiplier": "Cold-start boost",
+              "gain_startup_threshold_c": "Cold-start zone threshold",
+              "gain_fine_threshold_c": "Near-target zone threshold"
             },
             "data_description": {
               "gain_scheduling_enabled": "Faster heating on cold start, gentler near target.",
               "gain_fine_multiplier": "Kp multiplier when close to target. Only active when adaptive gain scheduling is enabled.",
-              "gain_startup_multiplier": "Kp multiplier during cold start (large error). Only active when adaptive gain scheduling is enabled."
+              "gain_startup_multiplier": "Kp multiplier during cold start (large error). Only active when adaptive gain scheduling is enabled.",
+              "gain_startup_threshold_c": "Error above this threshold activates cold-start multiplier.",
+              "gain_fine_threshold_c": "Error below this threshold activates near-target multiplier."
             }
           },
           "trv_communication": {
@@ -98,6 +102,22 @@
               "min_command_interval_s": "Minimum time between commands sent to the TRV (battery conservation).",
               "min_change_threshold_c": "Minimum difference to the current Tado setpoint before a new command is sent.",
               "overlay_refresh_s": "Periodically resend the setpoint to the TRV to keep cloud-API overlays alive. 0 = off."
+            }
+          },
+          "behaviour": {
+            "name": "Behaviour",
+            "description": "Sensor resilience and follow-tado thresholds.",
+            "data": {
+              "sensor_grace_s": "Sensor grace period",
+              "follow_threshold_c": "Follow-tado threshold",
+              "follow_grace_s": "Follow-tado grace period",
+              "urgent_decrease_threshold_c": "Urgent decrease threshold"
+            },
+            "data_description": {
+              "sensor_grace_s": "How long to use the last valid reading when the external sensor becomes unavailable.",
+              "follow_threshold_c": "Minimum difference from last-sent setpoint to treat a Tado change as physical user input.",
+              "follow_grace_s": "Grace period after a command during which Tado setpoint changes are ignored (acknowledgement delay).",
+              "urgent_decrease_threshold_c": "Bypass rate limiting when the new target is this much below the current Tado setpoint."
             }
           }
         }
