@@ -166,6 +166,8 @@ These parameters can be adjusted in the options flow under "Gain Scheduling":
 |-----------|---------|-------|---------|
 | `gain_fine_multiplier` | 1.0 | 0.3–1.5 | Kp multiplier near target (gain scheduling) |
 | `gain_startup_multiplier` | 1.5 | 1.0–3.0 | Kp multiplier on cold start (gain scheduling) |
+| `gain_startup_threshold_c` | 2.0°C | 0.5–5.0°C | Error above this activates cold-start multiplier |
+| `gain_fine_threshold_c` | 0.5°C | 0.1–2.0°C | Error below this activates near-target multiplier |
 
 ### Configurable Parameters (Options → TRV Communication)
 
@@ -176,6 +178,17 @@ These parameters can be adjusted in the options flow under "TRV Communication":
 | `min_command_interval_s` | 180s | 60–600s | Minimum interval between commands (battery conservation) |
 | `min_change_threshold_c` | 0.3°C | 0.1–1.0°C | Only send when difference exceeds this value |
 | `overlay_refresh_s` | 0s | 0–3600s | Periodically resend setpoint to keep cloud overlays alive (0 = off) |
+
+### Configurable Parameters (Options → Behaviour)
+
+These parameters can be adjusted in the options flow under "Behaviour":
+
+| Parameter | Default | Range | Meaning |
+|-----------|---------|-------|---------|
+| `sensor_grace_s` | 300s | 0–1800s | How long to use last valid reading when sensor is unavailable |
+| `follow_threshold_c` | 0.5°C | 0.1–2.0°C | Min divergence to detect physical user input on Tado |
+| `follow_grace_s` | 20s | 5–120s | Ignore Tado changes for this long after sending a command |
+| `urgent_decrease_threshold_c` | 1.0°C | 0.5–3.0°C | Bypass rate limiting for large decreases |
 
 ### Internal Parameters (Not Adjustable)
 

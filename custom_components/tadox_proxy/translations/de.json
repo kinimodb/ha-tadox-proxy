@@ -78,12 +78,16 @@
             "data": {
               "gain_scheduling_enabled": "Adaptive Verstärkung",
               "gain_fine_multiplier": "Nahziel-Stärke",
-              "gain_startup_multiplier": "Kaltstart-Boost"
+              "gain_startup_multiplier": "Kaltstart-Boost",
+              "gain_startup_threshold_c": "Kaltstart-Zonenschwelle",
+              "gain_fine_threshold_c": "Nahziel-Zonenschwelle"
             },
             "data_description": {
               "gain_scheduling_enabled": "Schnelleres Aufheizen bei Kaltstart, sanftere Regelung nahe am Ziel.",
               "gain_fine_multiplier": "Kp-Multiplikator nahe am Ziel. Nur aktiv wenn adaptive Verstärkung aktiviert ist.",
-              "gain_startup_multiplier": "Kp-Multiplikator bei Kaltstart (großer Fehler). Nur aktiv wenn adaptive Verstärkung aktiviert ist."
+              "gain_startup_multiplier": "Kp-Multiplikator bei Kaltstart (großer Fehler). Nur aktiv wenn adaptive Verstärkung aktiviert ist.",
+              "gain_startup_threshold_c": "Fehler oberhalb dieser Schwelle aktiviert den Kaltstart-Multiplikator.",
+              "gain_fine_threshold_c": "Fehler unterhalb dieser Schwelle aktiviert den Nahziel-Multiplikator."
             }
           },
           "trv_communication": {
@@ -98,6 +102,22 @@
               "min_command_interval_s": "Mindestzeit zwischen Befehlen an das TRV (Batterieschonung).",
               "min_change_threshold_c": "Mindestdifferenz zum aktuellen Tado-Sollwert, bevor ein neuer Befehl gesendet wird.",
               "overlay_refresh_s": "Sollwert periodisch erneut an das TRV senden, um Cloud-API-Overlays aktiv zu halten. 0 = aus."
+            }
+          },
+          "behaviour": {
+            "name": "Verhalten",
+            "description": "Sensor-Resilienz und Follow-Tado-Schwellwerte.",
+            "data": {
+              "sensor_grace_s": "Sensor-Überbrückungszeit",
+              "follow_threshold_c": "Follow-Tado-Schwelle",
+              "follow_grace_s": "Follow-Tado-Karenzzeit",
+              "urgent_decrease_threshold_c": "Dringende-Absenkung-Schwelle"
+            },
+            "data_description": {
+              "sensor_grace_s": "Wie lange der letzte gültige Messwert verwendet wird, wenn der externe Sensor ausfällt.",
+              "follow_threshold_c": "Mindestabweichung vom letzten gesendeten Sollwert, um eine Tado-Änderung als physische Eingabe zu erkennen.",
+              "follow_grace_s": "Karenzzeit nach einem Befehl, in der Tado-Sollwertänderungen ignoriert werden (Bestätigungsverzögerung).",
+              "urgent_decrease_threshold_c": "Rate-Limiting umgehen, wenn der neue Sollwert so viel unter dem aktuellen Tado-Sollwert liegt."
             }
           }
         }

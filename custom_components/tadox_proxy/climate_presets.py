@@ -329,18 +329,7 @@ class PresetMixin:
         # update the saved state so the new preset is restored when someone
         # returns home, but keep away mode active.
         if self._presence_ctrl.is_active and preset_mode != PRESET_AWAY:
-            if preset_mode == PRESET_COMFORT:
-                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-                save_temp = comfort if comfort is not None else self._target_temp
-            elif preset_mode == PRESET_ECO:
-                save_temp = self._config.presets.eco_target_c
-            elif preset_mode == PRESET_BOOST:
-                save_temp = self._config.presets.boost_target_c
-            elif preset_mode == PRESET_FROST_PROTECTION:
-                save_temp = self._config.presets.frost_protection_target_c
-            else:
-                save_temp = self._target_temp
-            self._presence_ctrl.update_saved(preset_mode, save_temp)
+            self._presence_ctrl.update_saved(preset_mode, self._get_preset_target(preset_mode))
             _LOGGER.info(
                 "Presence away: preset %s saved for restore, keeping away mode",
                 preset_mode,
@@ -352,16 +341,7 @@ class PresetMixin:
         # update the saved state so the new preset is restored when the window
         # closes, but keep frost protection active.
         if self._window_ctrl.is_active and preset_mode != PRESET_FROST_PROTECTION:
-            if preset_mode == PRESET_COMFORT:
-                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-                save_temp = comfort if comfort is not None else self._target_temp
-            elif preset_mode == PRESET_ECO:
-                save_temp = self._config.presets.eco_target_c
-            elif preset_mode == PRESET_AWAY:
-                save_temp = self._config.presets.away_target_c
-            else:
-                save_temp = self._target_temp
-            self._window_ctrl.update_saved(preset_mode, save_temp)
+            self._window_ctrl.update_saved(preset_mode, self._get_preset_target(preset_mode))
             _LOGGER.info(
                 "Window open: preset %s saved for restore, keeping frost protection",
                 preset_mode,
@@ -434,6 +414,25 @@ class PresetMixin:
             await self.async_set_preset_mode(restore_preset)
 
     # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get_preset_target(self, preset_mode: str) -> float:
+        """Return the target temperature for a given preset mode."""
+        if preset_mode == PRESET_COMFORT:
+            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+            return comfort if comfort is not None else self._target_temp
+        if preset_mode == PRESET_ECO:
+            return self._config.presets.eco_target_c
+        if preset_mode == PRESET_BOOST:
+            return self._config.presets.boost_target_c
+        if preset_mode == PRESET_AWAY:
+            return self._config.presets.away_target_c
+        if preset_mode == PRESET_FROST_PROTECTION:
+            return self._config.presets.frost_protection_target_c
+        return self._target_temp
+
+    # ------------------------------------------------------------------
     # Effective setpoint calculation
     # ------------------------------------------------------------------
 
@@ -444,13 +443,10 @@ class PresetMixin:
 
         if self._preset_mode in (PRESET_COMFORT, PRESET_NONE):
             return self._target_temp
-        elif self._preset_mode == PRESET_ECO:
+        if self._preset_mode == PRESET_ECO:
             return self._config.presets.eco_target_c
-        elif self._preset_mode == PRESET_BOOST:
+        if self._preset_mode == PRESET_BOOST:
             return self._config.presets.boost_target_c
-        elif self._preset_mode == PRESET_AWAY:
+        if self._preset_mode == PRESET_AWAY:
             return self._config.presets.away_target_c
-        elif self._preset_mode == PRESET_FROST_PROTECTION:
-            return self._config.presets.frost_protection_target_c
-
-        return self._target_temp
+        return self._config.presets.frost_protection_target_c
