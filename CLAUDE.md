@@ -19,6 +19,19 @@ parameters.py  →  regulation.py  →  climate.py  ←  __init__.py (Coordinato
 
 Neue Features immer erst in `parameters.py` / `regulation.py` (testbar, keine HA-Abhängigkeit), dann `climate.py`.
 
+### Schlüsseldateien
+
+- `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning)
+- `regulation.py` – Feedforward + PI Engine (HA-unabhängig)
+- `climate.py` – HA ClimateEntity, Presets, Boost-Timer, State Restore
+- `number.py` – NumberEntity für Preset-Temperaturen
+- `binary_sensor.py` – Sensor-Degraded-Diagnose
+- `switch.py` – Toggle-Features (z.B. Follow Tado Input)
+- `config_flow.py` – Setup + Options Flow
+- `const.py` – DOMAIN, Config-Keys, Custom Preset Names
+- `strings.json` + `translations/` – UI-Texte (EN + DE)
+- `manifest.json` – Version, Metadata
+
 ## Tests
 
 ```bash
@@ -39,7 +52,9 @@ refactor: … # Code-Umbau ohne Funktionsänderung
 
 ## Versionierung
 
-Versionen in `manifest.json` und README-Badge müssen synchron sein.
+Vor jedem Release synchron aktualisieren:
+- `manifest.json` → `"version": "x.y.z"`
+- `README.md` → Version-Badge URL
 
 ## Dokumentation
 

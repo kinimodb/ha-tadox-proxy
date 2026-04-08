@@ -1,8 +1,13 @@
-Nach Abschluss einer Feature-Session (Tests grün, Commit, Push, PR erstellt):
+Dieser Slash-Command wird nach dem Abschluss einer Feature-Session aufgerufen.
+Voraussetzungen: Tests grün, Änderungen committed, Branch gepusht, PR erstellt.
 
-1. **Merge-Anleitung** ausgeben: Schritt-für-Schritt was der Nutzer auf GitHub tun muss.
+Dem Nutzer zwei Dinge ausgeben:
 
-2. **Release-Beschreibung** ausgeben (Englisch, Markdown, copy-pasteable):
+1. **Merge-Anleitung** – Schritt-für-Schritt was der Nutzer auf GitHub tun muss
+   (PR reviewen, mergen, ggf. Branch löschen). Details siehe `CONTRIBUTING.md`.
+
+2. **Release-Beschreibung** – Englisch, Markdown, copy-pasteable, nach folgendem
+   Format. Wird direkt in die GitHub-Release-Notes eingefügt:
 
 ```
 ## v{VERSION} – Short Title
