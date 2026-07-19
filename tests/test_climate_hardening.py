@@ -640,3 +640,92 @@ class TestWindowRestorePresenceCheck:
         """No presence sensor → AWAY is kept (can't verify)."""
         result = _window_restore_logic("away", None)
         assert result == "away"
+
+
+# ---------------------------------------------------------------------------
+# Boost restore must re-arm _boost_end_ts (AST-based guard)
+# ---------------------------------------------------------------------------
+
+_CLIMATE_PRESETS_PY = os.path.join(_COMP_DIR, "climate_presets.py")
+
+
+def _method_assigns_attr(file_path: str, method_name: str, attr_name: str) -> bool:
+    """Return True when *method_name* in *file_path* assigns self.<attr_name>."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != method_name:
+            continue
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Assign):
+                continue
+            for target in sub.targets:
+                if (
+                    isinstance(target, ast.Attribute)
+                    and target.attr == attr_name
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "self"
+                ):
+                    return True
+        return False
+    raise AssertionError(f"{method_name} not found in {file_path}")
+
+
+class TestBoostRestoreSetsEndTimestamp:
+    """Regression: restoring BOOST after window/presence automation must set
+    _boost_end_ts, otherwise the boost-remaining sensor reports 0 minutes
+    for the whole restored boost period.
+    """
+
+    def test_window_restore_sets_boost_end_ts(self):
+        assert _method_assigns_attr(
+            _CLIMATE_PRESETS_PY, "_restore_window_state", "_boost_end_ts"
+        )
+
+    def test_presence_restore_sets_boost_end_ts(self):
+        assert _method_assigns_attr(
+            _CLIMATE_PRESETS_PY, "_restore_presence_state", "_boost_end_ts"
+        )
+
+    def test_preset_switch_sets_boost_end_ts(self):
+        """The normal boost entry point must keep setting the timestamp too."""
+        assert _method_assigns_attr(
+            _CLIMATE_PRESETS_PY, "async_set_preset_mode", "_boost_end_ts"
+        )
+
+
+# ---------------------------------------------------------------------------
+# HVAC mode change must restore the saved pre-frost preset (AST-based guard)
+# ---------------------------------------------------------------------------
+
+class TestHvacModeChangeRestoresPreset:
+    """Regression: async_set_hvac_mode cancels active window automation.
+
+    Cancelling alone would leave the entity stuck in FROST_PROTECTION with the
+    saved pre-frost preset thrown away – if the window closes while HVAC is
+    OFF, nothing ever restores the preset.  The method must read the saved
+    state (get_saved) and write it back to _preset_mode before cancelling.
+    """
+
+    def test_set_hvac_mode_reads_saved_state(self):
+        with open(_CLIMATE_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="climate.py")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_set_hvac_mode":
+                calls = {
+                    sub.func.attr
+                    for sub in ast.walk(node)
+                    if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                }
+                assert "get_saved" in calls, (
+                    "async_set_hvac_mode must read the window controller's "
+                    "saved state before cancel_all()"
+                )
+                return
+        raise AssertionError("async_set_hvac_mode not found in climate.py")
+
+    def test_set_hvac_mode_restores_preset_mode(self):
+        assert _method_assigns_attr(_CLIMATE_PY, "async_set_hvac_mode", "_preset_mode")

@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.1.4-blue)
+![Version](https://img.shields.io/badge/version-1.1.5-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -103,7 +103,9 @@ reverts to its previous mode to stay in sync with the actual device state.
 ### Follow Physical Thermostat
 
 The switch `switch.*_follow_physical_thermostat` (disabled by default) lets the proxy
-adopt manual temperature changes made directly on the physical TRV (>1.5°C difference).
+adopt manual temperature changes made directly on the physical TRV as a manual override
+(preset "Manual"). A change counts as physical user input when it diverges more than the
+follow-tado threshold (default: 0.5°C, configurable) from the last sent setpoint.
 
 ---
 

@@ -488,9 +488,25 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         if hvac_mode not in self._attr_hvac_modes:
             return
         # Manual HVAC change clears any active window-open state so the user's
-        # intention is respected.
+        # intention is respected.  Restore the saved pre-frost preset first –
+        # otherwise the entity stays in FROST_PROTECTION with no automation
+        # left to ever restore it (e.g. window closes while HVAC is OFF).
         if self._window_ctrl.is_active:
+            saved = self._window_ctrl.get_saved()
             self._window_ctrl.cancel_all()
+            restore_preset = saved.preset if saved.preset is not None else PRESET_COMFORT
+            # Frost must never survive the cancel; a saved BOOST has lost its
+            # timer context – both fall back to COMFORT (same policy as the
+            # state restore in async_added_to_hass).
+            if restore_preset in (PRESET_FROST_PROTECTION, PRESET_BOOST):
+                restore_preset = PRESET_COMFORT
+            self._preset_mode = restore_preset
+            if restore_preset == PRESET_COMFORT:
+                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+                if comfort is not None:
+                    self._target_temp = comfort
+            elif saved.temp is not None:
+                self._target_temp = saved.temp
 
         previous_mode = self._hvac_mode
         self._hvac_mode = hvac_mode

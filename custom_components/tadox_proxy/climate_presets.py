@@ -155,6 +155,7 @@ class PresetMixin:
                 comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
                 self._boost_saved_temp = comfort if comfort is not None else self._target_temp
                 duration_s = self._config.presets.boost_duration_min * 60
+                self._boost_end_ts = time.time() + duration_s
                 self._boost_cancel = async_call_later_boost(
                     self.hass, duration_s, self._async_boost_expired
                 )
@@ -289,6 +290,7 @@ class PresetMixin:
             comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
             self._boost_saved_temp = comfort if comfort is not None else self._target_temp
             duration_s = self._config.presets.boost_duration_min * 60
+            self._boost_end_ts = time.time() + duration_s
             self._boost_cancel = async_call_later_boost(
                 self.hass, duration_s, self._async_boost_expired
             )

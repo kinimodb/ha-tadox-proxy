@@ -88,10 +88,16 @@ class FeedforwardPiRegulator:
         elif abs_error < config.gain_fine_threshold_c:
             multiplier = config.gain_fine_multiplier
         else:
-            # Linear interpolation between fine and startup multiplier
+            # Linear interpolation between fine and startup multiplier.
+            # Guard: the options flow allows fine_threshold >= startup_threshold,
+            # which makes the span zero or negative – fall back to the startup
+            # multiplier instead of dividing by zero.
             span = config.gain_startup_threshold_c - config.gain_fine_threshold_c
-            t = (abs_error - config.gain_fine_threshold_c) / span
-            multiplier = config.gain_fine_multiplier + t * (config.gain_startup_multiplier - config.gain_fine_multiplier)
+            if span <= 0:
+                multiplier = config.gain_startup_multiplier
+            else:
+                t = (abs_error - config.gain_fine_threshold_c) / span
+                multiplier = config.gain_fine_multiplier + t * (config.gain_startup_multiplier - config.gain_fine_multiplier)
 
         return config.tuning.kp * multiplier
 

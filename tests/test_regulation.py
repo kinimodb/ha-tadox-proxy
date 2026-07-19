@@ -902,6 +902,39 @@ class TestAdaptiveGainScheduling:
         kp_at_startup = FeedforwardPiRegulator._effective_kp(2.0, config)
         assert kp_at_startup == pytest.approx(config.tuning.kp * 1.5, abs=0.001)
 
+    def test_equal_thresholds_no_division_by_zero(self):
+        """fine_threshold == startup_threshold must not raise ZeroDivisionError.
+
+        The options flow allows overlapping ranges (fine 0.1-2.0, startup
+        0.5-5.0), so both thresholds can be set to the same value.  With an
+        error exactly on the shared threshold the interpolation span is zero –
+        the startup multiplier must be used as fallback.
+        """
+        config = RegulationConfig(
+            gain_fine_threshold_c=1.0, gain_startup_threshold_c=1.0
+        )
+        kp = FeedforwardPiRegulator._effective_kp(1.0, config)
+        assert kp == pytest.approx(config.tuning.kp * config.gain_startup_multiplier, abs=0.001)
+
+    def test_inverted_thresholds_no_division_by_zero(self):
+        """fine_threshold > startup_threshold (misconfiguration) must be safe.
+
+        With inverted thresholds the startup/fine branches cover every error
+        value, so no interpolation (and no division) ever happens – this test
+        pins that behaviour so a refactoring cannot reintroduce a crash.
+        """
+        config = RegulationConfig(
+            gain_fine_threshold_c=2.0, gain_startup_threshold_c=1.0
+        )
+        # Above the (lower) startup threshold → startup multiplier.
+        assert FeedforwardPiRegulator._effective_kp(1.5, config) == pytest.approx(
+            config.tuning.kp * config.gain_startup_multiplier, abs=0.001
+        )
+        # At the startup threshold, below the fine threshold → fine multiplier.
+        assert FeedforwardPiRegulator._effective_kp(1.0, config) == pytest.approx(
+            config.tuning.kp * config.gain_fine_multiplier, abs=0.001
+        )
+
 
 # ---------------------------------------------------------------------------
 # Temperature range limits
