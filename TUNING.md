@@ -56,7 +56,7 @@ new room. It is aimed at users without a control engineering background.
 | `feedforward_offset_c` | 1.0–5.0°C | < 0 indicates wrong sensor |
 | `error_c` | Trending towards 0 | Stays > 1°C after 30 min → Kp too low |
 | `i_correction_c` | < 0.3 during heat-up | > 1.0 → integral building up (should not happen) |
-| `target_for_tado_c` | Decreases as room warms | Stays at 25°C → room too large or Kp too low |
+| `target_for_tado_c` | Decreases as room warms | Stuck at max (30°C) → room too large or Kp too low |
 
 **Evaluate results:**
 - **Overshoot < 0.5°C:** All good → proceed to Phase 2.
@@ -241,7 +241,7 @@ regulation_reason: sent(normal_update)
 feedforward_offset_c: 8.5       ← unusually high – radiator extremely hot
 i_correction_c: 1.8             ← integral very high = possible overshoot
 error_c: -0.8                   ← room 0.8°C above target
-target_for_tado_c: 25.0         ← clamped at maximum
+target_for_tado_c: 30.0         ← clamped at maximum
 is_saturated: true
 regulation_reason: rate_limited(95s)
 ```

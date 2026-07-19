@@ -12,10 +12,10 @@
 ### Variante B: Kommandozeile
 
 ```bash
-git checkout main        # oder: git checkout dev
-git pull origin main     # oder: git pull origin dev
+git checkout main
+git pull origin main
 git merge origin/claude/<branch-name>
-git push origin main     # oder: git push origin dev
+git push origin main
 ```
 
 ## Release erstellen
@@ -40,15 +40,8 @@ HACS erkennt neue Releases automatisch (bis zu 1h Verzögerung).
 1. Feature-Branch direkt von `main` erstellen.
 2. Fix implementieren, Tests grün.
 3. PR gegen `main`, mergen, Patch-Release erstellen.
-4. Danach `dev` aktualisieren:
-   ```bash
-   git checkout dev && git pull origin main && git push origin dev
-   ```
 
-## dev-Branch aktualisieren
+## Branch-Hygiene
 
-Falls `main` Änderungen hat, die nicht in `dev` sind:
-
-```bash
-git checkout dev && git pull origin main && git push origin dev
-```
+- Alle PRs gehen gegen `main` (es gibt keinen `dev`-Branch).
+- Feature-Branches (`claude/*`) nach dem Merge löschen ("Delete branch" im PR).

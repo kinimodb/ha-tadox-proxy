@@ -25,8 +25,9 @@ class FollowTadoInputSwitch(CoordinatorEntity, SwitchEntity):
     """Switch that enables following physical Tado thermostat input.
 
     When on, the proxy detects if the user manually changes the setpoint
-    on the physical Tado device and adopts that temperature as the new
-    comfort target, reverting to COMFORT preset automatically.
+    on the physical Tado device and adopts that temperature as a manual
+    override (preset "Manual"/PRESET_NONE).  The stored comfort target
+    is not changed.
     """
 
     _attr_has_entity_name = True

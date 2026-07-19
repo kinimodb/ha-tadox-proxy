@@ -13,22 +13,30 @@ Feedforward + PI-Regelung mit externem Raumsensor.
 ## Architektur
 
 ```
-parameters.py  →  regulation.py  →  climate.py  ←  __init__.py (Coordinator)
-(keine HA-Dep)    (keine HA-Dep)    (HA-Bridge)     config_flow.py / const.py
+HA-frei (direkt testbar):          HA-Bridge:
+parameters.py → regulation.py      climate.py (Entity, Mixin-Komposition)
+climate_controllers.py             ├─ climate_regulation.py (RegulationMixin)
+                                   ├─ climate_presets.py (PresetMixin)
+                                   └─ __init__.py (Coordinator), config_flow.py
 ```
 
-Neue Features immer erst in `parameters.py` / `regulation.py` (testbar, keine HA-Abhängigkeit), dann `climate.py`.
+Neue Features immer erst in den HA-freien Modulen (`parameters.py`, `regulation.py`, `climate_controllers.py` – testbar ohne HA), dann in den HA-Modulen verdrahten.
 
 ### Schlüsseldateien
 
-- `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning)
+- `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning, BehaviourConfig)
 - `regulation.py` – Feedforward + PI Engine (HA-unabhängig)
-- `climate.py` – HA ClimateEntity, Presets, Boost-Timer, State Restore
+- `climate_controllers.py` – Window/Presence/Follow-Zustandsmaschinen (HA-unabhängig)
+- `climate.py` – HA ClimateEntity: Properties, Lifecycle, Config, Follow-Tado
+- `climate_regulation.py` – RegulationMixin: Regelzyklus, Rate-Limiting, TRV-Kommandos
+- `climate_presets.py` – PresetMixin: Preset-Wechsel, Boost-Timer, Window/Presence-Aktionen
 - `number.py` – NumberEntity für Preset-Temperaturen
+- `sensor.py` – Boost-Restzeit-Sensor
 - `binary_sensor.py` – Sensor-Degraded-Diagnose
 - `switch.py` – Toggle-Features (z.B. Follow Tado Input)
 - `config_flow.py` – Setup + Options Flow
-- `const.py` – DOMAIN, Config-Keys, Custom Preset Names
+- `diagnostics.py` – HA-Diagnostics-Export
+- `const.py` – DOMAIN, Config-Keys, Custom Preset Names, `safe_float()`
 - `strings.json` + `translations/` – UI-Texte (EN + DE)
 - `manifest.json` – Version, Metadata
 
@@ -66,19 +74,18 @@ Bei Feature-Änderungen aktualisieren:
 
 | Branch | Zweck |
 |--------|-------|
-| `main` | Stabile Releases. **Nie direkt pushen** – nur via PR. |
-| `dev` | Entwicklung & Integration. |
-| `claude/*` | Kurzlebige Feature-Branches von Claude Code. |
+| `main` | Einziger Langzeit-Branch. **Nie direkt pushen** – nur via PR. |
+| `claude/*` | Kurzlebige Feature-Branches von Claude Code, basierend auf `main`. |
 
-Feature-Branches basieren auf `dev`, Hotfixes auf `main`.
-PRs gegen `dev` (Features) oder `main` (Hotfixes).
+Nach dem Merge den Feature-Branch löschen. Es gibt keinen `dev`-Branch –
+PRs immer gegen `main`.
 
 ## Workflow
 
-1. Feature-Branch erstellen: `claude/<beschreibung>`
+1. Feature-Branch von `main` erstellen: `claude/<beschreibung>`
 2. Implementieren, Tests grün
 3. Commit & Push
-4. PR erstellen (gegen `dev` oder `main`)
+4. PR gegen `main` erstellen
 5. Merge-Anleitung und Release-Notes ausgeben (siehe `/deliver`)
 
 Für Details zu PR-Merging, Releases und Hotfix-Workflows: siehe `CONTRIBUTING.md`.
