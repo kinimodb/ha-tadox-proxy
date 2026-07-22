@@ -106,9 +106,7 @@ class PresetMixin:
         # to comfort so the user isn't stuck in frost mode after restore.
         if saved_preset == PRESET_FROST_PROTECTION:
             saved_preset = PRESET_COMFORT
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            if comfort is not None:
-                saved_temp = comfort
+            saved_temp = self._comfort_target()
         self._window_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_FROST_PROTECTION
         _LOGGER.info("Window open: switching to frost protection")
@@ -140,9 +138,7 @@ class PresetMixin:
                         )
             self._preset_mode = preset_to_restore
             if preset_to_restore == PRESET_COMFORT:
-                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-                if comfort is not None:
-                    self._target_temp = comfort
+                self._target_temp = self._comfort_target()
             elif saved.temp is not None:
                 self._target_temp = saved.temp
 
@@ -152,8 +148,7 @@ class PresetMixin:
             # took over.
             if preset_to_restore == PRESET_BOOST:
                 self._boost_saved_preset = PRESET_COMFORT
-                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-                self._boost_saved_temp = comfort if comfort is not None else self._target_temp
+                self._boost_saved_temp = self._comfort_target()
                 duration_s = self._config.presets.boost_duration_min * 60
                 self._boost_end_ts = time.time() + duration_s
                 self._boost_cancel = async_call_later_boost(
@@ -241,8 +236,7 @@ class PresetMixin:
         # the presence sensor was briefly unavailable at boot).
         if saved_preset == PRESET_AWAY:
             saved_preset = PRESET_COMFORT
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            saved_temp = comfort if comfort is not None else self._config.presets.comfort_target_c
+            saved_temp = self._comfort_target()
         self._presence_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_AWAY
         _LOGGER.info("Presence away: switching to AWAY preset")
@@ -287,8 +281,7 @@ class PresetMixin:
         # took over.
         if saved.preset == PRESET_BOOST:
             self._boost_saved_preset = PRESET_COMFORT
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            self._boost_saved_temp = comfort if comfort is not None else self._target_temp
+            self._boost_saved_temp = self._comfort_target()
             duration_s = self._config.presets.boost_duration_min * 60
             self._boost_end_ts = time.time() + duration_s
             self._boost_cancel = async_call_later_boost(
@@ -301,9 +294,7 @@ class PresetMixin:
         # If restoring COMFORT, take the current comfort_target from options
         # (it may have been changed via number entity while away).
         elif saved.preset == PRESET_COMFORT:
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            if comfort is not None:
-                self._target_temp = comfort
+            self._target_temp = self._comfort_target()
         elif saved.temp is not None:
             self._target_temp = saved.temp
         _LOGGER.info("Presence home: restoring previous preset")
@@ -363,9 +354,7 @@ class PresetMixin:
 
         # When switching to COMFORT, restore the stored comfort target
         if preset_mode == PRESET_COMFORT:
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            if comfort is not None:
-                self._target_temp = comfort
+            self._target_temp = self._comfort_target()
 
         # Start boost timer if entering boost mode
         if preset_mode == PRESET_BOOST:
@@ -419,11 +408,24 @@ class PresetMixin:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _comfort_target(self) -> float:
+        """Return the configured comfort target, falling back to the default.
+
+        The comfort_target option is absent from config_entry.options until the
+        Comfort Target number entity is edited once. Reading it with no default
+        yields None; callers previously skipped the assignment and left
+        _target_temp stuck at a frost/eco value. Fall back to the PresetConfig
+        default (20 °C) so comfort always resolves.
+        """
+        comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
+        if comfort is not None:
+            return comfort
+        return self._config.presets.comfort_target_c
+
     def _get_preset_target(self, preset_mode: str) -> float:
         """Return the target temperature for a given preset mode."""
         if preset_mode == PRESET_COMFORT:
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            return comfort if comfort is not None else self._target_temp
+            return self._comfort_target()
         if preset_mode == PRESET_ECO:
             return self._config.presets.eco_target_c
         if preset_mode == PRESET_BOOST:

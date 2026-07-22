@@ -47,7 +47,6 @@ from .const import (
     CONF_AWAY_TARGET,
     CONF_BOOST_DURATION,
     CONF_BOOST_TARGET,
-    CONF_COMFORT_TARGET,
     CONF_CORRECTION_KI,
     CONF_CORRECTION_KP,
     CONF_ECO_TARGET,
@@ -145,7 +144,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
         # UI state
         self._hvac_mode = HVACMode.HEAT
-        self._target_temp: float = config_entry.options.get(CONF_COMFORT_TARGET, PresetConfig.comfort_target_c)
+        self._target_temp: float = self._comfort_target()
         self._preset_mode: str = PRESET_COMFORT
 
         # Boost timer
@@ -285,9 +284,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # authoritative (may have changed via the number entity while HA was down).
         # For PRESET_NONE (manual), the restored slider temperature wins.
         if self._preset_mode == PRESET_COMFORT:
-            opts_comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            if opts_comfort is not None:
-                self._target_temp = opts_comfort
+            self._target_temp = self._comfort_target()
 
         # Initialize baseline for follow-tado from current tado setpoint so
         # the feature works immediately without waiting for the first regulation.
@@ -348,12 +345,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     # is_active flag is not persisted.  Pre-activate with
                     # COMFORT as the saved state so that coming home restores
                     # a useful preset instead of AWAY → AWAY (no-op).
-                    comfort = safe_float(
-                        self._config_entry.options.get(CONF_COMFORT_TARGET)
-                    )
                     self._presence_ctrl.activate(
                         PRESET_COMFORT,
-                        comfort if comfort is not None else self._config.presets.comfort_target_c,
+                        self._comfort_target(),
                     )
                     _LOGGER.info(
                         "Startup: preset AWAY restored, controller pre-activated "
@@ -370,11 +364,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 # This happens when the user returned while HA was down.
                 if self._preset_mode == PRESET_AWAY:
                     self._preset_mode = PRESET_COMFORT
-                    opts_comfort = safe_float(
-                        self._config_entry.options.get(CONF_COMFORT_TARGET)
-                    )
-                    if opts_comfort is not None:
-                        self._target_temp = opts_comfort
+                    self._target_temp = self._comfort_target()
                     _LOGGER.info(
                         "Startup: presence is home but preset was AWAY, "
                         "switching to COMFORT"
@@ -416,9 +406,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # Only sync comfort target when COMFORT preset is active; PRESET_NONE
         # (manual) keeps its independently set temperature.
         if self._preset_mode == PRESET_COMFORT:
-            comfort = safe_float(entry.options.get(CONF_COMFORT_TARGET))
-            if comfort is not None:
-                self._target_temp = comfort
+            self._target_temp = self._comfort_target()
         self.async_write_ha_state()
 
     # ------------------------------------------------------------------
@@ -502,9 +490,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 restore_preset = PRESET_COMFORT
             self._preset_mode = restore_preset
             if restore_preset == PRESET_COMFORT:
-                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-                if comfort is not None:
-                    self._target_temp = comfort
+                self._target_temp = self._comfort_target()
             elif saved.temp is not None:
                 self._target_temp = saved.temp
 
