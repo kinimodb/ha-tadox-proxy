@@ -1,40 +1,54 @@
-# Tuning Guide for Tado X Proxy
+# Tuning Guide
 
-This guide describes how to set up, test, and fine-tune the control loop for a
-new room. It is aimed at users without a control engineering background.
+For a room that runs, but not quite right — it overshoots, it swings, or it settles
+a little cold.
+
+No control engineering knowledge is assumed. Every symptom below tells you which
+single value to change and in which direction.
+
+---
+
+## Do you need this page?
+
+Most people do not. Check these first:
+
+| Situation | What to do |
+|---|---|
+| The room reaches the target and holds it within about half a degree | **Nothing.** That is the expected result. Close this page |
+| The room never warms up at all, or nothing seems to happen | Not a tuning problem — see [setup troubleshooting](docs/setup.md#when-something-is-wrong) |
+| You have not checked where your sensor sits | [Do that first](docs/setup.md#step-1-place-the-sensor-properly). A badly placed sensor cannot be tuned away |
+| You just installed it and are tuning pre-emptively | Wait. Run it as-is for a day. The defaults are good |
+
+Change **one value at a time**, then give the room several hours before judging the
+result. Heating is slow: two changes in an afternoon tell you nothing about which one
+did what.
+
+---
+
+## Start here: what is the symptom?
+
+| What you observe | Usual cause | Go to |
+|---|---|---|
+| Room sails past the target, then drifts back down | Correction too strong | [Strong overshoot](#strong-overshoot--1c) |
+| Temperature cycles up and down repeatedly | Correction too strong, or commands too frequent | [Oscillation](#temperature-oscillates-strongly) |
+| Room settles slightly below target and stays there | Long-term correction too weak | [Ki](#ki-integral-correction) |
+| Room takes very long to warm from cold | Cold-start boost too low — or the radiator is simply undersized | [Kp](#kp-proportional-correction) and the [radiator table](#tuning-by-radiator-type) |
+| Room feels fine but the reading is always off | Sensor placement, not tuning | [Sensor placement](docs/setup.md#step-1-place-the-sensor-properly) |
+
+If you want to understand *why* a value has the effect it does, see
+[how it works](docs/how-it-works.md).
 
 ---
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Initial Room Setup](#initial-room-setup)
-3. [Testing Strategy (3 Phases)](#testing-strategy-3-phases)
-4. [Parameter Reference](#parameter-reference)
-5. [Diagnostics: What the Attributes Tell You](#diagnostics-what-the-attributes-tell-you)
-6. [Troubleshooting](#troubleshooting)
+1. [Testing Strategy (3 Phases)](#testing-strategy-3-phases)
+2. [Parameter Reference](#parameter-reference)
+3. [Diagnostics: What the Attributes Tell You](#diagnostics-what-the-attributes-tell-you)
+4. [Troubleshooting](#troubleshooting)
 
----
-
-## Prerequisites
-
-- A **Tado X Thermostat** (TRV) visible in Home Assistant as a `climate.*` entity.
-- An **external room sensor** (e.g., Aqara, Sonoff) that measures the *actual* room temperature.
-  - Must be available as a `sensor.*` entity with `device_class: temperature`.
-  - Should **not** be placed near windows, doors, or radiators.
-- The proxy is installed via HACS and configured for this room.
-
----
-
-## Initial Room Setup
-
-1. **Add integration:** Settings > Devices & Services > Add Integration > *Tado X Proxy*.
-2. **Source Entity:** Select the Tado X thermostat (e.g., `climate.bedroom`).
-3. **External Sensor:** Select the external room sensor.
-4. **Name:** Choose a unique name (e.g., "Bedroom Proxy").
-5. **Keep defaults:** The default values (Kp=0.8, Ki=0.003) are a good starting point.
-6. **Tado X mode:** Set the Tado X thermostat to "Manual". The Tado app must not have
-   its own schedule active, as the proxy takes over control.
+> Setting a room up for the first time is covered in the
+> [setup guide](docs/setup.md), not here. This page assumes it is already running.
 
 ---
 
@@ -289,3 +303,33 @@ If the sensor is down longer than the grace period, the control loop pauses auto
 1. Check Home Assistant logs (Settings > System > Logs > "tadox_proxy").
 2. Check coordinator refresh: Data is updated every 60s.
 3. Test a service call: Developer Tools > Services > `climate.set_temperature` on the proxy entity.
+
+---
+
+## Still not right?
+
+Tuning cannot fix everything, and it is worth knowing when to stop. If a room
+resists every adjustment, the cause is usually physical rather than numerical:
+
+- **The radiator is too small for the room.** No setting adds heating capacity.
+  `target_for_tado_c` pinned at 30 °C with `is_saturated: true` is the giveaway.
+- **The sensor is in the wrong place.** Worth re-checking even if you are sure —
+  see [sensor placement](docs/setup.md#step-1-place-the-sensor-properly).
+- **A schedule is still active in the Tado app.** It will quietly fight every
+  command this integration sends.
+- **The radiator needs bleeding, or the valve is stuck.**
+
+If none of those apply, please open an
+[issue](https://github.com/kinimodb/ha-tadox-proxy/issues) with your radiator type,
+sensor position, the values you tried, and what happened. Reports like that are what
+improve the defaults for everyone.
+
+---
+
+## Where to go next
+
+| If you want to… | Read this |
+|---|---|
+| Look up what a setting does | [Settings reference](docs/settings.md) |
+| Understand *why* a value has its effect | [How it works](docs/how-it-works.md) |
+| Set up another room | [Setup guide](docs/setup.md) |

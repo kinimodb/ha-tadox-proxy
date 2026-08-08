@@ -4,231 +4,163 @@
 ![Version](https://img.shields.io/badge/version-1.1.6-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
-A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
-for Tado X radiator thermostats (TRVs). Uses feedforward + PI control with an
-external room sensor for precise room temperature control (±0.3–0.5°C accuracy).
+**Read this page in your language:**
+[Deutsch](https://github-com.translate.goog/kinimodb/ha-tadox-proxy?_x_tr_sl=en&_x_tr_tl=de&_x_tr_hl=de) ·
+[Nederlands](https://github-com.translate.goog/kinimodb/ha-tadox-proxy?_x_tr_sl=en&_x_tr_tl=nl&_x_tr_hl=nl) ·
+[Français](https://github-com.translate.goog/kinimodb/ha-tadox-proxy?_x_tr_sl=en&_x_tr_tl=fr&_x_tr_hl=fr) ·
+[Italiano](https://github-com.translate.goog/kinimodb/ha-tadox-proxy?_x_tr_sl=en&_x_tr_tl=it&_x_tr_hl=it) ·
+[Español](https://github-com.translate.goog/kinimodb/ha-tadox-proxy?_x_tr_sl=en&_x_tr_tl=es&_x_tr_hl=es)
+
+*(Automatic translation by Google. The English text is the original.)*
 
 ---
 
-## The Problem
+## Your room is colder than your thermostat says
 
-Tado X TRVs measure temperature at the radiator surface – not the room.
-This causes the heating to shut off too early, resulting in a persistent 1–3°C undershoot.
+Your Tado X shows 21 °C. Your room feels like 19 °C. You are not imagining it.
 
-**Tado X Proxy** compensates this offset using an external room sensor and a
-feedforward + PI control loop. The correction is applied directly to the setpoint,
-working *with* Tado's internal controller rather than against it.
+A Tado X sits on the radiator. So it measures the air right next to the radiator.
+That air is always warmer than the rest of the room. The Tado believes the room is
+warm enough and turns the heating down too early.
+
+The result: your room stays 1 to 3 °C colder than the number on the display.
+Every single day.
 
 ---
 
-## Prerequisites
+## What this integration does
 
-- Home Assistant **2026.3** or newer
+You place a small temperature sensor somewhere in the room — on a shelf, on a wall,
+anywhere away from the radiator and the window. That sensor knows the real temperature.
+
+This integration then does what you would do by hand: **it sets the Tado higher than
+you actually want it.**
+
+Here is the idea:
+
+> You ask for 21 °C. The room is at 19 °C.
+> So the integration tells the Tado: *"heat to 23"*.
+> The radiator keeps running. The room reaches 21 °C.
+> Then the integration dials the Tado back down.
+
+It repeats this every few minutes. Over time it learns how much extra your particular
+room needs, and it adjusts by itself. Rooms differ: a small room with a big radiator
+needs less help than a draughty room with a small one.
+
+You never deal with those numbers. You set 21 °C and you get 21 °C.
+
+In practice most rooms stay within about half a degree of the temperature you asked for.
+
+---
+
+## Is this for me?
+
+**This helps you if:**
+
+- You have one or more Tado X radiator thermostats.
+- Your rooms never quite reach the temperature you set.
+- You have a temperature sensor in the room, or you are willing to buy one.
+- You run Home Assistant.
+
+**This will not help you if:**
+
+- You have underfloor heating, electric radiators, or steam heating.
+  Those work completely differently.
+- You only have Tado wall thermostats and no radiator thermostats.
+- You do not want a second sensor in the room. Without it the integration cannot
+  know the real temperature, and there is nothing it can do.
+
+---
+
+## What it costs you
+
+- **A temperature sensor for each room you want to fix.** Any sensor that shows up
+  in Home Assistant works — Zigbee, Bluetooth, Wi-Fi, whatever you already use.
+  These typically start around 10–15 €.
+- **About ten minutes** of setup per room.
+- **Nothing else.** No cloud service, no account, no subscription. The integration
+  runs entirely inside your own Home Assistant.
+
+---
+
+## Getting started
+
+**→ [Step-by-step setup guide](docs/setup.md)**
+
+It walks you through installing, connecting your thermostat and sensor, and checking
+that it works. No prior knowledge needed.
+
+---
+
+## Do I have to configure anything?
+
+**No.** This is the most common misunderstanding, so to be clear:
+
+The integration ships with settings that work in most rooms. Install it, point it at
+your thermostat and your sensor, and leave everything else alone. It will do its job.
+
+There *are* a lot of adjustable values, and you will see them if you go looking.
+They exist for unusual rooms and for people who enjoy fiddling. **You can ignore all
+of them.** If your room heats up and holds its temperature, you are finished.
+
+Come back to the settings only if something is actually wrong.
+
+---
+
+## Everyday features
+
+Beyond the temperature correction, you get:
+
+- **Presets** — Comfort, Eco, Away, Boost, Frost Protection. One tap each.
+- **Window detection** — when a window contact opens, heating drops to frost
+  protection and comes back afterwards. Optional.
+- **Presence detection** — when nobody is home, the room drops to Away and recovers
+  when someone returns. Optional.
+- **Manual override** — turn the dial on the physical thermostat and, if you enable
+  it, the proxy follows you instead of fighting you.
+
+Details for all of these are in the [settings reference](docs/settings.md).
+
+---
+
+## Documentation
+
+Start at the top and go down only as far as you need to.
+
+| If you want to… | Read this |
+|---|---|
+| Get it running | **[Setup guide](docs/setup.md)** |
+| Look up a preset, a switch, or an option | [Settings reference](docs/settings.md) |
+| Fix a room that heats too slowly or overshoots | [Tuning guide](TUNING.md) |
+| Understand how the correction actually works | [How it works](docs/how-it-works.md) |
+
+---
+
+## Something not working?
+
+The [setup guide](docs/setup.md#when-something-is-wrong) covers the common problems:
+the room stays cold, the temperature swings up and down, or the integration seems to
+do nothing at all.
+
+If that does not help, open an
+[issue on GitHub](https://github.com/kinimodb/ha-tadox-proxy/issues) or ask in the
+[Home Assistant community thread](https://community.home-assistant.io/t/tado-x-proxy-thermostat-temperature-control-for-tado-x/995710).
+
+**Known problem:** configuring the integration in the iOS Companion App crashes when
+you pick an entity. This is a bug in Home Assistant itself, not in this integration.
+Use a normal web browser to set it up.
+
+---
+
+## Requirements
+
+- Home Assistant 2026.3 or newer
 - [HACS](https://hacs.xyz) installed
-- At least one Tado X TRV as a `climate.*` entity in HA
-- A temperature sensor (`sensor.*`, `device_class: temperature`) in the room
-
----
-
-## Installation
-
-1. Open HACS → **Integrations** → Menu (three dots, top right) → **Custom repositories**
-2. Enter URL: `https://github.com/kinimodb/ha-tadox-proxy`
-3. Category: **Integration** → **Add**
-4. Search for **Tado X Proxy Thermostat** in HACS and install
-5. Restart Home Assistant
-6. **Settings** → **Devices & Services** → **Add Integration** → *Tado X Proxy Thermostat*
-
----
-
-## Configuration
-
-Three fields are required during initial setup:
-
-| Field | Description |
-|-------|-------------|
-| Source Climate Entity | The real Tado X TRV (`climate.*`) |
-| External Temperature Sensor | A `sensor.*` with `device_class: temperature` in the room |
-| Name | Display name for the proxy thermostat |
-
-Additional options are available under **Settings → Devices & Services → Tado X Proxy → Configure** (control parameters, window/presence sensors).
-
----
-
-## Presets
-
-| Preset | Default | Description |
-|--------|---------|-------------|
-| **Comfort** | 20.0°C | Standard target temperature |
-| **Eco** | 17.0°C | Energy-saving mode |
-| **Boost** | 25.0°C | Short-term heating burst, auto-reverts after timer (default: 30 min) |
-| **Away** | 17.0°C | Reduced temperature for absences |
-| **Frost Protection** | 7.0°C | Minimum temperature (window open, extended absence) |
-| **Manual** | — | Free temperature selection via slider, no preset active |
-
-Each preset temperature is exposed as a `number.*` entity (e.g., `number.*_comfort_temperature`),
-adjustable in 0.5°C steps (range 5–30°C) and usable in automations.
-
-Moving the temperature slider without selecting a preset activates **Manual** mode
-without changing the stored comfort temperature.
-
----
-
-## Automation Features
-
-### Window Detection
-
-An optional `binary_sensor.*` (e.g., window contact) can trigger automatic frost protection:
-
-- **Window opens:** After a configurable delay (default: 30s), switches to Frost Protection.
-- **Window closes:** After a configurable close delay (default: 120s), restores the previous preset.
-  The close delay prevents aggressive heating bursts after ventilation.
-- If the window closes before the open delay expires, nothing happens.
-
-### Presence Sensor
-
-An optional `binary_sensor.*` (e.g., person tracker) can trigger automatic away mode:
-
-- **Nobody home:** After a configurable delay (default: 10 min), switches to Away.
-- **Someone returns:** After a configurable home delay (default: 30s), restores the previous preset.
-
-Both sensors work independently and can be active simultaneously.
-
-### HVAC OFF
-
-When the proxy thermostat is turned off (HVAC mode → OFF), the OFF command is forwarded
-directly to the source Tado TRV. If the command fails (e.g., TRV unreachable), the proxy
-reverts to its previous mode to stay in sync with the actual device state.
-
-### Follow Physical Thermostat
-
-The switch `switch.*_follow_physical_thermostat` (disabled by default) lets the proxy
-adopt manual temperature changes made directly on the physical TRV as a manual override
-(preset "Manual"). A change counts as physical user input when it diverges more than the
-follow-tado threshold (default: 0.5°C, configurable) from the last sent setpoint.
-
----
-
-## Control Parameters
-
-Configurable via **Settings → Devices & Services → Tado X Proxy → Configure**.
-
-### PI Controller Section
-
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| **Kp (Proportional)** | 0.8 | 0.0–5.0 | Strength of immediate error correction |
-| **Ki (Integral)** | 0.003 | 0.0–0.1 | Speed of long-term drift correction |
-| **Integral precision zone** | 0.3°C | 0.1–1.0°C | Integral only accumulates within this error band |
-
-### Gain Scheduling Section
-
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| **Adaptive Gain Scheduling** | On | Toggle | Scales Kp automatically based on error magnitude |
-| **Near-target strength** | 1.0 | 0.3–1.5 | Kp multiplier when close to target (gain scheduling) |
-| **Cold-start boost** | 1.5 | 1.0–3.0 | Kp multiplier during heat-up (gain scheduling) |
-| **Cold-start zone threshold** | 2.0°C | 0.5–5.0°C | Error above this activates the cold-start multiplier |
-| **Near-target zone threshold** | 0.5°C | 0.1–2.0°C | Error below this activates the near-target multiplier |
-
-### TRV Communication Section
-
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| **Min command interval** | 180s | 60–600s | Minimum time between TRV commands (battery vs. responsiveness) |
-| **Min change threshold** | 0.3°C | 0.1–1.0°C | Hysteresis: only send when difference exceeds this |
-| **Overlay refresh interval** | 0s | 0–3600s | Periodically resend setpoint to keep cloud overlays alive (0 = off) |
-
-### Behaviour Section
-
-| Parameter | Default | Range | Description |
-|-----------|---------|-------|-------------|
-| **Sensor grace period** | 300s | 0–1800s | How long to use the last valid reading when the external sensor is unavailable |
-| **Follow-tado threshold** | 0.5°C | 0.1–2.0°C | Min divergence from last-sent setpoint to treat as physical user input |
-| **Follow-tado grace period** | 20s | 5–120s | Ignore Tado setpoint changes for this long after sending a command |
-| **Urgent decrease threshold** | 1.0°C | 0.5–3.0°C | Bypass rate limiting when the new target is this much below the current Tado setpoint |
-
-### Adaptive Gain Scheduling
-
-When enabled (default), the proportional gain Kp is automatically scaled based on the current error:
-
-- **Cold start** (error > 2°C): Kp × 1.5 (configurable) — heats up faster
-- **Near target** (error < 0.5°C): Kp × 1.0 (configurable, was 0.7 before v1.1.1) — no attenuation by default
-- **Transition zone** (0.5–2°C): Linear interpolation between near-target and cold-start multiplier
-
-This eliminates the need to compromise between fast heat-up and stable steady-state control. All multipliers are configurable in the options flow under "Gain Scheduling".
-
-> For detailed tuning guidance, see [TUNING.md](TUNING.md).
-
-### Compatible Radiator Types
-
-The Tado X TRV is designed for **hot-water radiators with thermostatic valves (TRVs)**:
-
-- **Panel radiators** (Type 11, Type 22) — most common, works out of the box
-- **Column/sectional radiators** (Gliederheizkörper) — similar thermal behavior
-- **Cast iron radiators** — with TRV adapter, high thermal mass
-- **Towel radiators** — if they have a standard TRV connection
-
-**Not compatible:** underfloor heating, electric radiators, steam heating.
-
----
-
-## Sensor Resilience
-
-During brief sensor outages (e.g., Zigbee connectivity issues), the integration
-falls back to the last valid reading for a configurable grace period (default: 300s,
-adjustable in **Configure → Behaviour → Sensor grace period**). Window and presence
-timer actions are re-validated before execution to prevent false switching from sensor glitches.
-
-### Diagnostic Entities
-
-- **`binary_sensor.*_sensor_degraded`** — turns on when the external sensor becomes
-  unavailable. Use it in dashboards or automations (e.g., send a notification when
-  the sensor is offline). Extra attributes: `last_valid_reading`, `last_valid_age_s`,
-  `grace_period_s`.
-- **`sensor.*_boost_remaining`** — shows the remaining time (in minutes) when boost
-  mode is active. Returns to 0 when boost expires or is cancelled.
-
----
-
-## Diagnostic Attributes
-
-Visible under **Developer Tools → States**:
-
-| Attribute | Description |
-|-----------|-------------|
-| `effective_setpoint_c` | Effective setpoint including preset (°C) |
-| `regulation_reason` | Reason for the last regulation decision |
-| `tado_internal_temp_c` | Tado internal temperature reading (°C) |
-| `feedforward_offset_c` | Feedforward correction offset (°C) |
-| `p_correction_c` / `i_correction_c` | P and I correction components (°C) |
-| `error_c` | Current error between target and room temperature (°C) |
-| `target_for_tado_c` | Calculated setpoint sent to Tado (°C) |
-| `correction_kp` / `correction_ki` | Active Kp/Ki gains |
-| `window_open_active` | Window detection active |
-| `window_close_delay_active` | Close delay active |
-| `presence_away_active` | Presence-away mode active |
-| `sensor_degraded` | External sensor unavailable, bridging active |
-| `is_saturated` | Controller saturation active |
-
-When sensor bridging is active, `room_temp_last_valid_c` and `room_temp_last_valid_age_s` are also shown.
-
----
-
-## Known Limitations
-
-- **iOS Companion App:** Entity selection crashes due to an HA frontend bug in `ha-entity-picker`. **Workaround:** Use a browser for configuration.
-
----
-
-## Project Files
-
-| File | Purpose |
-|------|---------|
-| [TUNING.md](TUNING.md) | Tuning guide for new rooms |
+- At least one Tado X radiator thermostat visible in Home Assistant
+- One temperature sensor per room
 
 ---
 
 ## License
 
-MIT License – see [LICENSE](LICENSE)
+MIT License — see [LICENSE](LICENSE)
