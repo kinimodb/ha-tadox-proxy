@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.1.7-blue)
+![Version](https://img.shields.io/badge/version-1.1.8-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 **Read this page in your language:**
@@ -87,8 +87,8 @@ In practice most rooms stay within about half a degree of the temperature you as
 
 **→ [Step-by-step setup guide](docs/setup.md)**
 
-It walks you through installing, connecting your thermostat and sensor, and checking
-that it works. No prior knowledge needed.
+It walks you through installing, connecting your radiator thermostat and your room
+sensor, and checking that it works. No prior knowledge needed.
 
 ---
 
@@ -97,7 +97,8 @@ that it works. No prior knowledge needed.
 **No.** This is the most common misunderstanding, so to be clear:
 
 The integration ships with settings that work in most rooms. Install it, point it at
-your thermostat and your sensor, and leave everything else alone. It will do its job.
+your radiator thermostat and your room sensor, and leave everything else alone. It
+will do its job.
 
 There *are* a lot of adjustable values, and you will see them if you go looking.
 They exist for unusual rooms and for people who enjoy fiddling. **You can ignore all
@@ -116,8 +117,8 @@ Beyond the temperature correction, you get:
   protection and comes back afterwards. Optional.
 - **Presence detection** — when nobody is home, the room drops to Away and recovers
   when someone returns. Optional.
-- **Manual override** — turn the dial on the physical thermostat and, if you enable
-  it, the proxy follows you instead of fighting you.
+- **Manual override** — turn the dial on the radiator thermostat itself and, if you
+  enable it, the proxy follows you instead of fighting you.
 
 Details for all of these are in the [settings reference](docs/settings.md).
 
@@ -156,8 +157,11 @@ Use a normal web browser to set it up.
 
 - Home Assistant 2026.3 or newer
 - [HACS](https://hacs.xyz) installed
-- At least one Tado X radiator thermostat visible in Home Assistant
+- At least one Tado X radiator thermostat visible in Home Assistant — the one screwed
+  onto the radiator, not a wall thermostat
 - One temperature sensor per room
+- One entry per radiator: a room with two radiators gets two entries, both using the
+  same room sensor
 
 ---
 

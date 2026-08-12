@@ -3,11 +3,16 @@
     "step": {
       "user": {
         "title": "Tado X Proxy Thermostat",
-        "description": "Select the source climate entity, an external temperature sensor, and a name for the proxy thermostat.",
+        "description": "One entry controls exactly one Tado X radiator thermostat (TRV). If a room has several radiators, add one entry per TRV and point them all at the same room temperature sensor.",
         "data": {
-          "source_entity_id": "Source climate entity",
+          "source_entity_id": "Tado X radiator thermostat (TRV)",
           "external_temperature_entity_id": "External temperature sensor",
           "name": "Name"
+        },
+        "data_description": {
+          "source_entity_id": "The climate entity of the valve head mounted on the radiator. Do not select a wall thermostat here. Each TRV can only be used by one entry.",
+          "external_temperature_entity_id": "A temperature sensor placed in the room, away from the radiator. Use the same sensor for every entry belonging to that room.",
+          "name": "Name of the proxy thermostat. Pick a descriptive name per radiator, for example \"Lounge Window\" and \"Lounge Wall\", so you can find the entities again in automations."
         }
       }
     },
@@ -17,6 +22,9 @@
       "temp_entity_not_found": "External temperature sensor not found.",
       "temp_not_a_sensor": "Please select a sensor entity as the external temperature sensor.",
       "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
+    },
+    "abort": {
+      "already_configured": "This radiator thermostat (TRV) is already used by another entry. Each TRV can only be controlled by one proxy."
     }
   },
   "options": {
@@ -29,6 +37,7 @@
           "boost_duration": "Boost duration"
         },
         "data_description": {
+          "external_temperature_entity_id": "A temperature sensor placed in the room, away from the radiator. Use the same sensor for every entry belonging to that room.",
           "boost_duration": "How long boost mode stays active before returning to the previous preset."
         },
         "sections": {

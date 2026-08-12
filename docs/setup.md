@@ -14,10 +14,11 @@ that crashes when you select an entity. A normal web browser works fine.
 
 You need three things:
 
-1. **A Tado X radiator thermostat** that already appears in Home Assistant.
-   Tado X devices connect through Matter. If you cannot see your thermostat in
-   Home Assistant yet, set that up first — this integration cannot help until
-   Home Assistant can see the device.
+1. **A Tado X radiator thermostat (TRV)** that already appears in Home Assistant.
+   That is the valve head screwed onto the radiator itself — **not** a wall
+   thermostat. Tado X devices connect through Matter. If you cannot see your
+   radiator thermostat in Home Assistant yet, set that up first — this integration
+   cannot help until Home Assistant can see the device.
 2. **A temperature sensor in the room.** Any brand, any protocol, as long as it
    shows up in Home Assistant and reports a temperature.
 3. **HACS installed** in Home Assistant. See [hacs.xyz](https://hacs.xyz).
@@ -70,7 +71,7 @@ off, come back and check this first.
 This step is easy to miss, and skipping it causes the most common failure.
 
 Open the **Tado app** and make sure the room has **no schedule running**. Set the
-thermostat to manual mode.
+radiator thermostat to manual mode.
 
 Why: this integration constantly adjusts the target temperature on your Tado.
 If the Tado app also has its own schedule, the two will fight each other. Your
@@ -80,7 +81,7 @@ From now on you control the room through Home Assistant, not through the Tado ap
 
 ---
 
-## Step 4: Add the room
+## Step 4: Add your radiator thermostat
 
 1. Go to **Settings → Devices & Services**.
 2. Click **Add Integration** (bottom right).
@@ -89,23 +90,49 @@ From now on you control the room through Home Assistant, not through the Tado ap
 
 | Field | What to pick |
 |---|---|
-| **Source Climate Entity** | Your real Tado X thermostat. It starts with `climate.` |
+| **Tado X radiator thermostat (TRV)** | The real Tado X on the radiator — the valve head, not a wall thermostat. It starts with `climate.` |
 | **External Temperature Sensor** | The room sensor from Step 1. It starts with `sensor.` |
-| **Name** | Whatever you want to call it, for example "Living Room Proxy" |
+| **Name** | A name for this radiator, for example "Living Room Proxy" |
 
 5. Click **Submit**.
 
 That is the entire configuration. Everything else has sensible defaults.
 
-Repeat this step for each room. Every room needs its own sensor and its own entry.
+**Wall thermostats do not belong here.** If you have a Tado X on the wall, leave it
+alone — this integration only controls the thermostats mounted on the radiators.
+
+---
+
+## One entry per radiator thermostat
+
+This is worth knowing before you carry on, because it is easy to assume otherwise.
+
+**One entry controls exactly one radiator thermostat.** Not one room. Even when you
+name it "Living Room Proxy", what it drives is the single TRV you picked in Step 4.
+The same TRV also cannot be used twice — if you try to add it a second time, Home
+Assistant refuses the entry.
+
+**A room with one radiator** is therefore finished. That is the normal case.
+
+**A room with several radiators** needs one entry per radiator. Add each one exactly
+as in Step 4, and choose **the same room temperature sensor** every time. The entries
+stay separate thermostats you can set individually, but because they all read the
+same sensor, they agree on how warm the room actually is.
+
+**Use names you will recognise later.** "Lounge Window" and "Lounge Wall" are far
+more useful than "Lounge 1" and "Lounge 2". These names become the entity names, and
+you will meet them again in automations and in the Scheduler Component.
+
+So the basic kit for a room is: **one temperature sensor, plus one entry for every
+radiator thermostat in that room.** Repeat all of it for each room you want to fix.
 
 ---
 
 ## Step 5: Check that it works
 
 You now have a new thermostat in Home Assistant, named whatever you chose. Use this
-one from now on. Ignore the original Tado thermostat entity — the integration drives
-it for you.
+one from now on. Ignore the original Tado X radiator thermostat entity — the
+integration drives it for you.
 
 **Test it:**
 
@@ -141,7 +168,7 @@ left to do.
 
 ## What you got
 
-Alongside the thermostat, the integration creates a few extras. All of them are
+Alongside the proxy thermostat, every entry creates a few extras. All of them are
 optional and you can ignore them until you need them.
 
 - **Preset buttons** — Comfort, Eco, Away, Boost, Frost Protection.
@@ -150,7 +177,7 @@ optional and you can ignore them until you need them.
 - **A boost timer sensor** showing how many minutes of boost are left.
 - **A warning sensor** that turns on if your room sensor stops reporting.
 - **A "follow physical thermostat" switch**, off by default. Turn it on if you want
-  turning the dial on the wall to override the proxy.
+  turning the dial on the radiator thermostat to override the proxy.
 
 The [settings reference](settings.md) explains each one.
 
@@ -189,6 +216,12 @@ Both are optional and work independently.
 4. **Check the radiator itself.** Is it actually getting hot? If the valve is stuck
    or the radiator needs bleeding, no software can fix that.
 
+### Only one radiator in the room heats up
+
+The room has more than one radiator, and you only created one entry. Each radiator
+thermostat needs its own — see
+[One entry per radiator thermostat](#one-entry-per-radiator-thermostat).
+
 ### The room gets too warm
 
 Usually the sensor is in a spot that reads too cold — near a window, in a draught,
@@ -209,7 +242,7 @@ settings. See the [tuning guide](../TUNING.md).
 
 - Did you restart Home Assistant after installing? It will not work otherwise.
 - Are you looking at the right thermostat? The integration creates a **new** one.
-  Changing the original Tado entity does nothing useful.
+  Changing the original Tado X radiator thermostat entity does nothing useful.
 - Give it 3 minutes. Commands are deliberately rate-limited to save batteries.
 - Check the logs: **Settings → System → Logs**, search for `tadox_proxy`.
 

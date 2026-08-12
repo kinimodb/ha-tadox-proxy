@@ -45,7 +45,12 @@ stored Comfort temperature is left alone, so you can always get back to it.
 
 ## Entities you get
 
-Each room you set up creates:
+One entry controls exactly one Tado X radiator thermostat (TRV) — the valve head on
+the radiator, never a wall thermostat. A room with two radiators therefore has two
+entries, both pointing at the same room temperature sensor. See
+[one entry per radiator thermostat](setup.md#one-entry-per-radiator-thermostat).
+
+Each entry creates:
 
 | Entity | What it does |
 |---|---|
@@ -91,11 +96,11 @@ Point it at a presence sensor or person tracker (`binary_sensor.*`).
 ## Turning the thermostat off
 
 Switching the proxy to **OFF** passes the off command straight through to the real
-Tado thermostat.
+Tado X radiator thermostat.
 
-If that command fails — the thermostat is unreachable, for instance — the proxy goes
-back to the mode it was in. This keeps what you see in Home Assistant honest about
-what the hardware is actually doing.
+If that command fails — the radiator thermostat is unreachable, for instance — the
+proxy goes back to the mode it was in. This keeps what you see in Home Assistant
+honest about what the hardware is actually doing.
 
 ---
 
@@ -168,7 +173,7 @@ Between the two thresholds the strength slides smoothly from one to the other.
 
 ### TRV Communication
 
-How often the integration is allowed to talk to your thermostat.
+How often the integration is allowed to talk to your radiator thermostat (TRV).
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
