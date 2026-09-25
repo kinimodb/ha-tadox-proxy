@@ -10,13 +10,18 @@ Architecture
 - ``PresenceAutomationController`` – presence-away delay & state
 - ``FollowPhysicalController``    – pure-logic helper (no state, static method)
 - ``SavedState``                  – lightweight snapshot dataclass
+- ``PersistedAutomationState``    – automation snapshot that survives an HA
+  restart or config-entry reload (stored via RestoreEntity extra data)
+- ``normalize_restored_preset`` / ``resolve_boost_restore`` /
+  ``window_startup_action`` / ``presence_startup_action`` – pure startup
+  decisions used by ``async_added_to_hass``
 """
 from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,6 +30,14 @@ _LOGGER = logging.getLogger(__name__)
 _CancelFn = Callable[[], None]
 # Signature of async_call_later (or test stub)
 _CallLaterFn = Callable[[Any, float, Callable], _CancelFn]
+
+# Preset and state names used by the pure helpers in this module.  They mirror
+# Home Assistant's PRESET_* values and const.PRESET_FROST_PROTECTION, which
+# cannot be imported here without pulling in Home Assistant.
+PRESET_COMFORT_NAME = "comfort"
+PRESET_BOOST_NAME = "boost"
+PRESET_FROST_NAME = "frost_protection"
+_UNAVAILABLE_STATES = ("unavailable", "unknown")
 
 
 @dataclass
@@ -96,6 +109,14 @@ class WindowAutomationController:
             _LOGGER.debug("Window reopened during close delay – staying in frost protection")
             return
 
+        # Already in window mode (e.g. the sensor went on → unavailable → on,
+        # or only its attributes changed while "on"): do not arm a second open
+        # action.  It would snapshot the current frost-protection preset as the
+        # "previous" preset and the real pre-open preset would be lost.
+        if self.is_active:
+            _LOGGER.debug("Window open event ignored – window mode already active")
+            return
+
         # Cancel any previously pending open timer before scheduling a new one
         if self._open_timer is not None:
             self._open_timer()
@@ -163,14 +184,22 @@ class WindowAutomationController:
         """
         self._saved = SavedState(preset=preset, temp=temp)
 
-    def cancel_all(self) -> None:
-        """Cancel all timers and reset to idle state (e.g. user override)."""
+    def cancel_timers(self) -> None:
+        """Cancel pending timers but keep the active flag and saved state.
+
+        Used on entity removal so the automation snapshot can still be
+        persisted and re-armed after a restart or reload.
+        """
         if self._open_timer:
             self._open_timer()
             self._open_timer = None
         if self._close_timer:
             self._close_timer()
             self._close_timer = None
+
+    def cancel_all(self) -> None:
+        """Cancel all timers and reset to idle state (e.g. user override)."""
+        self.cancel_timers()
         self.is_active = False
         self._saved = SavedState()
 
@@ -270,6 +299,10 @@ class PresenceAutomationController:
         # No delay: immediate restore
         return True
 
+    def get_saved(self) -> SavedState:
+        """Return a copy of the currently saved preset/temperature."""
+        return SavedState(preset=self._saved.preset, temp=self._saved.temp)
+
     def activate(self, preset: str, temp: float | None) -> None:
         """Record the pre-away state and mark presence automation as active."""
         self._away_timer = None
@@ -341,6 +374,190 @@ class FollowPhysicalController:
         if _now - last_sent_ts < grace_s:
             return False
         return True
+
+
+# ---------------------------------------------------------------------------
+# Persistence across restart / reload (pure logic, no HA imports)
+# ---------------------------------------------------------------------------
+
+def _as_opt_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _as_opt_float(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+@dataclass
+class PersistedAutomationState:
+    """Automation state that must survive an HA restart or entry reload.
+
+    The climate entity exposes this through ``extra_restore_state_data`` and
+    reads it back in ``async_added_to_hass`` to re-arm the controllers.
+    """
+
+    window_active: bool = False
+    window_saved: SavedState = field(default_factory=SavedState)
+    presence_active: bool = False
+    presence_saved: SavedState = field(default_factory=SavedState)
+    # Wall-clock end of a running boost (0.0 = no boost running).
+    boost_end_ts: float = 0.0
+    # Preset/temperature to return to when the boost ends.
+    boost_saved: SavedState = field(default_factory=SavedState)
+
+    VERSION = 1
+
+    def as_dict(self) -> dict[str, Any]:
+        """Serialise to a JSON-safe dict."""
+        return {
+            "version": self.VERSION,
+            "window_active": self.window_active,
+            "window_saved_preset": self.window_saved.preset,
+            "window_saved_temp": self.window_saved.temp,
+            "presence_active": self.presence_active,
+            "presence_saved_preset": self.presence_saved.preset,
+            "presence_saved_temp": self.presence_saved.temp,
+            "boost_end_ts": self.boost_end_ts,
+            "boost_saved_preset": self.boost_saved.preset,
+            "boost_saved_temp": self.boost_saved.temp,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> PersistedAutomationState | None:
+        """Parse a stored dict; return None when it is missing or unusable."""
+        if not isinstance(data, Mapping) or "version" not in data:
+            return None
+        return cls(
+            window_active=data.get("window_active") is True,
+            window_saved=SavedState(
+                preset=_as_opt_str(data.get("window_saved_preset")),
+                temp=_as_opt_float(data.get("window_saved_temp")),
+            ),
+            presence_active=data.get("presence_active") is True,
+            presence_saved=SavedState(
+                preset=_as_opt_str(data.get("presence_saved_preset")),
+                temp=_as_opt_float(data.get("presence_saved_temp")),
+            ),
+            boost_end_ts=_as_opt_float(data.get("boost_end_ts")) or 0.0,
+            boost_saved=SavedState(
+                preset=_as_opt_str(data.get("boost_saved_preset")),
+                temp=_as_opt_float(data.get("boost_saved_temp")),
+            ),
+        )
+
+
+def normalize_restored_preset(
+    preset: str,
+    persisted: PersistedAutomationState | None,
+    legacy_window_active: bool = False,
+) -> str:
+    """Return the preset to resume with after a restart or reload.
+
+    With a persisted automation snapshot every preset is kept as-is; a
+    window-driven frost protection is forced back to frost so the re-armed
+    window controller and the preset agree.  BOOST is kept here and resolved
+    by :func:`resolve_boost_restore`.
+
+    Without a snapshot (first start after upgrading from a version that did
+    not persist it) BOOST falls back to COMFORT (its timer is gone) and frost
+    protection falls back to COMFORT only when the restored state says the
+    window automation had set it (``legacy_window_active``).  A frost
+    protection preset the user selected is kept.
+    """
+    if persisted is not None:
+        if persisted.window_active:
+            return PRESET_FROST_NAME
+        return preset
+    if preset == PRESET_BOOST_NAME:
+        return PRESET_COMFORT_NAME
+    if preset == PRESET_FROST_NAME and legacy_window_active:
+        return PRESET_COMFORT_NAME
+    return preset
+
+
+@dataclass
+class BoostRestore:
+    """Outcome of :func:`resolve_boost_restore`."""
+
+    resume: bool
+    remaining_s: float = 0.0
+    fallback: SavedState = field(default_factory=SavedState)
+
+
+def resolve_boost_restore(
+    persisted: PersistedAutomationState | None,
+    now: float,
+) -> BoostRestore:
+    """Decide how a restored BOOST preset continues after restart/reload.
+
+    ``resume=True`` → restart the boost timer for ``remaining_s`` seconds.
+    ``resume=False`` → the boost already ended while HA was down; switch to
+    ``fallback`` (the pre-boost preset, COMFORT if unknown).
+    """
+    saved = persisted.boost_saved if persisted is not None else SavedState()
+    fallback = SavedState(
+        preset=saved.preset or PRESET_COMFORT_NAME,
+        temp=saved.temp,
+    )
+    if persisted is not None and persisted.boost_end_ts > now:
+        return BoostRestore(
+            resume=True, remaining_s=persisted.boost_end_ts - now, fallback=fallback
+        )
+    return BoostRestore(resume=False, fallback=fallback)
+
+
+# Startup actions returned by the *_startup_action helpers
+STARTUP_NONE = "none"          # nothing to do
+STARTUP_KEEP = "keep"          # keep the re-armed automation active
+STARTUP_RESTORE = "restore"    # restore the saved preset now
+STARTUP_ARM_OPEN = "arm_open"  # window is open: start the normal open delay
+
+
+def window_startup_action(
+    active: bool,
+    sensor_configured: bool,
+    sensor_state: str | None,
+) -> str:
+    """Reconcile a (re-armed) window controller with the sensor at startup."""
+    if active:
+        if not sensor_configured:
+            # Sensor removed from the config while frost was active – nothing
+            # would ever end window mode, so restore now.
+            return STARTUP_RESTORE
+        if sensor_state == "off":
+            # Window closed while HA was down.
+            return STARTUP_RESTORE
+        # Still open, or not reported yet (unavailable / unknown / not loaded):
+        # stay in window mode; the state listener handles the next change.
+        return STARTUP_KEEP
+    if sensor_configured and sensor_state == "on":
+        return STARTUP_ARM_OPEN
+    return STARTUP_NONE
+
+
+def presence_startup_action(
+    active: bool,
+    sensor_configured: bool,
+    sensor_state: str | None,
+) -> str:
+    """Reconcile a re-armed presence controller with the sensor at startup.
+
+    Only covers the re-armed (active) case; an inactive controller is handled
+    by the regular startup logic in the climate entity.
+    """
+    if not active:
+        return STARTUP_NONE
+    if not sensor_configured:
+        return STARTUP_RESTORE
+    if sensor_state is None or sensor_state in _UNAVAILABLE_STATES or sensor_state == "off":
+        return STARTUP_KEEP
+    return STARTUP_RESTORE
 
 
 # ---------------------------------------------------------------------------

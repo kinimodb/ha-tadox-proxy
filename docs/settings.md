@@ -83,6 +83,12 @@ Point it at a window contact (`binary_sensor.*`).
   This delay is intentional — it stops the radiator from firing hard the instant you
   shut the window, while the room air is still cold from the draught.
 - If the window shuts again before the first delay is up, nothing happens at all.
+- The preset that comes back is exactly the one you had before — including Frost
+  Protection if you had chosen it yourself.
+- Restarting Home Assistant or saving these settings does not change the preset. If
+  a window is open during a restart, the room stays in window mode and your previous
+  preset still comes back when it closes. The same applies to Away and to a running
+  Boost, which carries on for the time it had left.
 
 ### Presence detection
 

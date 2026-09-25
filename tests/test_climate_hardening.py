@@ -63,6 +63,11 @@ _reg = _load_module(
     os.path.join(_COMP_DIR, "regulation.py"),
 )
 
+_ctrl = _load_module(
+    "tadox_proxy.climate_controllers",
+    os.path.join(_COMP_DIR, "climate_controllers.py"),
+)
+
 RegulationConfig = _params.RegulationConfig
 BehaviourConfig = _params.BehaviourConfig
 PresetConfig = _params.PresetConfig
@@ -435,30 +440,33 @@ class TestPresetValueValidation:
 # ---------------------------------------------------------------------------
 
 class TestPresetRestoreGuard:
-    """Guard that BOOST and FROST_PROTECTION are never kept after a restart.
+    """Preset normalisation on restart WITHOUT a persisted automation snapshot.
 
-    We test the pure logic (the elif fix) without HA by mirroring the two-step
-    preset normalisation applied in async_added_to_hass.
+    This is the legacy path (first start after upgrading from a version that
+    did not persist window/presence/boost state).  BOOST falls back to COMFORT
+    because its timer is gone.  FROST_PROTECTION falls back to COMFORT only
+    when the window automation had set it; a frost preset the user selected
+    is kept (previously it was always reset to COMFORT – reported bug).
+    The snapshot path is covered in test_frost_preset_persistence.py.
     """
 
     @staticmethod
-    def _normalize_restored_preset(preset: str) -> str:
-        """Mirror of the fixed normalisation block (elif, not double-if)."""
-        PRESET_BOOST = "boost"
-        PRESET_FROST_PROTECTION = "frost_protection"
-        PRESET_COMFORT = "comfort"
-
-        if preset == PRESET_BOOST:
-            preset = PRESET_COMFORT
-        elif preset == PRESET_FROST_PROTECTION:
-            preset = PRESET_COMFORT
-        return preset
+    def _normalize_restored_preset(preset: str, window_active: bool = False) -> str:
+        return _ctrl.normalize_restored_preset(
+            preset, None, legacy_window_active=window_active
+        )
 
     def test_boost_converts_to_comfort(self):
         assert self._normalize_restored_preset("boost") == "comfort"
 
-    def test_frost_converts_to_comfort(self):
-        assert self._normalize_restored_preset("frost_protection") == "comfort"
+    def test_window_frost_converts_to_comfort(self):
+        assert (
+            self._normalize_restored_preset("frost_protection", window_active=True)
+            == "comfort"
+        )
+
+    def test_user_frost_is_kept(self):
+        assert self._normalize_restored_preset("frost_protection") == "frost_protection"
 
     def test_comfort_unchanged(self):
         assert self._normalize_restored_preset("comfort") == "comfort"
@@ -534,10 +542,10 @@ def _window_restore_logic(
     """Mirror of _restore_window_state with presence check (Fix 3).
 
     Returns the preset that should be restored after window closes.
+    A saved frost protection is restored as-is: it can only have been saved
+    when the user had selected it before the window opened.
     """
     preset = saved_preset
-    if preset == "frost_protection":
-        preset = "comfort"
     if preset == "away" and presence_state not in (None, "off", "unavailable", "unknown"):
         preset = "comfort"
     return preset
@@ -629,9 +637,9 @@ class TestWindowRestorePresenceCheck:
         result = _window_restore_logic("comfort", "on")
         assert result == "comfort"
 
-    def test_frost_always_overridden_to_comfort(self):
+    def test_user_frost_restored_as_is(self):
         result = _window_restore_logic("frost_protection", "on")
-        assert result == "comfort"
+        assert result == "frost_protection"
 
     def test_eco_unchanged_when_presence_home(self):
         result = _window_restore_logic("eco", "on")

@@ -30,16 +30,25 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .climate_controllers import (
+    STARTUP_ARM_OPEN,
+    STARTUP_RESTORE,
     FollowPhysicalController,
+    PersistedAutomationState,
     PresenceAutomationController,
+    SavedState,
     WindowAutomationController,
+    normalize_restored_preset,
+    presence_startup_action,
+    resolve_boost_restore,
+    window_startup_action,
 )
 from .climate_presets import PresetMixin
 from .climate_regulation import RegulationMixin
@@ -85,6 +94,17 @@ from .parameters import (
 from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _AutomationExtraData(ExtraStoredData):
+    """RestoreEntity wrapper around the HA-free PersistedAutomationState."""
+
+    def __init__(self, state: PersistedAutomationState) -> None:
+        self._state = state
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a JSON-safe dict for the restore-state store."""
+        return self._state.as_dict()
 
 
 async def async_setup_entry(
@@ -266,23 +286,66 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
         # Restore previous state
         last_state = await self.async_get_last_state()
+        # Automation snapshot (window / presence / boost).  None on the first
+        # start after upgrading from a version that did not persist it.
+        persisted: PersistedAutomationState | None = None
+        extra = await self.async_get_last_extra_data()
+        if extra is not None:
+            persisted = PersistedAutomationState.from_dict(extra.as_dict())
+
         if last_state:
             if last_state.state in (HVACMode.HEAT, HVACMode.OFF):
                 self._hvac_mode = HVACMode(last_state.state)
             temp = safe_float(last_state.attributes.get(ATTR_TEMPERATURE))
             if temp is not None:
                 self._target_temp = temp
-            # Restore preset (default to comfort if missing or invalid)
+            # Restore preset (default to comfort if missing or invalid).
+            # A user-selected frost protection is kept; only a window-driven
+            # one without a persisted snapshot falls back to comfort.
             restored_preset = last_state.attributes.get("preset_mode")
             if restored_preset in PRESET_LIST or restored_preset == PRESET_NONE:
-                self._preset_mode = restored_preset
-                # Don't restore boost – it's time-limited and the timer is gone
-                if self._preset_mode == PRESET_BOOST:
-                    self._preset_mode = PRESET_COMFORT
-                # Don't restore frost protection – it's window-driven and the
-                # controller state is not persisted across restarts
-                elif self._preset_mode == PRESET_FROST_PROTECTION:
-                    self._preset_mode = PRESET_COMFORT
+                self._preset_mode = normalize_restored_preset(
+                    restored_preset,
+                    persisted,
+                    legacy_window_active=bool(
+                        last_state.attributes.get("window_open_active")
+                    ),
+                )
+
+        # Re-arm the automation controllers from the persisted snapshot so a
+        # restart or reload does not lose the pre-automation preset.
+        if persisted is not None:
+            if persisted.window_active:
+                self._window_ctrl.activate(
+                    persisted.window_saved.preset or PRESET_COMFORT,
+                    persisted.window_saved.temp,
+                )
+            if persisted.presence_active:
+                self._presence_ctrl.activate(
+                    persisted.presence_saved.preset or PRESET_COMFORT,
+                    persisted.presence_saved.temp,
+                )
+
+        # Resume a running boost, or fall back if it ended while HA was down.
+        if self._preset_mode == PRESET_BOOST:
+            boost = resolve_boost_restore(persisted, time.time())
+            self._boost_saved_preset = boost.fallback.preset
+            self._boost_saved_temp = boost.fallback.temp
+            if boost.resume:
+                self._boost_end_ts = time.time() + boost.remaining_s
+                self._boost_cancel = async_call_later(
+                    self.hass, boost.remaining_s, self._async_boost_expired
+                )
+                _LOGGER.info(
+                    "Startup: boost resumed, %d min remaining",
+                    math.ceil(boost.remaining_s / 60),
+                )
+            else:
+                self._apply_saved_preset(boost.fallback)
+                _LOGGER.info(
+                    "Startup: boost ended while HA was down, reverting to %s",
+                    boost.fallback.preset,
+                )
 
         # If the active preset is COMFORT, the comfort_target in options is
         # authoritative (may have changed via the number entity while HA was down).
@@ -312,7 +375,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 )
             )
 
-        # Window sensor listener
+        # Window / presence sensor listeners
         window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
         if window_sensor:
             self.async_on_remove(
@@ -322,16 +385,6 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     self._async_window_changed,
                 )
             )
-            # Evaluate current state after restart
-            window_state = self.hass.states.get(window_sensor)
-            if window_state and window_state.state == "on":
-                delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
-                self._window_ctrl.handle_window_opened(
-                    self.hass, delay, self._async_window_action
-                )
-                _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
-
-        # Presence sensor listener
         presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
         if presence_sensor:
             self.async_on_remove(
@@ -341,38 +394,12 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     self._async_presence_changed,
                 )
             )
-            # Evaluate current state after restart
-            presence_state = self.hass.states.get(presence_sensor)
-            if presence_state and presence_state.state == "off":
-                if self._preset_mode == PRESET_AWAY:
-                    # Preset AWAY was restored from state but the controller's
-                    # is_active flag is not persisted.  Pre-activate with
-                    # COMFORT as the saved state so that coming home restores
-                    # a useful preset instead of AWAY → AWAY (no-op).
-                    self._presence_ctrl.activate(
-                        PRESET_COMFORT,
-                        self._comfort_target(),
-                    )
-                    _LOGGER.info(
-                        "Startup: preset AWAY restored, controller pre-activated "
-                        "with COMFORT as saved state"
-                    )
-                else:
-                    delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
-                    self._presence_ctrl.handle_presence_away(
-                        self.hass, delay, self._async_presence_away_action
-                    )
-                    _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
-            elif presence_state and presence_state.state not in ("unavailable", "unknown"):
-                # Presence shows home but preset was restored as AWAY.
-                # This happens when the user returned while HA was down.
-                if self._preset_mode == PRESET_AWAY:
-                    self._preset_mode = PRESET_COMFORT
-                    self._target_temp = self._comfort_target()
-                    _LOGGER.info(
-                        "Startup: presence is home but preset was AWAY, "
-                        "switching to COMFORT"
-                    )
+
+        # Reconcile presence first: if it restores while window mode is still
+        # active, it updates the window's saved state (see
+        # _restore_presence_state), which the window reconciliation then uses.
+        self._startup_reconcile_presence(presence_sensor, persisted)
+        self._startup_reconcile_window(window_sensor)
 
         # Start periodic regulation
         self.async_on_remove(
@@ -383,14 +410,121 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             )
         )
 
+    def _startup_reconcile_presence(
+        self,
+        presence_sensor: str | None,
+        persisted: PersistedAutomationState | None,
+    ) -> None:
+        """Align presence automation with the presence sensor at startup."""
+        presence_state = (
+            self.hass.states.get(presence_sensor) if presence_sensor else None
+        )
+        state = presence_state.state if presence_state else None
+
+        if self._presence_ctrl.is_active:
+            # Re-armed from the persisted snapshot.
+            action = presence_startup_action(True, bool(presence_sensor), state)
+            if action == STARTUP_RESTORE:
+                _LOGGER.info(
+                    "Startup: presence automation was active, sensor is %s – restoring",
+                    state if presence_sensor else "not configured",
+                )
+                self._restore_presence_state(notify=False)
+            return
+
+        if not presence_sensor or presence_state is None:
+            return
+
+        if state == "off":
+            if self._preset_mode == PRESET_AWAY and persisted is None:
+                # Legacy (no snapshot): AWAY was restored but the controller
+                # state was not persisted.  Pre-activate with COMFORT as the
+                # saved state so that coming home restores a useful preset
+                # instead of AWAY → AWAY (no-op).
+                self._presence_ctrl.activate(PRESET_COMFORT, self._comfort_target())
+                _LOGGER.info(
+                    "Startup: preset AWAY restored, controller pre-activated "
+                    "with COMFORT as saved state"
+                )
+            else:
+                delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
+                self._presence_ctrl.handle_presence_away(
+                    self.hass, delay, self._async_presence_away_action
+                )
+                _LOGGER.info("Startup: presence sensor is away, action in %ds", delay)
+        elif state not in ("unavailable", "unknown"):
+            # Legacy (no snapshot): presence shows home but preset was restored
+            # as AWAY – the user returned while HA was down.  With a snapshot
+            # an inactive controller means AWAY was chosen by the user: keep it.
+            if self._preset_mode == PRESET_AWAY and persisted is None:
+                self._preset_mode = PRESET_COMFORT
+                self._target_temp = self._comfort_target()
+                _LOGGER.info(
+                    "Startup: presence is home but preset was AWAY, "
+                    "switching to COMFORT"
+                )
+
+    def _startup_reconcile_window(self, window_sensor: str | None) -> None:
+        """Align window automation with the window sensor at startup."""
+        window_state = self.hass.states.get(window_sensor) if window_sensor else None
+        state = window_state.state if window_state else None
+        action = window_startup_action(
+            self._window_ctrl.is_active, bool(window_sensor), state
+        )
+        if action == STARTUP_RESTORE:
+            _LOGGER.info(
+                "Startup: window automation was active, sensor is %s – restoring",
+                state if window_sensor else "not configured",
+            )
+            self._restore_window_state(notify=False)
+        elif action == STARTUP_ARM_OPEN:
+            delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
+            self._window_ctrl.handle_window_opened(
+                self.hass, delay, self._async_window_action
+            )
+            _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
+
+    def _apply_saved_preset(self, saved: SavedState) -> None:
+        """Switch to a saved preset/temperature without side effects."""
+        if saved.preset is None:
+            return
+        self._preset_mode = saved.preset
+        if saved.preset == PRESET_COMFORT:
+            self._target_temp = self._comfort_target()
+        elif saved.temp is not None:
+            self._target_temp = saved.temp
+
+    @property
+    def extra_restore_state_data(self) -> ExtraStoredData:
+        """Persist automation state so restart/reload can re-arm it."""
+        return _AutomationExtraData(self._automation_snapshot())
+
+    def _automation_snapshot(self) -> PersistedAutomationState:
+        """Capture window / presence / boost automation state."""
+        boost_running = self._preset_mode == PRESET_BOOST and self._boost_end_ts > 0
+        return PersistedAutomationState(
+            window_active=self._window_ctrl.is_active,
+            window_saved=self._window_ctrl.get_saved(),
+            presence_active=self._presence_ctrl.is_active,
+            presence_saved=self._presence_ctrl.get_saved(),
+            boost_end_ts=self._boost_end_ts if boost_running else 0.0,
+            boost_saved=SavedState(
+                preset=self._boost_saved_preset, temp=self._boost_saved_temp
+            ),
+        )
+
     async def async_will_remove_from_hass(self) -> None:
-        """Cancel all timers when the entity is being removed."""
-        self._window_ctrl.cancel_all()
+        """Cancel all timers when the entity is being removed.
+
+        Active flags, saved presets and the boost end time are kept so the
+        automation snapshot stays accurate (HA reads extra_restore_state_data
+        on removal, e.g. during a config-entry reload).
+        """
+        self._window_ctrl.cancel_timers()
         self._presence_ctrl.cancel_timer()
         if self._boost_cancel is not None:
             self._boost_cancel()
             self._boost_cancel = None
-            self._boost_end_ts = 0.0
         await super().async_will_remove_from_hass()
 
     async def _async_config_entry_updated(self, hass, entry) -> None:
@@ -487,10 +621,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             saved = self._window_ctrl.get_saved()
             self._window_ctrl.cancel_all()
             restore_preset = saved.preset if saved.preset is not None else PRESET_COMFORT
-            # Frost must never survive the cancel; a saved BOOST has lost its
-            # timer context – both fall back to COMFORT (same policy as the
-            # state restore in async_added_to_hass).
-            if restore_preset in (PRESET_FROST_PROTECTION, PRESET_BOOST):
+            # A saved BOOST has lost its timer context – fall back to COMFORT.
+            # A saved frost protection was selected by the user before the
+            # window opened, so it is restored as-is.
+            if restore_preset == PRESET_BOOST:
                 restore_preset = PRESET_COMFORT
             self._preset_mode = restore_preset
             if restore_preset == PRESET_COMFORT:

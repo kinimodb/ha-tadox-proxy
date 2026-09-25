@@ -259,6 +259,19 @@ The response is graded rather than all-or-nothing:
 Pending window and presence actions are re-validated immediately before they fire, so
 a single spurious reading during a timer cannot flip a room into Away.
 
+Window mode is entered once per opening. A repeated "open" report while it is already
+active (for example a sensor that drops to `unavailable` and comes back `on`) is
+ignored, so the preset saved when the window first opened is never overwritten by
+Frost Protection itself.
+
+The window, presence and boost state (active or not, the preset to return to, and
+when a boost ends) is stored with the entity's restore data. After a restart or a
+config-entry reload the controllers are re-armed from it and then checked against the
+sensors: a window that closed while Home Assistant was down restores the saved preset
+at once; one that is still open (or not reported yet) stays in window mode. Without
+this, the only clue after a restart would be the preset name, and a Frost Protection
+the user chose could not be told apart from one the window automation set.
+
 ---
 
 ## Design decisions, briefly

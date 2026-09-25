@@ -80,6 +80,13 @@ class PresetMixin:
 
     async def _async_window_action(self, _now) -> None:
         """Switch to frost protection preset after window-open delay."""
+        # Already in window mode: never snapshot again.  The current preset is
+        # the window-driven frost protection, so saving it would lose the real
+        # pre-open preset.
+        if self._window_ctrl.is_active:
+            _LOGGER.debug("Window action skipped: window mode already active")
+            return
+
         # Revalidate: only proceed if window sensor is still "on"
         window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
         if window_sensor:
@@ -102,11 +109,8 @@ class PresetMixin:
         else:
             saved_preset = self._preset_mode
             saved_temp = self._target_temp
-        # Never save frost protection as the "previous" preset – fall back
-        # to comfort so the user isn't stuck in frost mode after restore.
-        if saved_preset == PRESET_FROST_PROTECTION:
-            saved_preset = PRESET_COMFORT
-            saved_temp = self._comfort_target()
+        # A frost protection preset here was chosen by the user (window mode
+        # is not active – checked above), so it is a valid restore target.
         self._window_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_FROST_PROTECTION
         _LOGGER.info("Window open: switching to frost protection")
@@ -117,14 +121,18 @@ class PresetMixin:
         """Restore previous preset after window-close delay expired."""
         self._restore_window_state()
 
-    def _restore_window_state(self) -> None:
-        """Restore preset after window is closed."""
+    def _restore_window_state(self, notify: bool = True) -> None:
+        """Restore preset after window is closed.
+
+        ``notify=False`` is used during ``async_added_to_hass``: the entity is
+        not fully added yet, so no state write or regulation task is started
+        (the platform writes the state right after, the timer regulates).
+        """
         saved = self._window_ctrl.restore()
         if saved.preset is not None:
             preset_to_restore = saved.preset
-            # Safety net: never restore frost protection from window automation
-            if preset_to_restore == PRESET_FROST_PROTECTION:
-                preset_to_restore = PRESET_COMFORT
+            # Frost protection is restored as-is: it can only have been saved
+            # when the user had selected it before the window opened.
             # Safety net: don't restore AWAY when presence sensor shows home
             if preset_to_restore == PRESET_AWAY:
                 presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
@@ -159,6 +167,8 @@ class PresetMixin:
                     self._config.presets.boost_duration_min,
                 )
         _LOGGER.info("Window closed: restoring previous preset")
+        if not notify:
+            return
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="window_closed")
         )
@@ -257,8 +267,11 @@ class PresetMixin:
                 return
         self._restore_presence_state()
 
-    def _restore_presence_state(self) -> None:
-        """Restore preset after presence returns."""
+    def _restore_presence_state(self, notify: bool = True) -> None:
+        """Restore preset after presence returns.
+
+        ``notify=False``: see :meth:`_restore_window_state`.
+        """
         saved = self._presence_ctrl.restore()
         if saved.preset is None:
             _LOGGER.info("Presence home: nothing to restore")
@@ -298,6 +311,8 @@ class PresetMixin:
         elif saved.temp is not None:
             self._target_temp = saved.temp
         _LOGGER.info("Presence home: restoring previous preset")
+        if not notify:
+            return
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="presence_home")
         )
@@ -332,8 +347,9 @@ class PresetMixin:
 
         # If window automation is active (frost protection due to open window),
         # update the saved state so the new preset is restored when the window
-        # closes, but keep frost protection active.
-        if self._window_ctrl.is_active and preset_mode != PRESET_FROST_PROTECTION:
+        # closes, but keep frost protection active.  This includes selecting
+        # frost protection itself: the user wants frost after the window closes.
+        if self._window_ctrl.is_active:
             self._window_ctrl.update_saved(preset_mode, self._get_preset_target(preset_mode))
             _LOGGER.info(
                 "Window open: preset %s saved for restore, keeping frost protection",
