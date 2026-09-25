@@ -212,3 +212,5 @@ __pycache__/
 
 # Local backups created during debugging
 *.bak.*
+.claude/.DS_Store
+.DS_Store
