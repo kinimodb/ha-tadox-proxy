@@ -94,14 +94,24 @@ class TestWindowController:
         assert fake.calls[0]["delay"] == 30
         assert not c.is_active  # not yet active – open delay still pending
 
-    def test_second_open_cancels_first_timer(self):
+    def test_repeated_open_keeps_first_timer(self):
         c = self._ctrl()
         fake = FakeCallLater()
         c.handle_window_opened(None, 30, lambda now: None, call_later=fake)
         c.handle_window_opened(None, 30, lambda now: None, call_later=fake)
-        assert fake.calls[0]["cancelled"]
-        assert not fake.calls[1]["cancelled"]
+        assert fake.scheduled_count == 1
+        assert not fake.calls[0]["cancelled"]
         assert fake.active_count == 1
+
+    def test_repeated_open_preserves_saved_preset(self):
+        c = self._ctrl()
+        c.activate("eco", 17.0)
+        fake = FakeCallLater()
+        c.handle_window_opened(None, 30, lambda now: None, call_later=fake)
+        assert fake.scheduled_count == 0
+        saved = c.restore()
+        assert saved.preset == "eco"
+        assert saved.temp == 17.0
 
     # --- activate / restore ---
 
@@ -140,6 +150,18 @@ class TestWindowController:
         assert fake.scheduled_count == 1
         assert fake.calls[0]["delay"] == 120
         assert c.close_delay_active
+
+    def test_repeated_close_keeps_first_timer_and_saved_preset(self):
+        c = self._ctrl()
+        c.activate("none", 22.5)
+        fake = FakeCallLater()
+        c.handle_window_closed(None, 120, lambda now: None, call_later=fake)
+        c.handle_window_closed(None, 120, lambda now: None, call_later=fake)
+        assert fake.scheduled_count == 1
+        assert not fake.calls[0]["cancelled"]
+        saved = c.restore()
+        assert saved.preset == "none"
+        assert saved.temp == 22.5
 
     def test_close_no_timer_when_not_active(self):
         c = self._ctrl()
@@ -277,14 +299,14 @@ class TestPresenceController:
         assert fake.scheduled_count == 1
         assert fake.calls[0]["delay"] == 1800
 
-    def test_repeated_away_replaces_timer(self):
+    def test_repeated_away_keeps_first_timer(self):
         c = self._ctrl()
         fake = FakeCallLater()
         c.handle_presence_away(None, 1800, lambda now: None, call_later=fake)
         c.handle_presence_away(None, 900, lambda now: None, call_later=fake)
-        assert fake.calls[0]["cancelled"]
-        assert not fake.calls[1]["cancelled"]
-        assert fake.calls[1]["delay"] == 900
+        assert fake.scheduled_count == 1
+        assert not fake.calls[0]["cancelled"]
+        assert fake.calls[0]["delay"] == 1800
 
     # --- activate / restore ---
 
@@ -506,10 +528,10 @@ class TestPresenceController:
         fake.trigger(0, now=None)
         assert actions == ["restored"]
 
-    def test_repeated_home_replaces_timer(self):
-        """Two consecutive home events: first timer cancelled, only second active."""
+    def test_repeated_home_keeps_first_timer_and_saved_preset(self):
+        """Repeated home events do not postpone restoration."""
         c = self._ctrl()
-        c.activate("comfort", 21.0)
+        c.activate("eco", 17.0)
         fake = FakeCallLater()
         c.handle_presence_home(
             None, 30, lambda now: None, call_later=fake
@@ -517,9 +539,12 @@ class TestPresenceController:
         c.handle_presence_home(
             None, 30, lambda now: None, call_later=fake
         )
-        assert fake.calls[0]["cancelled"]
-        assert not fake.calls[1]["cancelled"]
+        assert fake.scheduled_count == 1
+        assert not fake.calls[0]["cancelled"]
         assert fake.active_count == 1
+        saved = c.restore()
+        assert saved.preset == "eco"
+        assert saved.temp == 17.0
 
     def test_restore_cancels_home_timer(self):
         """Calling restore() defensively cancels any pending home timer."""

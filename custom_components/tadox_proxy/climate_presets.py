@@ -64,6 +64,9 @@ class PresetMixin:
         new_state = event.data.get("new_state")
         if new_state is None or new_state.state in ("unavailable", "unknown"):
             return
+        old_state = event.data.get("old_state")
+        if old_state is not None and old_state.state == new_state.state:
+            return
 
         if new_state.state == "on":  # window opened
             delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
@@ -173,6 +176,9 @@ class PresetMixin:
         """Handle presence sensor state changes."""
         new_state = event.data.get("new_state")
         if new_state is None or new_state.state in ("unavailable", "unknown"):
+            return
+        old_state = event.data.get("old_state")
+        if old_state is not None and old_state.state == new_state.state:
             return
 
         if new_state.state == "off":  # nobody home
