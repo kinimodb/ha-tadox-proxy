@@ -49,7 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     value = float(state.state)
                     if math.isfinite(value):
                         data["room_temp"] = value
-                        data["room_temp_ts"] = state.last_updated.timestamp()
+                        data["room_temp_ts"] = state.last_reported.timestamp()
                     else:
                         _LOGGER.warning(
                             "Room temperature from %s is not finite: %s",

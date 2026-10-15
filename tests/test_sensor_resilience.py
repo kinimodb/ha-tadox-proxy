@@ -7,7 +7,10 @@ _async_regulation_cycle sensor resolution.
 """
 from __future__ import annotations
 
+import ast
+import asyncio
 import importlib.util
+import math
 import os
 import sys
 import types
@@ -160,3 +163,44 @@ class TestDefaultGraceValue:
 
     def test_default_is_300_seconds(self):
         assert DEFAULT_SENSOR_GRACE_S == 300
+
+
+def test_unchanged_room_temperature_uses_last_reported_time():
+    """An unchanged sensor value can be reported long after its last update."""
+    setup_path = os.path.join(_COMP_DIR, "__init__.py")
+    with open(setup_path, encoding="utf-8") as setup_file:
+        module = ast.parse(setup_file.read())
+    setup = next(
+        node for node in module.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_setup_entry"
+    )
+    update = next(
+        node for node in setup.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_update_data"
+    )
+
+    sensor_state = types.SimpleNamespace(
+        state="20.0",
+        last_updated=types.SimpleNamespace(timestamp=lambda: 1000.0),
+        last_reported=types.SimpleNamespace(timestamp=lambda: 1600.0),
+    )
+    entry = types.SimpleNamespace(
+        data={"source_entity_id": None, "external_temperature_entity_id": "sensor.room"},
+        options={},
+    )
+    hass = types.SimpleNamespace(
+        states=types.SimpleNamespace(get=lambda entity_id: sensor_state)
+    )
+    namespace = {
+        "entry": entry,
+        "hass": hass,
+        "math": math,
+        "CONF_EXTERNAL_TEMPERATURE_ENTITY_ID": "external_temperature_entity_id",
+    }
+    extracted = ast.fix_missing_locations(ast.Module(body=[update], type_ignores=[]))
+    exec(compile(extracted, setup_path, "exec"), namespace)
+
+    data = asyncio.run(namespace["async_update_data"]())
+
+    assert data["room_temp"] == 20.0
+    assert data["room_temp_ts"] == 1600.0
