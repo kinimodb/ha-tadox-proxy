@@ -17,6 +17,11 @@ DOMAIN = "tadox_proxy"
 CONF_SOURCE_ENTITY_ID = "source_entity_id"
 CONF_NAME = "name"
 CONF_EXTERNAL_TEMPERATURE_ENTITY_ID = "external_temperature_entity_id"
+CONF_FALLBACK_TEMPERATURE_ENTITY_ID = "fallback_temperature_entity_id"
+CONF_SENSOR_LOSS_ACTION = "sensor_loss_action"
+SENSOR_LOSS_HOLD = "hold"
+SENSOR_LOSS_FALLBACK = "fallback_sensor"
+SENSOR_LOSS_NATIVE_TRV = "native_trv"
 
 # Preset configuration keys (stored in options)
 CONF_COMFORT_TARGET = "comfort_target"

@@ -166,6 +166,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S
         )
         self._sensor_degraded: bool = False
+        self._active_control_mode: str | None = None
+        self._pending_mode_transition = False
+        self._safety_native_until_regulated = False
 
         # Overlay refresh: optional periodic resend for cloud-API integrations
         # with timer-based overlays (e.g. exabird ha-tado-x uses 30 min TIMER).
@@ -512,6 +515,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             self._last_reason = "sent(hvac_off)"
             self.async_write_ha_state()
         elif hvac_mode == HVACMode.HEAT and previous_mode == HVACMode.OFF:
+            self._safety_native_until_regulated = True
             # Returning from OFF → reset timestamp so the first HEAT cycle uses
             # dt=0 and avoids an integral spike from the long OFF period.
             self._last_regulation_ts = 0
@@ -596,7 +600,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
     @property
     def current_temperature(self) -> float | None:
-        """Return the room temperature from the external sensor."""
+        """Return the active room sensor temperature, if available."""
+        if self._active_control_mode == "fallback_sensor":
+            return self.coordinator.data.get("fallback_room_temp")
         return self.coordinator.data.get("room_temp")
 
     @property
@@ -656,6 +662,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             "window_close_delay_active": self._window_ctrl.close_delay_active,
             "presence_away_active": self._presence_ctrl.is_active,
             "sensor_degraded": self._sensor_degraded,
+            "active_control_mode": self._active_control_mode,
             "overlay_refresh_s": self._overlay_refresh_s,
         }
 

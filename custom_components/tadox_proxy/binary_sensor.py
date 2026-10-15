@@ -71,6 +71,7 @@ class TadoXProxySensorDegradedBinarySensor(CoordinatorEntity, BinarySensorEntity
 
         attrs: dict[str, object] = {
             "grace_period_s": climate._sensor_grace_s,
+            "active_control_mode": climate._active_control_mode,
         }
 
         if climate._last_valid_room_temp is not None:

@@ -34,10 +34,14 @@
         "description": "Configure the proxy thermostat behavior.",
         "data": {
           "external_temperature_entity_id": "External temperature sensor",
+          "sensor_loss_action": "When the room sensor is unavailable",
+          "fallback_temperature_entity_id": "Backup room sensor",
           "boost_duration": "Boost duration"
         },
         "data_description": {
           "external_temperature_entity_id": "A temperature sensor placed in the room, away from the radiator. Use the same sensor for every entry belonging to that room.",
+          "sensor_loss_action": "After the grace period expires, keep the last command, regulate from a backup room sensor, or let the radiator thermostat regulate itself. Window Frost and HVAC OFF always take priority.",
+          "fallback_temperature_entity_id": "Used only for the backup room sensor action. Choose a different sensor from the primary room sensor.",
           "boost_duration": "How long boost mode stays active before returning to the previous preset."
         },
         "sections": {
@@ -133,8 +137,19 @@
       }
     },
     "error": {
+      "fallback_sensor_required": "Choose a backup room sensor for this action.",
+      "fallback_sensor_same": "The backup sensor must differ from the primary sensor.",
       "temp_entity_not_found": "External temperature sensor not found.",
       "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
+    }
+  },
+  "selector": {
+    "sensor_loss_action": {
+      "options": {
+        "hold": "Keep the last TRV command",
+        "fallback_sensor": "Use a backup room sensor",
+        "native_trv": "Let the radiator thermostat regulate itself"
+      }
     }
   },
   "entity": {
