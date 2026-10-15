@@ -63,7 +63,7 @@ Each entry creates:
 The `sensor_degraded` entity is worth putting on a dashboard or wiring to a
 notification — a dead room sensor is the one failure that quietly ruins the
 temperature in a room. It carries extra attributes: `last_valid_reading`,
-`last_valid_age_s` and `grace_period_s`.
+`last_valid_age_s`, `grace_period_s`, and `active_control_mode`.
 
 ---
 
@@ -128,8 +128,29 @@ period (default 5 minutes). During that time:
 - `binary_sensor.<name>_sensor_degraded` turns **on**.
 - The attribute `room_temp_last_valid_age_s` tells you how stale the reading is.
 
-If the sensor stays gone past the grace period, the correction pauses rather than
-acting on data it cannot trust.
+After the grace period, choose what happens in the integration options:
+
+- **Keep the last TRV command:** no more temperature commands until the room sensor
+  returns. Existing installations retain this behavior unless you change the option.
+  Safety exception: after window Frost Protection or switching HVAC OFF then back to
+  HEAT, the proxy sends the uncorrected target rather than leaving the TRV on an
+  inappropriate old target.
+- **Use a backup room sensor:** feedforward and PI regulation continue with a second
+  room sensor. If it is unavailable too, the TRV takes over as below.
+- **Let the radiator thermostat regulate itself:** send the effective temperature
+  target directly to the TRV, without feedforward or PI correction. New
+  installations default to this option. The temperature shown by the proxy remains
+  unavailable because the head's built-in measurement is not a room measurement.
+
+The selected action also applies if the primary sensor has never reported a valid
+temperature. Switching sensor or control mode resets the PI integral. When the
+primary sensor returns, normal regulation resumes. Window Frost Protection sends
+its target directly even when room sensors are unavailable, and HVAC OFF always
+passes through to the TRV.
+
+These actions require Home Assistant to mark the room sensor `unavailable` or
+`unknown`. A stale numeric value still looks valid to the proxy; monitor the sensor
+availability separately.
 
 Pending window and presence actions are re-checked just before they fire, so a single
 glitchy reading cannot flip your room into Away.

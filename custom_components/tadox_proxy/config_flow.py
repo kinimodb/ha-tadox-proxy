@@ -12,6 +12,7 @@ from .const import (
     CONF_CORRECTION_KI,
     CONF_CORRECTION_KP,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_FALLBACK_TEMPERATURE_ENTITY_ID,
     CONF_FOLLOW_GRACE_S,
     CONF_FOLLOW_THRESHOLD_C,
     CONF_GAIN_FINE_MULTIPLIER,
@@ -28,12 +29,16 @@ from .const import (
     CONF_PRESENCE_HOME_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_SENSOR_GRACE_S,
+    CONF_SENSOR_LOSS_ACTION,
     CONF_SOURCE_ENTITY_ID,
     CONF_URGENT_DECREASE_THRESHOLD_C,
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
     DOMAIN,
+    SENSOR_LOSS_FALLBACK,
+    SENSOR_LOSS_HOLD,
+    SENSOR_LOSS_NATIVE_TRV,
 )
 from .parameters import DEFAULT_SENSOR_GRACE_S, BehaviourConfig, RegulationConfig
 
@@ -63,6 +68,7 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SOURCE_ENTITY_ID: source_entity_id,
                     CONF_NAME: name,
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
+                    CONF_SENSOR_LOSS_ACTION: SENSOR_LOSS_NATIVE_TRV,
                 },
             )
 
@@ -102,11 +108,34 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
 
             # Strip empty optional sensor values so they're stored as absent
             cleaned = {k: v for k, v in flat.items() if v not in (None, "")}
+            if (
+                cleaned.get(CONF_SENSOR_LOSS_ACTION) == SENSOR_LOSS_FALLBACK
+                and not cleaned.get(CONF_FALLBACK_TEMPERATURE_ENTITY_ID)
+            ):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._options_schema(),
+                    errors={CONF_FALLBACK_TEMPERATURE_ENTITY_ID: "fallback_sensor_required"},
+                )
+            if (
+                cleaned.get(CONF_SENSOR_LOSS_ACTION) == SENSOR_LOSS_FALLBACK
+                and cleaned.get(CONF_FALLBACK_TEMPERATURE_ENTITY_ID)
+                == cleaned.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
+            ):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._options_schema(),
+                    errors={CONF_FALLBACK_TEMPERATURE_ENTITY_ID: "fallback_sensor_same"},
+                )
             # Preserve existing options not shown in this form (e.g. preset
             # temperatures set via Number entities, follow_tado_input flag).
             merged = dict(self.config_entry.options)
             # Remove optional sensor keys that were cleared by the user
-            for key in (CONF_WINDOW_SENSOR_ID, CONF_PRESENCE_SENSOR_ID):
+            for key in (
+                CONF_WINDOW_SENSOR_ID,
+                CONF_PRESENCE_SENSOR_ID,
+                CONF_FALLBACK_TEMPERATURE_ENTITY_ID,
+            ):
                 if key not in cleaned:
                     merged.pop(key, None)
             merged.update(cleaned)
@@ -114,6 +143,10 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             # AFTER HA has persisted the new options, avoiding stale data.
             return self.async_create_entry(title="", data=merged)
 
+        return self.async_show_form(step_id="init", data_schema=self._options_schema())
+
+    def _options_schema(self):
+        """Build the options form from saved values."""
         # Load current values (options > data > defaults)
         opts = self.config_entry.options
         data = self.config_entry.data
@@ -202,6 +235,21 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
                     default=current_ext_temp,
                 ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Required(
+                    CONF_SENSOR_LOSS_ACTION,
+                    default=opts.get(
+                        CONF_SENSOR_LOSS_ACTION,
+                        data.get(CONF_SENSOR_LOSS_ACTION, SENSOR_LOSS_HOLD),
+                    ),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[SENSOR_LOSS_HOLD, SENSOR_LOSS_FALLBACK, SENSOR_LOSS_NATIVE_TRV],
+                        translation_key="sensor_loss_action",
+                    )
+                ),
+                vol.Optional(CONF_FALLBACK_TEMPERATURE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
                 vol.Required(
@@ -405,7 +453,9 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             }
         )
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=options_schema,
-        )
+        fallback_sensor = opts.get(CONF_FALLBACK_TEMPERATURE_ENTITY_ID)
+        if fallback_sensor:
+            options_schema = self.add_suggested_values_to_schema(
+                options_schema, {CONF_FALLBACK_TEMPERATURE_ENTITY_ID: fallback_sensor}
+            )
+        return options_schema

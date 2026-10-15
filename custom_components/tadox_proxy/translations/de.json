@@ -34,10 +34,14 @@
         "description": "Verhalten des Proxy-Thermostats konfigurieren.",
         "data": {
           "external_temperature_entity_id": "Externer Temperatursensor",
+          "sensor_loss_action": "Wenn der Raumsensor nicht verfügbar ist",
+          "fallback_temperature_entity_id": "Ersatz-Raumsensor",
           "boost_duration": "Boost-Dauer"
         },
         "data_description": {
           "external_temperature_entity_id": "Ein Temperatursensor im Raum, mit Abstand zum Heizkörper. Für alle Einträge desselben Raums denselben Sensor verwenden.",
+          "sensor_loss_action": "Nach Ablauf der Karenzzeit den letzten Befehl beibehalten, mit einem Ersatz-Raumsensor regeln oder das Heizkörperthermostat selbst regeln lassen. Fenster-Frostschutz und HVAC AUS haben immer Vorrang.",
+          "fallback_temperature_entity_id": "Nur für die Option Ersatz-Raumsensor. Einen anderen Sensor als den primären Raumsensor wählen.",
           "boost_duration": "Wie lange der Boost-Modus aktiv bleibt, bevor zum vorherigen Preset zurückgekehrt wird."
         },
         "sections": {
@@ -133,8 +137,19 @@
       }
     },
     "error": {
+      "fallback_sensor_required": "Für diese Option einen Ersatz-Raumsensor auswählen.",
+      "fallback_sensor_same": "Der Ersatzsensor muss sich vom primären Sensor unterscheiden.",
       "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
       "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
+    }
+  },
+  "selector": {
+    "sensor_loss_action": {
+      "options": {
+        "hold": "Letzten TRV-Befehl beibehalten",
+        "fallback_sensor": "Ersatz-Raumsensor verwenden",
+        "native_trv": "Heizkörperthermostat selbst regeln lassen"
+      }
     }
   },
   "entity": {

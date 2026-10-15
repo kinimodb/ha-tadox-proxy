@@ -10,7 +10,11 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, DOMAIN
+from .const import (
+    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_FALLBACK_TEMPERATURE_ENTITY_ID,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,28 +41,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = {
             "room_temp": None,
             "room_temp_ts": None,
+            "fallback_room_temp": None,
             "tado_internal_temp": None,
             "tado_setpoint": None,
         }
 
-        # Get Room Temp from External Sensor
-        if external_sensor_id:
-            state = hass.states.get(external_sensor_id)
+        for sensor_id, value_key in (
+            (external_sensor_id, "room_temp"),
+            (entry.options.get(CONF_FALLBACK_TEMPERATURE_ENTITY_ID), "fallback_room_temp"),
+        ):
+            if not sensor_id:
+                continue
+            state = hass.states.get(sensor_id)
             if state and state.state not in ("unknown", "unavailable"):
                 try:
                     value = float(state.state)
                     if math.isfinite(value):
-                        data["room_temp"] = value
-                        data["room_temp_ts"] = state.last_updated.timestamp()
+                        data[value_key] = value
+                        if value_key == "room_temp":
+                            data["room_temp_ts"] = state.last_updated.timestamp()
                     else:
                         _LOGGER.warning(
                             "Room temperature from %s is not finite: %s",
-                            external_sensor_id, value,
+                            sensor_id, value,
                         )
                 except (ValueError, TypeError):
                     _LOGGER.warning(
                         "Cannot parse room temperature from sensor %s: %r",
-                        external_sensor_id, state.state,
+                        sensor_id, state.state,
                     )
 
         # Get Tado Internal Temp & Setpoint from Source Entity
