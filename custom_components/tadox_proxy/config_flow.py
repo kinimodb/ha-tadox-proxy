@@ -110,8 +110,6 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 if key not in cleaned:
                     merged.pop(key, None)
             merged.update(cleaned)
-            # Reload is triggered by the update_listener in __init__.py
-            # AFTER HA has persisted the new options, avoiding stale data.
             return self.async_create_entry(title="", data=merged)
 
         # Load current values (options > data > defaults)

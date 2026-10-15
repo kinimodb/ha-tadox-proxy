@@ -4,13 +4,20 @@ from __future__ import annotations
 import logging
 import math
 from datetime import timedelta
+from functools import partial
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, DOMAIN
+from .const import (
+    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_PRESENCE_SENSOR_ID,
+    CONF_SOURCE_ENTITY_ID,
+    CONF_WINDOW_SENSOR_ID,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,17 +129,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 7. Load the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # 8. Reload integration when options change (e.g. from the options flow).
-    # This listener fires AFTER HA has persisted the new options, so the
-    # reload always sees the up-to-date values.
-    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    entry.async_on_unload(
+        entry.add_update_listener(
+            partial(_async_options_updated, listener_sources=_listener_sources(entry))
+        )
+    )
 
     return True
 
 
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the integration when options are changed."""
-    await hass.config_entries.async_reload(entry.entry_id)
+def _listener_sources(entry: ConfigEntry) -> tuple[str | None, ...]:
+    """Return source and sensor IDs that require a reload when changed."""
+    return (
+        entry.data.get(CONF_SOURCE_ENTITY_ID),
+        entry.options.get(
+            CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+            entry.data.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID),
+        ),
+        entry.options.get(CONF_WINDOW_SENSOR_ID),
+        entry.options.get(CONF_PRESENCE_SENSOR_ID),
+    )
+
+
+async def _async_options_updated(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    *,
+    listener_sources: tuple[str | None, ...],
+) -> None:
+    """Reload only if the configured entity IDs have changed."""
+    if _listener_sources(entry) != listener_sources:
+        await hass.config_entries.async_reload(entry.entry_id)
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
