@@ -66,9 +66,24 @@ Vor jedem Release synchron aktualisieren:
 
 ## Dokumentation
 
-Bei Feature-Änderungen aktualisieren:
-- **README.md** – User-facing Doku
-- **TUNING.md** – Bei Regelungs-/Parameter-Änderungen
+Geschichtet – je tiefer, desto technischer. Bei Feature-Änderungen die passende
+Schicht aktualisieren, nicht pauschal alle.
+
+| Schicht | Datei | Zielgruppe | Tonfall |
+|---------|-------|------------|---------|
+| 0 | `README.md` | Interessent, oft Laie | Alltagssprache, **keine** Fachbegriffe |
+| 1 | `docs/setup.md` | Neuer Nutzer | Klick für Klick, kein Vorwissen |
+| 2 | `docs/settings.md` | Nutzer mit Sonderwunsch | Referenz, Begriffe erklärt |
+| 3 | `TUNING.md` | Optimierer | Symptom → Maßnahme |
+| 4 | `docs/how-it-works.md` | Neugierige, Contributor | Regelungstechnik, Begriffe eingeführt |
+
+**Schicht 0 und 1: kurze Sätze, kein Jargon.** Diese Schichten werden vom Nutzer
+maschinell übersetzt (Übersetzer-Links im README-Kopf). Einfaches Englisch ist die
+Voraussetzung dafür, dass das brauchbar funktioniert. Es gibt bewusst **keine**
+gepflegten Übersetzungen – der Pflegeaufwand steht in keinem Verhältnis.
+
+Neuer Regelungsparameter → Tabelle in Schicht 2, bei Bedarf Symptom in Schicht 3.
+Kein Parameter-Kram in die README zurückwandern lassen.
 
 ## Git-Branching
 

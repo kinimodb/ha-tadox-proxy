@@ -3,11 +3,16 @@
     "step": {
       "user": {
         "title": "Tado X Proxy Thermostat",
-        "description": "Wähle die Quell-Climate-Entity, einen externen Temperatursensor und einen Namen für das Proxy-Thermostat.",
+        "description": "Ein Eintrag steuert genau ein Tado X Heizkörperthermostat (TRV). Hat ein Raum mehrere Heizkörper, lege pro TRV einen Eintrag an und verweise alle auf denselben Raum-Temperatursensor.",
         "data": {
-          "source_entity_id": "Quell-Climate-Entity",
+          "source_entity_id": "Tado X Heizkörperthermostat (TRV)",
           "external_temperature_entity_id": "Externer Temperatursensor",
           "name": "Name"
+        },
+        "data_description": {
+          "source_entity_id": "Die Climate-Entität des Thermostatkopfs am Heizkörper. Hier kein Wandthermostat auswählen. Jedes TRV kann nur von einem Eintrag verwendet werden.",
+          "external_temperature_entity_id": "Ein Temperatursensor im Raum, mit Abstand zum Heizkörper. Für alle Einträge desselben Raums denselben Sensor verwenden.",
+          "name": "Name des Proxy-Thermostats. Pro Heizkörper einen sprechenden Namen wählen, zum Beispiel \"Lounge Fenster\" und \"Lounge Wand\", damit die Entitäten in Automationen wiederzufinden sind."
         }
       }
     },
@@ -17,6 +22,9 @@
       "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
       "temp_not_a_sensor": "Bitte eine Sensor-Entität als externen Temperatursensor auswählen.",
       "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
+    },
+    "abort": {
+      "already_configured": "Dieses Heizkörperthermostat (TRV) wird bereits von einem anderen Eintrag verwendet. Jedes TRV kann nur von einem Proxy gesteuert werden."
     }
   },
   "options": {
@@ -29,6 +37,7 @@
           "boost_duration": "Boost-Dauer"
         },
         "data_description": {
+          "external_temperature_entity_id": "Ein Temperatursensor im Raum, mit Abstand zum Heizkörper. Für alle Einträge desselben Raums denselben Sensor verwenden.",
           "boost_duration": "Wie lange der Boost-Modus aktiv bleibt, bevor zum vorherigen Preset zurückgekehrt wird."
         },
         "sections": {

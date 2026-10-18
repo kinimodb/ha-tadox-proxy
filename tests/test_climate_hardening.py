@@ -65,6 +65,7 @@ _reg = _load_module(
 
 RegulationConfig = _params.RegulationConfig
 BehaviourConfig = _params.BehaviourConfig
+PresetConfig = _params.PresetConfig
 FeedforwardPiRegulator = _reg.FeedforwardPiRegulator
 RegulationState = _reg.RegulationState
 
@@ -729,3 +730,190 @@ class TestHvacModeChangeRestoresPreset:
 
     def test_set_hvac_mode_restores_preset_mode(self):
         assert _method_assigns_attr(_CLIMATE_PY, "async_set_hvac_mode", "_preset_mode")
+
+
+# ---------------------------------------------------------------------------
+# Bug 5: Comfort target restore silently fails when comfort_target is unset
+# ---------------------------------------------------------------------------
+#
+# When the "Comfort Target" number entity was never edited, CONF_COMFORT_TARGET
+# is absent from config_entry.options.  The old comfort-restore paths read the
+# option with no default (safe_float(options.get(CONF_COMFORT_TARGET)) -> None)
+# and skipped the assignment behind `if comfort is not None:`, leaving
+# _target_temp stuck at the last frost/eco value.  The fix routes every comfort
+# read through a single _comfort_target() helper that falls back to the
+# PresetConfig default (20 °C).
+
+# const.py is NOT HA-free (it imports homeassistant.components.climate), so we
+# mirror the option key and safe_float here – the same approach the rest of
+# this file uses for logic that cannot be imported directly.
+_CONF_COMFORT_TARGET = "comfort_target"  # mirrors const.py:22
+_COMFORT_DEFAULT = PresetConfig().comfort_target_c  # real default: 20.0
+
+
+def _mirror_safe_float(value):
+    """Mirror of const.safe_float (const.py:75-83)."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (ValueError, TypeError):
+        return None
+    return f if math.isfinite(f) else None
+
+
+def _mirror_comfort_target(options: dict, default: float = _COMFORT_DEFAULT) -> float:
+    """Mirror of TadoXProxyClimate._comfort_target (climate_presets.py).
+
+        comfort = safe_float(options.get(CONF_COMFORT_TARGET))
+        return comfort if comfort is not None else default
+    """
+    comfort = _mirror_safe_float(options.get(_CONF_COMFORT_TARGET))
+    if comfort is not None:
+        return comfort
+    return default
+
+
+class TestComfortTargetFallback:
+    """Bug 5 – _comfort_target() must resolve to the default when unset."""
+
+    def test_default_is_twenty(self):
+        """Sanity: the canonical comfort default is 20 °C, not a frost value."""
+        assert _COMFORT_DEFAULT == 20.0
+
+    def test_option_present_is_used(self):
+        assert _mirror_comfort_target({_CONF_COMFORT_TARGET: 22.0}) == 22.0
+
+    def test_option_absent_falls_back_to_default(self):
+        assert _mirror_comfort_target({}) == _COMFORT_DEFAULT
+
+    def test_option_none_falls_back_to_default(self):
+        assert _mirror_comfort_target({_CONF_COMFORT_TARGET: None}) == _COMFORT_DEFAULT
+
+    def test_option_garbage_falls_back_to_default(self):
+        assert _mirror_comfort_target({_CONF_COMFORT_TARGET: "nope"}) == _COMFORT_DEFAULT
+
+    def test_option_nan_falls_back_to_default(self):
+        assert _mirror_comfort_target({_CONF_COMFORT_TARGET: float("nan")}) == _COMFORT_DEFAULT
+
+    def test_option_inf_falls_back_to_default(self):
+        assert _mirror_comfort_target({_CONF_COMFORT_TARGET: float("inf")}) == _COMFORT_DEFAULT
+
+    def test_option_numeric_string_is_parsed(self):
+        assert _mirror_comfort_target({_CONF_COMFORT_TARGET: "21.5"}) == 21.5
+
+    def test_reproduction_frost_stuck_scenario(self):
+        """Reproduce the reported bug at the logic level.
+
+        The entity was in frost_protection (7 °C) at shutdown; the preset is
+        coerced back to COMFORT on restore, but comfort_target is absent from
+        options.  The OLD guarded pattern left _target_temp at 7.0; the fix
+        resolves it to the 20 °C default.
+        """
+        target_temp = 7.0  # frost value carried over from before the restart
+        options: dict = {}  # comfort_target never configured
+
+        # OLD guarded pattern – assignment is skipped, value stays stale
+        comfort = _mirror_safe_float(options.get(_CONF_COMFORT_TARGET))
+        if comfort is not None:
+            target_temp = comfort
+        assert target_temp == 7.0  # documents the bug
+
+        # NEW helper – always resolves to a sane comfort value
+        target_temp = _mirror_comfort_target(options)
+        assert target_temp == 20.0
+
+
+# ---------------------------------------------------------------------------
+# Bug 5: every comfort-restore path must be routed through the helper (AST)
+# ---------------------------------------------------------------------------
+
+def _method_calls(file_path: str, method_name: str, called_attr: str) -> bool:
+    """Return True when *method_name* calls self.<called_attr>() somewhere."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != method_name:
+            continue
+        calls = {
+            sub.func.attr
+            for sub in ast.walk(node)
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+        }
+        return called_attr in calls
+    raise AssertionError(f"{method_name} not found in {file_path}")
+
+
+def _comfort_reads_outside_helper(file_path: str) -> list[int]:
+    """Line numbers where a no-default options.get(CONF_COMFORT_TARGET) read
+    occurs OUTSIDE the _comfort_target helper – must be empty after the fix."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+
+    inside_helper: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "_comfort_target"
+        ):
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.Call):
+                    inside_helper.add(id(sub))
+
+    offenders: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        # Match  <x>.options.get(CONF_COMFORT_TARGET)  with a single positional
+        # argument and no default – the exact idiom that caused the bug.
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "get"
+            and isinstance(func.value, ast.Attribute)
+            and func.value.attr == "options"
+            and len(node.args) == 1
+            and not node.keywords
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "CONF_COMFORT_TARGET"
+        ):
+            if id(node) not in inside_helper:
+                offenders.append(node.lineno)
+    return offenders
+
+
+class TestComfortTargetRoutedThroughHelper:
+    """Bug 5 – every comfort-restore path must call _comfort_target()."""
+
+    def test_added_to_hass_calls_helper(self):
+        assert _method_calls(_CLIMATE_PY, "async_added_to_hass", "_comfort_target")
+
+    def test_config_entry_updated_calls_helper(self):
+        assert _method_calls(_CLIMATE_PY, "_async_config_entry_updated", "_comfort_target")
+
+    def test_set_hvac_mode_calls_helper(self):
+        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "_comfort_target")
+
+    def test_restore_window_state_calls_helper(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_window_state", "_comfort_target")
+
+    def test_restore_presence_state_calls_helper(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_presence_state", "_comfort_target")
+
+    def test_set_preset_mode_calls_helper(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "_comfort_target")
+
+    def test_get_preset_target_calls_helper(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_get_preset_target", "_comfort_target")
+
+
+class TestComfortTargetCentralised:
+    """Bug 5 – the no-default option read must exist only inside the helper."""
+
+    def test_no_comfort_read_outside_helper_in_climate(self):
+        assert _comfort_reads_outside_helper(_CLIMATE_PY) == []
+
+    def test_no_comfort_read_outside_helper_in_presets(self):
+        assert _comfort_reads_outside_helper(_CLIMATE_PRESETS_PY) == []
