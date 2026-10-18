@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import logging
-import math
-import time
 
 from homeassistant.components.climate import (
     PRESET_AWAY,
     PRESET_BOOST,
     PRESET_COMFORT,
-    PRESET_ECO,
     PRESET_NONE,
     HVACMode,
 )
 from homeassistant.core import callback
 
-from .climate_controllers import is_binary_sensor_transition
+from .climate_controllers import is_binary_sensor_transition, preset_target_c
 from .const import (
     CONF_COMFORT_TARGET,
     CONF_PRESENCE_AWAY_DELAY_S,
@@ -29,15 +26,15 @@ from .const import (
     PRESET_LIST,
     safe_float,
 )
-from .parameters import FROST_PROTECT_C
+from .parameters import (
+    DEFAULT_PRESENCE_AWAY_DELAY_S,
+    DEFAULT_PRESENCE_HOME_DELAY_S,
+    DEFAULT_WINDOW_CLOSE_DELAY_S,
+    DEFAULT_WINDOW_DELAY_S,
+    FROST_PROTECT_C,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def async_call_later_boost(hass, delay_s, callback):
-    """Thin wrapper so boost timer scheduling stays in this module."""
-    from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
-    return async_call_later(hass, delay_s, callback)
 
 
 class PresetMixin:
@@ -50,10 +47,15 @@ class PresetMixin:
     @property
     def boost_remaining_minutes(self) -> int:
         """Return remaining boost minutes (0 when boost is not active)."""
-        if self._boost_cancel is None:
-            return 0
-        remaining = max(0.0, self._boost_end_ts - time.time())
-        return math.ceil(remaining / 60)
+        return self._boost.remaining_minutes()
+
+    def _start_boost(self) -> None:
+        """Start the boost expiry timer with the configured duration."""
+        self._boost.start(
+            self.hass,
+            self._config.presets.boost_duration_min * 60,
+            self._async_boost_expired,
+        )
 
     # ------------------------------------------------------------------
     # Window sensor
@@ -71,12 +73,16 @@ class PresetMixin:
             return
 
         if new_state.state == "on":  # window opened
-            delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
+            delay = self._config_entry.options.get(
+                CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
+            )
             self._window_ctrl.handle_window_opened(
                 self.hass, delay, self._async_window_action
             )
         else:  # window closed
-            close_delay = self._config_entry.options.get(CONF_WINDOW_CLOSE_DELAY_S, 120)
+            close_delay = self._config_entry.options.get(
+                CONF_WINDOW_CLOSE_DELAY_S, DEFAULT_WINDOW_CLOSE_DELAY_S
+            )
             should_restore = self._window_ctrl.handle_window_closed(
                 self.hass, close_delay, self._async_window_close_action
             )
@@ -98,15 +104,8 @@ class PresetMixin:
                 return
 
         # If boost is active, cancel it and use the pre-boost preset as saved state
-        if self._boost_cancel is not None:
-            self._boost_cancel()
-            self._boost_cancel = None
-            self._boost_end_ts = 0.0
-            saved_preset = self._boost_saved_preset
-            saved_temp = self._boost_saved_temp
-        else:
-            saved_preset = self._preset_mode
-            saved_temp = self._target_temp
+        saved = self._boost.interrupt(self._preset_mode, self._target_temp)
+        saved_preset, saved_temp = saved.preset, saved.temp
         # Never save frost protection as the "previous" preset – fall back
         # to comfort so the user isn't stuck in frost mode after restore.
         if saved_preset == PRESET_FROST_PROTECTION:
@@ -149,13 +148,8 @@ class PresetMixin:
             # original pre-boost context was lost when window automation
             # took over.
             if preset_to_restore == PRESET_BOOST:
-                self._boost_saved_preset = PRESET_COMFORT
-                self._boost_saved_temp = self._comfort_target()
-                duration_s = self._config.presets.boost_duration_min * 60
-                self._boost_end_ts = time.time() + duration_s
-                self._boost_cancel = async_call_later_boost(
-                    self.hass, duration_s, self._async_boost_expired
-                )
+                self._boost.save(PRESET_COMFORT, self._comfort_target())
+                self._start_boost()
                 _LOGGER.info(
                     "Boost restored after window close, timer started for %d min",
                     self._config.presets.boost_duration_min,
@@ -184,7 +178,9 @@ class PresetMixin:
         if new_state.state == "off":  # nobody home
             self._schedule_presence_away()
         else:  # someone home
-            home_delay = self._config_entry.options.get(CONF_PRESENCE_HOME_DELAY_S, 30)
+            home_delay = self._config_entry.options.get(
+                CONF_PRESENCE_HOME_DELAY_S, DEFAULT_PRESENCE_HOME_DELAY_S
+            )
             if self._presence_ctrl.handle_presence_home(
                 self.hass, home_delay, self._async_presence_home_action,
             ):
@@ -192,7 +188,9 @@ class PresetMixin:
 
     def _schedule_presence_away(self) -> None:
         """Arm the away timer with the configured delay (nobody home)."""
-        delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
+        delay = self._config_entry.options.get(
+            CONF_PRESENCE_AWAY_DELAY_S, DEFAULT_PRESENCE_AWAY_DELAY_S
+        )
         self._presence_ctrl.handle_presence_away(
             self.hass, delay, self._async_presence_away_action
         )
@@ -273,15 +271,8 @@ class PresetMixin:
             return
 
         # If boost is active, cancel it and use the pre-boost preset as saved state
-        if self._boost_cancel is not None:
-            self._boost_cancel()
-            self._boost_cancel = None
-            self._boost_end_ts = 0.0
-            saved_preset = self._boost_saved_preset
-            saved_temp = self._boost_saved_temp
-        else:
-            saved_preset = self._preset_mode
-            saved_temp = self._target_temp
+        saved = self._boost.interrupt(self._preset_mode, self._target_temp)
+        saved_preset, saved_temp = saved.preset, saved.temp
         # Never save AWAY as restore state – fall back to COMFORT so the user
         # isn't stuck in AWAY→AWAY after restore (e.g. after HA restart where
         # the presence sensor was briefly unavailable at boot).
@@ -331,13 +322,8 @@ class PresetMixin:
         # original pre-boost context was lost when presence automation
         # took over.
         if saved.preset == PRESET_BOOST:
-            self._boost_saved_preset = PRESET_COMFORT
-            self._boost_saved_temp = self._comfort_target()
-            duration_s = self._config.presets.boost_duration_min * 60
-            self._boost_end_ts = time.time() + duration_s
-            self._boost_cancel = async_call_later_boost(
-                self.hass, duration_s, self._async_boost_expired
-            )
+            self._boost.save(PRESET_COMFORT, self._comfort_target())
+            self._start_boost()
             _LOGGER.info(
                 "Boost restored after presence home, timer started for %d min",
                 self._config.presets.boost_duration_min,
@@ -398,10 +384,7 @@ class PresetMixin:
         self._preset_mode = preset_mode
 
         # Cancel any running boost timer
-        if self._boost_cancel is not None:
-            self._boost_cancel()
-            self._boost_cancel = None
-            self._boost_end_ts = 0.0
+        self._boost.cancel()
 
         # When switching to COMFORT, restore the stored comfort target
         if preset_mode == PRESET_COMFORT:
@@ -413,13 +396,8 @@ class PresetMixin:
             # otherwise keep the original pre-boost preset to avoid a loop
             # where boost restores into boost indefinitely.
             if old_preset != PRESET_BOOST:
-                self._boost_saved_preset = old_preset
-                self._boost_saved_temp = self._target_temp
-            duration_s = self._config.presets.boost_duration_min * 60
-            self._boost_end_ts = time.time() + duration_s
-            self._boost_cancel = async_call_later_boost(
-                self.hass, duration_s, self._async_boost_expired
-            )
+                self._boost.save(old_preset, self._target_temp)
+            self._start_boost()
             _LOGGER.info(
                 "Boost started for %d min", self._config.presets.boost_duration_min
             )
@@ -430,9 +408,8 @@ class PresetMixin:
 
     async def _async_boost_expired(self, _now) -> None:
         """Called when the boost timer expires – revert to previous preset."""
-        self._boost_cancel = None
-        self._boost_end_ts = 0.0
-        restore_preset = self._boost_saved_preset
+        saved = self._boost.expire()
+        restore_preset = saved.preset
         _LOGGER.info("Boost expired, reverting to %s", restore_preset)
 
         # PRESET_NONE (manual mode) is not in PRESET_LIST and would be rejected
@@ -440,15 +417,15 @@ class PresetMixin:
         if restore_preset == PRESET_NONE:
             # Don't override active window/presence automation – save for later.
             if self._window_ctrl.is_active:
-                self._window_ctrl.update_saved(PRESET_NONE, self._boost_saved_temp)
+                self._window_ctrl.update_saved(PRESET_NONE, saved.temp)
                 _LOGGER.info("Boost expired during window-open: PRESET_NONE saved for restore")
                 return
             if self._presence_ctrl.is_active:
-                self._presence_ctrl.update_saved(PRESET_NONE, self._boost_saved_temp)
+                self._presence_ctrl.update_saved(PRESET_NONE, saved.temp)
                 _LOGGER.info("Boost expired during presence-away: PRESET_NONE saved for restore")
                 return
-            if self._boost_saved_temp is not None:
-                self._target_temp = self._boost_saved_temp
+            if saved.temp is not None:
+                self._target_temp = saved.temp
             self._preset_mode = PRESET_NONE
             self.async_write_ha_state()
             await self._async_regulation_cycle(trigger="boost_expired")
@@ -474,18 +451,17 @@ class PresetMixin:
         return self._config.presets.comfort_target_c
 
     def _get_preset_target(self, preset_mode: str) -> float:
-        """Return the target temperature for a given preset mode."""
-        if preset_mode == PRESET_COMFORT:
-            return self._comfort_target()
-        if preset_mode == PRESET_ECO:
-            return self._config.presets.eco_target_c
-        if preset_mode == PRESET_BOOST:
-            return self._config.presets.boost_target_c
-        if preset_mode == PRESET_AWAY:
-            return self._config.presets.away_target_c
-        if preset_mode == PRESET_FROST_PROTECTION:
-            return self._config.presets.frost_protection_target_c
-        return self._target_temp
+        """Return the target temperature for a given preset mode.
+
+        Used to save a preset for later restore, so COMFORT reads the
+        configured comfort target rather than the current base target.
+        """
+        return preset_target_c(
+            preset_mode,
+            self._config.presets,
+            comfort_c=self._comfort_target(),
+            manual_c=self._target_temp,
+        )
 
     # ------------------------------------------------------------------
     # Effective setpoint calculation
@@ -495,13 +471,11 @@ class PresetMixin:
         """Calculate the effective setpoint based on HVAC mode and preset."""
         if self._hvac_mode == HVACMode.OFF:
             return FROST_PROTECT_C
-
-        if self._preset_mode in (PRESET_COMFORT, PRESET_NONE):
-            return self._target_temp
-        if self._preset_mode == PRESET_ECO:
-            return self._config.presets.eco_target_c
-        if self._preset_mode == PRESET_BOOST:
-            return self._config.presets.boost_target_c
-        if self._preset_mode == PRESET_AWAY:
-            return self._config.presets.away_target_c
-        return self._config.presets.frost_protection_target_c
+        # COMFORT and manual both run on the base target, which is kept in
+        # sync with the comfort option while COMFORT is active.
+        return preset_target_c(
+            self._preset_mode,
+            self._config.presets,
+            comfort_c=self._target_temp,
+            manual_c=self._target_temp,
+        )

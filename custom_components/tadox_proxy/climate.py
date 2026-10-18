@@ -25,7 +25,7 @@ from homeassistant.const import (
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -37,8 +37,10 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .climate_controllers import (
+    BoostController,
     FollowPhysicalController,
     PresenceAutomationController,
+    RoomTempBridge,
     WindowAutomationController,
 )
 from .climate_presets import PresetMixin
@@ -77,7 +79,9 @@ from .const import (
 )
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
+    DEFAULT_OVERLAY_REFRESH_S,
     DEFAULT_SENSOR_GRACE_S,
+    DEFAULT_WINDOW_DELAY_S,
     BehaviourConfig,
     CorrectionTuning,
     PresetConfig,
@@ -149,36 +153,28 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._target_temp: float = self._comfort_target()
         self._preset_mode: str = PRESET_COMFORT
 
-        # Boost timer
-        self._boost_cancel: CALLBACK_TYPE | None = None
-        self._boost_saved_preset: str = PRESET_COMFORT
-        self._boost_saved_temp: float | None = None
-        self._boost_end_ts: float = 0.0
-
         # Timing
         self._regulation_lock = asyncio.Lock()
         self._last_regulation_ts = 0.0
         self._last_command_sent_ts = 0.0
         self._last_sent_setpoint: float | None = None
 
-        # Sensor resilience: last-valid values for grace-period bridging
-        self._last_valid_room_temp: float | None = None
-        self._last_valid_room_temp_ts: float = 0.0
-        self._sensor_grace_s: int = config_entry.options.get(
-            CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S
+        # Sensor resilience: last-valid room temp for grace-period bridging
+        self._room_temp_bridge = RoomTempBridge(
+            config_entry.options.get(CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S)
         )
-        self._sensor_degraded: bool = False
 
         # Overlay refresh: optional periodic resend for cloud-API integrations
         # with timer-based overlays (e.g. exabird ha-tado-x uses 30 min TIMER).
         # Value of 0 means disabled (default, correct for Matter/Thread).
         self._overlay_refresh_s: int = config_entry.options.get(
-            CONF_OVERLAY_REFRESH_S, 0
+            CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S
         )
 
         # State-machine controllers (hold their own timer + saved-state)
         self._window_ctrl = WindowAutomationController()
         self._presence_ctrl = PresenceAutomationController()
+        self._boost = BoostController()
 
         # Diagnostics
         self._last_result = None
@@ -333,7 +329,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             # Evaluate current state after restart
             window_state = self.hass.states.get(window_sensor)
             if window_state and window_state.state == "on":
-                delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
+                delay = self._config_entry.options.get(
+                    CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
+                )
                 self._window_ctrl.handle_window_opened(
                     self.hass, delay, self._async_window_action
                 )
@@ -399,10 +397,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         """Cancel all timers when the entity is being removed."""
         self._window_ctrl.cancel_all()
         self._presence_ctrl.cancel_timer()
-        if self._boost_cancel is not None:
-            self._boost_cancel()
-            self._boost_cancel = None
-            self._boost_end_ts = 0.0
+        self._boost.cancel()
         await super().async_will_remove_from_hass()
 
     async def _async_config_entry_updated(self, hass, entry) -> None:
@@ -415,10 +410,12 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self.__dict__.pop("max_temp", None)
         self._behaviour = self._build_behaviour(entry)
         self._regulator.cfg = self._config
-        self._sensor_grace_s = entry.options.get(
+        self._room_temp_bridge.grace_s = entry.options.get(
             CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S
         )
-        self._overlay_refresh_s = entry.options.get(CONF_OVERLAY_REFRESH_S, 0)
+        self._overlay_refresh_s = entry.options.get(
+            CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S
+        )
         # Only sync comfort target when COMFORT preset is active; PRESET_NONE
         # (manual) keeps its independently set temperature.
         if self._preset_mode == PRESET_COMFORT:
@@ -473,10 +470,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         )
         self._target_temp = tado_setpoint
         self._preset_mode = PRESET_NONE
-        if self._boost_cancel is not None:
-            self._boost_cancel()
-            self._boost_cancel = None
-            self._boost_end_ts = 0.0
+        self._boost.cancel()
         self.async_write_ha_state()
         # Trigger immediate regulation so the new target takes effect fast.
         self.hass.async_create_task(
@@ -539,7 +533,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             if window_sensor:
                 ws = self.hass.states.get(window_sensor)
                 if ws and ws.state == "on":
-                    delay = self._config_entry.options.get(CONF_WINDOW_DELAY_S, 30)
+                    delay = self._config_entry.options.get(
+                        CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
+                    )
                     self._window_ctrl.handle_window_opened(
                         self.hass, delay, self._async_window_action
                     )
@@ -609,10 +605,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # Any direct temperature change activates manual mode and cancels
         # any running boost timer.
         if self._preset_mode != PRESET_NONE:
-            if self._boost_cancel is not None:
-                self._boost_cancel()
-                self._boost_cancel = None
-                self._boost_end_ts = 0.0
+            self._boost.cancel()
             self._preset_mode = PRESET_NONE
 
         self.async_write_ha_state()
@@ -684,7 +677,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             "window_close_delay_active": self._window_ctrl.close_delay_active,
             "presence_away_active": self._presence_ctrl.is_active,
             ATTR_GUEST_MODE: self._presence_ctrl.guest_mode,
-            "sensor_degraded": self._sensor_degraded,
+            "sensor_degraded": self._room_temp_bridge.degraded,
             "overlay_refresh_s": self._overlay_refresh_s,
         }
         # Persisted so a restart restores the manual temperature instead of
@@ -693,10 +686,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             attrs[ATTR_MANUAL_TARGET] = self._target_temp
 
         # Sensor resilience diagnostics
-        if self._last_valid_room_temp is not None:
-            attrs["room_temp_last_valid_c"] = self._last_valid_room_temp
-            if self._last_valid_room_temp_ts > 0:
-                age = int(time.time() - self._last_valid_room_temp_ts)
+        bridge = self._room_temp_bridge
+        if bridge.last_valid is not None:
+            attrs["room_temp_last_valid_c"] = bridge.last_valid
+            if bridge.last_valid_ts > 0:
+                age = int(time.time() - bridge.last_valid_ts)
                 attrs["room_temp_last_valid_age_s"] = age
 
         if self._last_result:

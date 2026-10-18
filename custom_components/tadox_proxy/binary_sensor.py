@@ -60,7 +60,7 @@ class TadoXProxySensorDegradedBinarySensor(CoordinatorEntity, BinarySensorEntity
         climate = getattr(self.coordinator, "climate_entity", None)
         if climate is None:
             return None
-        return climate._sensor_degraded
+        return climate._room_temp_bridge.degraded
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
@@ -69,15 +69,14 @@ class TadoXProxySensorDegradedBinarySensor(CoordinatorEntity, BinarySensorEntity
         if climate is None:
             return {}
 
+        bridge = climate._room_temp_bridge
         attrs: dict[str, object] = {
-            "grace_period_s": climate._sensor_grace_s,
+            "grace_period_s": bridge.grace_s,
         }
 
-        if climate._last_valid_room_temp is not None:
-            attrs["last_valid_reading"] = climate._last_valid_room_temp
-            if climate._last_valid_room_temp_ts > 0:
-                attrs["last_valid_age_s"] = int(
-                    time.time() - climate._last_valid_room_temp_ts
-                )
+        if bridge.last_valid is not None:
+            attrs["last_valid_reading"] = bridge.last_valid
+            if bridge.last_valid_ts > 0:
+                attrs["last_valid_age_s"] = int(time.time() - bridge.last_valid_ts)
 
         return attrs

@@ -37,6 +37,16 @@ DEFAULT_CONTROL_INTERVAL_S: int = 60   # seconds between regulation cycles
 FROST_PROTECT_C: float = 5.0           # target temperature when HVAC is OFF
 DEFAULT_SENSOR_GRACE_S: int = 300      # seconds to use last-valid room_temp when sensor is unavailable
 
+# Window / presence automation delays (s), overridable via options
+DEFAULT_WINDOW_DELAY_S: int = 30            # window open → frost protection
+DEFAULT_WINDOW_CLOSE_DELAY_S: int = 120     # window closed → restore previous preset
+DEFAULT_PRESENCE_AWAY_DELAY_S: int = 600    # nobody home → AWAY
+DEFAULT_PRESENCE_HOME_DELAY_S: int = 30     # somebody home → restore previous preset
+
+# Periodic resend of an unchanged setpoint for cloud integrations with
+# timer-based overlays (s).  0 = disabled (correct for Matter/Thread).
+DEFAULT_OVERLAY_REFRESH_S: int = 0
+
 
 # ---------------------------------------------------------------------------
 # Correction tuning  (PI layer on top of feedforward)

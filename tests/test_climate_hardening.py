@@ -23,8 +23,9 @@ Bug 2 – NaN/Inf rejection in preset number entity (number.py)
     A non-finite value must be rejected before the clamp is applied.
 
 Since climate.py requires the full HA environment we cannot import it here.
-Instead we test the rate-limit decision logic in isolation by mirroring the
-relevant code (same pattern used by test_sensor_resilience.py for its resolver).
+The rate-limit decision lives in the HA-free climate_controllers.decide_send,
+which is tested directly; AST guards check that the regulation cycle routes
+through it.
 """
 from __future__ import annotations
 
@@ -62,12 +63,17 @@ _reg = _load_module(
     "tadox_proxy.regulation",
     os.path.join(_COMP_DIR, "regulation.py"),
 )
+_ctrl = _load_module(
+    "tadox_proxy.climate_controllers",
+    os.path.join(_COMP_DIR, "climate_controllers.py"),
+)
 
 RegulationConfig = _params.RegulationConfig
 BehaviourConfig = _params.BehaviourConfig
 PresetConfig = _params.PresetConfig
 FeedforwardPiRegulator = _reg.FeedforwardPiRegulator
 RegulationState = _reg.RegulationState
+decide_send = _ctrl.decide_send
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +146,7 @@ class TestClassLevelTempLimits:
 
 
 # ---------------------------------------------------------------------------
-# Lightweight rate-limit decision logic (mirrors _async_regulation_cycle §5)
+# Rate-limit decision: production decide_send fed from the config objects
 # ---------------------------------------------------------------------------
 
 def _rate_limit_decision(
@@ -153,44 +159,17 @@ def _rate_limit_decision(
     behaviour: BehaviourConfig,
     overlay_refresh_s: int = 0,
 ) -> tuple[bool, str]:
-    """Mirror of the rate-limit block in _async_regulation_cycle.
-
-    Returns (should_send, reason) so tests can assert both.
-    This mirrors the fixed code exactly – the test would have FAILED with the
-    old code that used 0.0 as the fallback.
-    """
-    time_since_last = now - last_command_sent_ts
-    is_rate_limited = time_since_last < config.min_command_interval_s
-
-    if current_tado_setpoint is None:
-        # No baseline: send to establish one, but honour the rate limiter
-        # after the first attempt so a transient outage does not cause spam.
-        if is_rate_limited and last_command_sent_ts > 0:
-            remaining = int(config.min_command_interval_s - time_since_last)
-            return False, f"rate_limited({remaining}s)"
-        return True, "no_baseline"
-
-    diff = abs(target_c - current_tado_setpoint)
-
-    overlay_refresh_due = (
-        overlay_refresh_s > 0 and time_since_last >= overlay_refresh_s
+    """Call decide_send with the thresholds the regulation cycle passes."""
+    return decide_send(
+        target_c=target_c,
+        baseline_c=current_tado_setpoint,
+        last_command_ts=last_command_sent_ts,
+        now=now,
+        min_interval_s=config.min_command_interval_s,
+        min_change_c=config.min_change_threshold_c,
+        urgent_decrease_c=behaviour.urgent_decrease_threshold_c,
+        overlay_refresh_s=overlay_refresh_s,
     )
-
-    if diff < config.min_change_threshold_c and not overlay_refresh_due:
-        return False, "already_at_target"
-    elif diff < config.min_change_threshold_c and overlay_refresh_due:
-        return True, "overlay_refresh"
-    elif is_rate_limited:
-        is_urgent_decrease = (
-            target_c < current_tado_setpoint - behaviour.urgent_decrease_threshold_c
-        )
-        if is_urgent_decrease:
-            return True, "urgent_decrease"
-        else:
-            remaining = int(config.min_command_interval_s - time_since_last)
-            return False, f"rate_limited({remaining}s)"
-    else:
-        return True, "normal_update"
 
 
 # ---------------------------------------------------------------------------
@@ -251,17 +230,18 @@ class TestRateLimiterNoBaseline:
 
         With baseline=0.0 and target=18.0 (a decrease from the user's perspective),
         the check is: 18.0 < 0.0 - 1.0 = -1.0 → False → urgent decrease suppressed.
+        This is why the caller must pass None, never 0.0, for an unknown baseline.
         """
-        bogus_baseline = 0.0
-        target_c = 18.0
-
-        time_since_last = 90.0  # rate-limited
-        is_rate_limited = time_since_last < self.config.min_command_interval_s
-        assert is_rate_limited  # confirm we're in the rate-limited branch
-
-        # Old code: urgent_decrease = target < baseline - threshold = 18 < -1.0 → False
-        old_is_urgent = target_c < bogus_baseline - self.behaviour.urgent_decrease_threshold_c
-        assert old_is_urgent is False  # the old bug: suppress when we shouldn't
+        should_send, reason = _rate_limit_decision(
+            target_c=18.0,
+            current_tado_setpoint=0.0,  # the old bogus fallback
+            last_command_sent_ts=self.last_sent_ts,  # 90s ago, rate-limited
+            now=self.now,
+            config=self.config,
+            behaviour=self.behaviour,
+        )
+        assert should_send is False  # the old bug: suppressed
+        assert reason == "rate_limited(90s)"
 
     def test_known_baseline_still_rate_limits_correctly(self):
         """When a baseline is known, normal rate-limiting still applies."""
@@ -644,10 +624,13 @@ class TestWindowRestorePresenceCheck:
 
 
 # ---------------------------------------------------------------------------
-# Boost restore must re-arm _boost_end_ts (AST-based guard)
+# Boost restore must start the boost timer (AST-based guard)
 # ---------------------------------------------------------------------------
 
 _CLIMATE_PRESETS_PY = os.path.join(_COMP_DIR, "climate_presets.py")
+_CLIMATE_REGULATION_PY = os.path.join(_COMP_DIR, "climate_regulation.py")
+_CONFIG_FLOW_PY = os.path.join(_COMP_DIR, "config_flow.py")
+_CONST_PY = os.path.join(_COMP_DIR, "const.py")
 
 
 def _method_assigns_attr(file_path: str, method_name: str, attr_name: str) -> bool:
@@ -675,27 +658,140 @@ def _method_assigns_attr(file_path: str, method_name: str, attr_name: str) -> bo
     raise AssertionError(f"{method_name} not found in {file_path}")
 
 
-class TestBoostRestoreSetsEndTimestamp:
-    """Regression: restoring BOOST after window/presence automation must set
-    _boost_end_ts, otherwise the boost-remaining sensor reports 0 minutes
-    for the whole restored boost period.
+def _method_calls(file_path: str, method_name: str, called: str) -> bool:
+    """Return True when *method_name* calls <called>() or <x>.<called>()."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != method_name:
+            continue
+        calls = set()
+        for sub in ast.walk(node):
+            if not isinstance(sub, ast.Call):
+                continue
+            if isinstance(sub.func, ast.Attribute):
+                calls.add(sub.func.attr)
+            elif isinstance(sub.func, ast.Name):
+                calls.add(sub.func.id)
+        return called in calls
+    raise AssertionError(f"{method_name} not found in {file_path}")
+
+
+class TestBoostRestoreStartsTimer:
+    """Regression: restoring BOOST after window/presence automation must start
+    the boost timer, otherwise the boost never ends and the boost-remaining
+    sensor reports 0 minutes for the whole restored boost period.
+
+    BoostController.start sets the end timestamp (tested in test_controllers);
+    every boost entry point must go through _start_boost.
     """
 
-    def test_window_restore_sets_boost_end_ts(self):
-        assert _method_assigns_attr(
-            _CLIMATE_PRESETS_PY, "_restore_window_state", "_boost_end_ts"
+    def test_window_restore_starts_boost(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_window_state", "_start_boost")
+
+    def test_presence_restore_starts_boost(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_presence_state", "_start_boost")
+
+    def test_preset_switch_starts_boost(self):
+        """The normal boost entry point must start the timer too."""
+        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "_start_boost")
+
+    def test_start_boost_uses_controller(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_start_boost", "start")
+
+
+# ---------------------------------------------------------------------------
+# Decision logic must be the tested HA-free code (AST-based guard)
+# ---------------------------------------------------------------------------
+
+class TestDecisionLogicRoutedThroughControllers:
+    """The HA mixins must call the HA-free functions the tests exercise,
+    instead of carrying their own copy of the logic."""
+
+    def test_regulation_cycle_uses_decide_send(self):
+        assert _method_calls(
+            _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "decide_send"
         )
 
-    def test_presence_restore_sets_boost_end_ts(self):
-        assert _method_assigns_attr(
-            _CLIMATE_PRESETS_PY, "_restore_presence_state", "_boost_end_ts"
+    def test_regulation_cycle_uses_room_temp_bridge(self):
+        assert _method_calls(
+            _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "resolve"
         )
 
-    def test_preset_switch_sets_boost_end_ts(self):
-        """The normal boost entry point must keep setting the timestamp too."""
-        assert _method_assigns_attr(
-            _CLIMATE_PRESETS_PY, "async_set_preset_mode", "_boost_end_ts"
-        )
+    def test_effective_setpoint_uses_preset_mapping(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_effective_setpoint", "preset_target_c")
+
+    def test_get_preset_target_uses_preset_mapping(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_get_preset_target", "preset_target_c")
+
+
+def _literal_option_defaults(file_path: str, keys: set[str]) -> list[tuple[int, str]]:
+    """(line, key) for every <x>.get(<key>, <number literal>) in *file_path*."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+    offenders: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and len(node.args) == 2
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id in keys
+            and isinstance(node.args[1], ast.Constant)
+        ):
+            offenders.append((node.lineno, node.args[0].id))
+    return offenders
+
+
+class TestTimingDefaultsCentralised:
+    """Window/presence/overlay defaults come from parameters.py only."""
+
+    _KEYS = {
+        "CONF_WINDOW_DELAY_S",
+        "CONF_WINDOW_CLOSE_DELAY_S",
+        "CONF_PRESENCE_AWAY_DELAY_S",
+        "CONF_PRESENCE_HOME_DELAY_S",
+        "CONF_OVERLAY_REFRESH_S",
+    }
+
+    def test_default_values(self):
+        assert _params.DEFAULT_WINDOW_DELAY_S == 30
+        assert _params.DEFAULT_WINDOW_CLOSE_DELAY_S == 120
+        assert _params.DEFAULT_PRESENCE_AWAY_DELAY_S == 600
+        assert _params.DEFAULT_PRESENCE_HOME_DELAY_S == 30
+        assert _params.DEFAULT_OVERLAY_REFRESH_S == 0
+
+    def test_no_literal_defaults_in_climate(self):
+        assert _literal_option_defaults(_CLIMATE_PY, self._KEYS) == []
+
+    def test_no_literal_defaults_in_presets(self):
+        assert _literal_option_defaults(_CLIMATE_PRESETS_PY, self._KEYS) == []
+
+    def test_no_literal_defaults_in_config_flow(self):
+        assert _literal_option_defaults(_CONFIG_FLOW_PY, self._KEYS) == []
+
+
+class TestPresetNamesMatchConst:
+    """climate_controllers redefines the preset names to stay HA-free; the
+    custom frost preset must keep the value const.py exposes to HA."""
+
+    def test_frost_protection_name(self):
+        with open(_CONST_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="const.py")
+        values = [
+            node.value.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(t, ast.Name) and t.id == "PRESET_FROST_PROTECTION"
+                for t in node.targets
+            )
+            and isinstance(node.value, ast.Constant)
+        ]
+        assert values == [_ctrl.PRESET_FROST_PROTECTION]
 
 
 # ---------------------------------------------------------------------------
@@ -827,24 +923,6 @@ class TestComfortTargetFallback:
 # ---------------------------------------------------------------------------
 # Bug 5: every comfort-restore path must be routed through the helper (AST)
 # ---------------------------------------------------------------------------
-
-def _method_calls(file_path: str, method_name: str, called_attr: str) -> bool:
-    """Return True when *method_name* calls self.<called_attr>() somewhere."""
-    with open(file_path, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if node.name != method_name:
-            continue
-        calls = {
-            sub.func.attr
-            for sub in ast.walk(node)
-            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
-        }
-        return called_attr in calls
-    raise AssertionError(f"{method_name} not found in {file_path}")
-
 
 def _comfort_reads_outside_helper(file_path: str) -> list[int]:
     """Line numbers where a no-default options.get(CONF_COMFORT_TARGET) read
