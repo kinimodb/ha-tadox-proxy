@@ -1,24 +1,33 @@
-"""Internal state-machine controllers for TadoXProxyClimate.
+"""Internal state-machine controllers and decision logic for TadoXProxyClimate.
 
-These classes hold their own state and can be tested independently of Home
-Assistant.  They only import HA helpers lazily (inside methods that schedule
-timers), so a plain ``import`` in tests works without an HA bootstrap.
+These classes and functions hold the climate entity's decision logic and can
+be tested independently of Home Assistant.  They only import HA helpers
+lazily (inside methods that schedule timers), so a plain ``import`` in tests
+works without an HA bootstrap.
 
 Architecture
 ------------
 - ``WindowAutomationController``  – window-open/close delays & state
 - ``PresenceAutomationController`` – presence-away delay, guest mode & state
+- ``BoostController``             – boost timer & pre-boost state
 - ``FollowPhysicalController``    – pure-logic helper (no state, static method)
+- ``RoomTempBridge``              – room-sensor grace period (last-valid bridging)
+- ``decide_send``                 – send / rate-limit decision (pure function)
+- ``preset_target_c``             – preset → room target mapping (pure function)
 - ``SavedState``                  – lightweight snapshot dataclass
 - ``is_binary_sensor_transition``  – window/presence event filter (pure function)
 """
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from .parameters import PresetConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +35,16 @@ _LOGGER = logging.getLogger(__name__)
 _CancelFn = Callable[[], None]
 # Signature of async_call_later (or test stub)
 _CallLaterFn = Callable[[Any, float, Callable], _CancelFn]
+
+# Preset names.  The HA built-ins are identical to the PRESET_* strings in
+# homeassistant.components.climate (stable, persisted in state attributes);
+# they are redefined here so this module stays importable without HA.
+PRESET_NONE = "none"
+PRESET_COMFORT = "comfort"
+PRESET_ECO = "eco"
+PRESET_BOOST = "boost"
+PRESET_AWAY = "away"
+PRESET_FROST_PROTECTION = "frost_protection"
 
 
 @dataclass
@@ -341,6 +360,80 @@ class PresenceAutomationController:
 
 
 # ---------------------------------------------------------------------------
+# Boost timer
+# ---------------------------------------------------------------------------
+
+class BoostController:
+    """Holds the boost expiry timer and the state to return to afterwards.
+
+    ``saved`` is the pre-boost preset/temperature; the climate entity decides
+    when to update it (re-entering boost while boosting must keep the
+    original one, otherwise boost would restore into boost).
+    """
+
+    def __init__(self) -> None:
+        self.end_ts: float = 0.0
+        self.saved: SavedState = SavedState(preset=PRESET_COMFORT)
+        self._cancel: _CancelFn | None = None
+
+    @property
+    def is_active(self) -> bool:
+        """True while the boost timer is running."""
+        return self._cancel is not None
+
+    def remaining_minutes(self, now: float | None = None) -> int:
+        """Return the remaining boost minutes, rounded up (0 when inactive)."""
+        if self._cancel is None:
+            return 0
+        _now = now if now is not None else time.time()
+        return math.ceil(max(0.0, self.end_ts - _now) / 60)
+
+    def save(self, preset: str, temp: float | None) -> None:
+        """Record the preset/temperature to revert to when the boost ends."""
+        self.saved = SavedState(preset=preset, temp=temp)
+
+    def start(
+        self,
+        hass: Any,
+        duration_s: float,
+        on_expire: Callable,
+        *,
+        call_later: _CallLaterFn | None = None,
+        now: float | None = None,
+    ) -> None:
+        """Start the expiry timer, replacing any timer that is still running."""
+        self.cancel()
+        self.end_ts = (now if now is not None else time.time()) + duration_s
+        _cl = call_later or _get_call_later()
+        self._cancel = _cl(hass, duration_s, on_expire)
+
+    def cancel(self) -> None:
+        """Stop a running boost timer (no-op when inactive)."""
+        if self._cancel is not None:
+            self._cancel()
+            self._cancel = None
+            self.end_ts = 0.0
+
+    def interrupt(self, preset: str, temp: float | None) -> SavedState:
+        """Hand over to window/presence automation and return what it saves.
+
+        A running boost is cancelled and its pre-boost state returned, so the
+        automation later restores what was active before the boost.  Without
+        a running boost the given current preset/temperature is returned.
+        """
+        if self._cancel is None:
+            return SavedState(preset=preset, temp=temp)
+        self.cancel()
+        return SavedState(preset=self.saved.preset, temp=self.saved.temp)
+
+    def expire(self) -> SavedState:
+        """Mark the timer as fired and return the pre-boost state."""
+        self._cancel = None
+        self.end_ts = 0.0
+        return SavedState(preset=self.saved.preset, temp=self.saved.temp)
+
+
+# ---------------------------------------------------------------------------
 # Follow-physical helper (pure logic, no state)
 # ---------------------------------------------------------------------------
 
@@ -377,6 +470,153 @@ class FollowPhysicalController:
         if _now - last_sent_ts < grace_s:
             return False
         return True
+
+
+# ---------------------------------------------------------------------------
+# Room sensor grace period
+# ---------------------------------------------------------------------------
+
+class RoomTempBridge:
+    """Bridges short room-sensor outages with the last valid reading.
+
+    A valid reading is stored with the sensor's own timestamp (the
+    coordinator's ``room_temp_ts``, i.e. ``last_reported``), so the grace
+    period counts from when the sensor last reported, not from when the
+    proxy polled it.  Without a sensor timestamp the poll time is used.
+
+    ``degraded`` is True while a bridged value is in use and after the grace
+    period has expired; it stays False if no valid reading was ever seen.
+    """
+
+    def __init__(self, grace_s: float) -> None:
+        self.grace_s = grace_s
+        self.last_valid: float | None = None
+        self.last_valid_ts: float = 0.0
+        self.degraded: bool = False
+
+    def resolve(
+        self, room_temp: float | None, room_temp_ts: float | None, now: float
+    ) -> float | None:
+        """Return the room temperature to regulate on, or None if unusable."""
+        if room_temp is not None:
+            self.last_valid = room_temp
+            self.last_valid_ts = room_temp_ts or now
+            self.degraded = False
+            return room_temp
+
+        if self.last_valid is None:
+            self.degraded = False
+            return None
+
+        self.degraded = True
+        if now - self.last_valid_ts <= self.grace_s:
+            _LOGGER.debug(
+                "Room temp unavailable – using last valid %.1f°C (age %ds, grace %ds)",
+                self.last_valid, int(now - self.last_valid_ts), self.grace_s,
+            )
+            return self.last_valid
+
+        _LOGGER.warning(
+            "Room sensor unavailable and grace period expired "
+            "(last valid: %.1f°C, %ds ago, grace: %ds)",
+            self.last_valid,
+            int(now - self.last_valid_ts),
+            self.grace_s,
+        )
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Send / rate-limit decision (pure logic)
+# ---------------------------------------------------------------------------
+
+class SendDecision(NamedTuple):
+    """Outcome of the send decision for one regulation cycle."""
+
+    should_send: bool
+    reason: str
+
+
+def decide_send(
+    *,
+    target_c: float,
+    baseline_c: float | None,
+    last_command_ts: float,
+    now: float,
+    min_interval_s: float,
+    min_change_c: float,
+    urgent_decrease_c: float,
+    overlay_refresh_s: float,
+) -> SendDecision:
+    """Decide whether *target_c* is sent to the TRV in this cycle.
+
+    *baseline_c* is the setpoint the TRV is believed to hold.  ``None`` means
+    unknown – do NOT substitute 0.0: the urgent-decrease check
+    (target < baseline - threshold) would then always be False for realistic
+    temperatures and suppress a needed fast cooldown.  Without a baseline the
+    command is sent to establish one.
+
+    *last_command_ts* is 0 before the first command.  *overlay_refresh_s* > 0
+    resends an unchanged setpoint once that many seconds have passed.
+
+    Reasons: ``no_baseline``, ``already_at_target``, ``overlay_refresh``,
+    ``urgent_decrease``, ``normal_update`` and ``rate_limited(<n>s)``.
+    """
+    time_since_last = now - last_command_ts
+    is_rate_limited = time_since_last < min_interval_s
+    rate_limited_reason = f"rate_limited({int(min_interval_s - time_since_last)}s)"
+
+    if baseline_c is None:
+        # The very first attempt is sent immediately.  Retries (e.g. after a
+        # failed send) honour the rate limiter so a transient TRV/backend
+        # outage does not cause command spam every regulation cycle.
+        if is_rate_limited and last_command_ts > 0:
+            return SendDecision(False, rate_limited_reason)
+        return SendDecision(True, "no_baseline")
+
+    if abs(target_c - baseline_c) < min_change_c:
+        # Overlay refresh keeps timer-based overlays (cloud-API integrations)
+        # alive by resending the same setpoint.
+        if overlay_refresh_s > 0 and time_since_last >= overlay_refresh_s:
+            return SendDecision(True, "overlay_refresh")
+        return SendDecision(False, "already_at_target")
+
+    if is_rate_limited:
+        if target_c < baseline_c - urgent_decrease_c:
+            return SendDecision(True, "urgent_decrease")
+        return SendDecision(False, rate_limited_reason)
+
+    return SendDecision(True, "normal_update")
+
+
+# ---------------------------------------------------------------------------
+# Preset → target mapping (pure logic)
+# ---------------------------------------------------------------------------
+
+def preset_target_c(
+    preset: str,
+    presets: PresetConfig,
+    *,
+    comfort_c: float,
+    manual_c: float,
+) -> float:
+    """Return the room target for *preset*.
+
+    COMFORT resolves to *comfort_c* and manual mode (``PRESET_NONE``) to
+    *manual_c*; every other preset has a fixed target in *presets*.  Unknown
+    names fall back to frost protection, the safest target.
+    """
+    if preset == PRESET_COMFORT:
+        return comfort_c
+    if preset == PRESET_NONE:
+        return manual_c
+    fixed = {
+        PRESET_ECO: presets.eco_target_c,
+        PRESET_BOOST: presets.boost_target_c,
+        PRESET_AWAY: presets.away_target_c,
+        PRESET_FROST_PROTECTION: presets.frost_protection_target_c,
+    }
+    return fixed.get(preset, presets.frost_protection_target_c)
 
 
 # ---------------------------------------------------------------------------

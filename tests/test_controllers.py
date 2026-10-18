@@ -27,12 +27,17 @@ def _load(name: str):
 
 
 _ctrl_mod = _load("climate_controllers")
+_params_mod = _load("parameters")
 
 WindowAutomationController = _ctrl_mod.WindowAutomationController
 PresenceAutomationController = _ctrl_mod.PresenceAutomationController
+BoostController = _ctrl_mod.BoostController
 FollowPhysicalController = _ctrl_mod.FollowPhysicalController
 SavedState = _ctrl_mod.SavedState
 is_binary_sensor_transition = _ctrl_mod.is_binary_sensor_transition
+decide_send = _ctrl_mod.decide_send
+preset_target_c = _ctrl_mod.preset_target_c
+PresetConfig = _params_mod.PresetConfig
 
 
 # ---------------------------------------------------------------------------
@@ -898,3 +903,266 @@ class TestSavedState:
         s = SavedState(preset="eco", temp=19.5)
         assert s.preset == "eco"
         assert s.temp == 19.5
+
+
+# ---------------------------------------------------------------------------
+# BoostController
+# ---------------------------------------------------------------------------
+
+class TestBoostController:
+
+    def _started(self, duration_s=1800.0, now=1000.0):
+        bc = BoostController()
+        cl = FakeCallLater()
+        bc.start(None, duration_s, lambda _now: None, call_later=cl, now=now)
+        return bc, cl
+
+    # --- initial state ---
+
+    def test_initial_state(self):
+        bc = BoostController()
+        assert not bc.is_active
+        assert bc.end_ts == 0.0
+        assert bc.remaining_minutes(now=1000.0) == 0
+        assert bc.saved == SavedState(preset="comfort", temp=None)
+
+    # --- start ---
+
+    def test_start_schedules_timer_and_sets_end_ts(self):
+        bc, cl = self._started(duration_s=1800.0, now=1000.0)
+        assert bc.is_active
+        assert bc.end_ts == 2800.0
+        assert cl.scheduled_count == 1
+        assert cl.calls[0]["delay"] == 1800.0
+
+    def test_start_replaces_running_timer(self):
+        bc, cl = self._started(now=1000.0)
+        bc.start(None, 600.0, lambda _now: None, call_later=cl, now=2000.0)
+        assert cl.calls[0]["cancelled"]
+        assert cl.active_count == 1
+        assert bc.end_ts == 2600.0
+
+    def test_start_keeps_saved_state(self):
+        bc = BoostController()
+        bc.save("eco", 17.0)
+        bc.start(None, 60.0, lambda _now: None, call_later=FakeCallLater(), now=0.0)
+        assert bc.saved == SavedState(preset="eco", temp=17.0)
+
+    # --- remaining minutes ---
+
+    def test_remaining_minutes_rounds_up(self):
+        bc, _ = self._started(duration_s=1800.0, now=1000.0)
+        assert bc.remaining_minutes(now=1000.0) == 30
+        assert bc.remaining_minutes(now=1001.0) == 30   # 29.98 min -> 30
+        assert bc.remaining_minutes(now=2740.0) == 1    # 60 s left
+        assert bc.remaining_minutes(now=2741.0) == 1    # 59 s left -> 1
+
+    def test_remaining_minutes_never_negative(self):
+        bc, _ = self._started(duration_s=60.0, now=1000.0)
+        assert bc.remaining_minutes(now=5000.0) == 0
+
+    # --- cancel ---
+
+    def test_cancel_stops_timer(self):
+        bc, cl = self._started()
+        bc.cancel()
+        assert not bc.is_active
+        assert bc.end_ts == 0.0
+        assert cl.calls[0]["cancelled"]
+        assert bc.remaining_minutes(now=1000.0) == 0
+
+    def test_cancel_when_inactive_is_noop(self):
+        bc = BoostController()
+        bc.cancel()
+        assert not bc.is_active
+
+    def test_cancel_keeps_saved_state(self):
+        bc, _ = self._started()
+        bc.save("eco", 17.0)
+        bc.cancel()
+        assert bc.saved == SavedState(preset="eco", temp=17.0)
+
+    # --- interrupt (window/presence takes over) ---
+
+    def test_interrupt_without_boost_returns_current_state(self):
+        bc = BoostController()
+        bc.save("eco", 17.0)
+        assert bc.interrupt("comfort", 21.0) == SavedState(preset="comfort", temp=21.0)
+
+    def test_interrupt_running_boost_returns_pre_boost_state(self):
+        bc, cl = self._started()
+        bc.save("eco", 17.0)
+        saved = bc.interrupt("boost", 21.0)
+        assert saved == SavedState(preset="eco", temp=17.0)
+        assert not bc.is_active
+        assert bc.end_ts == 0.0
+        assert cl.calls[0]["cancelled"]
+
+    # --- expire ---
+
+    def test_expire_returns_saved_and_deactivates(self):
+        bc, cl = self._started()
+        bc.save("none", 19.5)
+        saved = bc.expire()
+        assert saved == SavedState(preset="none", temp=19.5)
+        assert not bc.is_active
+        assert bc.end_ts == 0.0
+        # The timer already fired, so its cancel callback is not invoked.
+        assert not cl.calls[0]["cancelled"]
+
+    def test_expire_returns_copy(self):
+        bc = BoostController()
+        saved = bc.expire()
+        saved.preset = "eco"
+        assert bc.saved.preset == "comfort"
+
+
+# ---------------------------------------------------------------------------
+# decide_send (send / rate-limit decision)
+# ---------------------------------------------------------------------------
+
+class TestDecideSend:
+    """Every branch with the exact regulation_reason strings.
+
+    Defaults match RegulationConfig/BehaviourConfig: 180 s interval,
+    0.3 °C change threshold, 1.0 °C urgent decrease, overlay refresh off.
+    """
+
+    NOW = 1_000_000.0
+
+    def _decide(self, **overrides):
+        args = {
+            "target_c": 21.0,
+            "baseline_c": 20.0,
+            "last_command_ts": self.NOW - 90.0,
+            "now": self.NOW,
+            "min_interval_s": 180.0,
+            "min_change_c": 0.3,
+            "urgent_decrease_c": 1.0,
+            "overlay_refresh_s": 0,
+        }
+        args.update(overrides)
+        return decide_send(**args)
+
+    # --- no baseline ---
+
+    def test_no_baseline_first_attempt_sends(self):
+        assert self._decide(baseline_c=None, last_command_ts=0.0) == (True, "no_baseline")
+
+    def test_no_baseline_retry_is_rate_limited(self):
+        assert self._decide(baseline_c=None) == (False, "rate_limited(90s)")
+
+    def test_no_baseline_retry_after_interval_sends(self):
+        result = self._decide(baseline_c=None, last_command_ts=self.NOW - 180.0)
+        assert result == (True, "no_baseline")
+
+    # --- below change threshold ---
+
+    def test_small_change_is_already_at_target(self):
+        assert self._decide(target_c=20.2) == (False, "already_at_target")
+
+    def test_change_at_threshold_is_not_small(self):
+        result = self._decide(
+            target_c=20.25, min_change_c=0.25, last_command_ts=self.NOW - 200.0
+        )
+        assert result == (True, "normal_update")
+
+    def test_small_change_ignores_rate_limit_expiry(self):
+        result = self._decide(target_c=20.2, last_command_ts=self.NOW - 10_000.0)
+        assert result == (False, "already_at_target")
+
+    # --- overlay refresh ---
+
+    def test_overlay_refresh_due_resends(self):
+        result = self._decide(
+            target_c=20.0, overlay_refresh_s=600, last_command_ts=self.NOW - 600.0
+        )
+        assert result == (True, "overlay_refresh")
+
+    def test_overlay_refresh_not_yet_due(self):
+        result = self._decide(
+            target_c=20.0, overlay_refresh_s=600, last_command_ts=self.NOW - 599.0
+        )
+        assert result == (False, "already_at_target")
+
+    def test_overlay_refresh_only_for_unchanged_target(self):
+        """A real change after the refresh interval is a normal update."""
+        result = self._decide(
+            target_c=21.0, overlay_refresh_s=600, last_command_ts=self.NOW - 600.0
+        )
+        assert result == (True, "normal_update")
+
+    def test_overlay_refresh_ignored_without_baseline(self):
+        result = self._decide(baseline_c=None, overlay_refresh_s=60)
+        assert result == (False, "rate_limited(90s)")
+
+    # --- rate limit ---
+
+    def test_increase_within_interval_is_rate_limited(self):
+        assert self._decide(target_c=22.0) == (False, "rate_limited(90s)")
+
+    def test_rate_limited_reason_truncates_seconds(self):
+        result = self._decide(target_c=22.0, last_command_ts=self.NOW - 100.6)
+        assert result == (False, "rate_limited(79s)")
+
+    def test_decrease_at_urgent_threshold_is_rate_limited(self):
+        assert self._decide(target_c=19.0) == (False, "rate_limited(90s)")
+
+    def test_urgent_decrease_bypasses_rate_limit(self):
+        assert self._decide(target_c=18.9) == (True, "urgent_decrease")
+
+    def test_rate_limit_ends_at_interval(self):
+        result = self._decide(target_c=22.0, last_command_ts=self.NOW - 180.0)
+        assert result == (True, "normal_update")
+
+    # --- result type ---
+
+    def test_result_has_named_fields(self):
+        result = self._decide(target_c=22.0, last_command_ts=0.0)
+        assert result.should_send is True
+        assert result.reason == "normal_update"
+
+
+# ---------------------------------------------------------------------------
+# preset_target_c (preset -> room target)
+# ---------------------------------------------------------------------------
+
+class TestPresetTarget:
+
+    PRESETS = PresetConfig(
+        comfort_target_c=20.0,
+        eco_target_c=17.5,
+        boost_target_c=25.0,
+        away_target_c=16.0,
+        frost_protection_target_c=7.0,
+    )
+
+    def _target(self, preset):
+        return preset_target_c(preset, self.PRESETS, comfort_c=21.5, manual_c=19.0)
+
+    def test_comfort_uses_comfort_value(self):
+        assert self._target("comfort") == 21.5
+
+    def test_manual_uses_manual_value(self):
+        assert self._target("none") == 19.0
+
+    def test_eco(self):
+        assert self._target("eco") == 17.5
+
+    def test_boost(self):
+        assert self._target("boost") == 25.0
+
+    def test_away(self):
+        assert self._target("away") == 16.0
+
+    def test_frost_protection(self):
+        assert self._target("frost_protection") == 7.0
+
+    def test_unknown_preset_falls_back_to_frost_protection(self):
+        assert self._target("sleep") == 7.0
+
+    def test_comfort_ignores_preset_config_default(self):
+        """The comfort target is resolved by the caller (options/base target)."""
+        assert preset_target_c(
+            "comfort", PresetConfig(), comfort_c=22.0, manual_c=19.0
+        ) == 22.0
