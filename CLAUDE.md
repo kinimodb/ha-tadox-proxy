@@ -49,10 +49,24 @@ prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`
 ## Tests
 
 ```bash
-python -m pytest tests/ -v
+python -m pytest tests/ -v      # HA-frei, braucht nur pytest
+python -m pytest tests_ha/ -v   # echter HA-Core, nur Linux/macOS/WSL
 ```
 
-- Tests umgehen `__init__.py` via `importlib.util.spec_from_file_location` (HA-Abhängigkeit).
+- `tests/`: umgehen `__init__.py` via `importlib.util.spec_from_file_location` (HA-Abhängigkeit).
+- `tests_ha/`: Integrationstests gegen einen echten HA-Core mit
+  `pytest-homeassistant-custom-component` (phcc, Python 3.14; Version wie in
+  `.github/workflows/tests.yml`). Eigene `tests_ha/pytest.ini` (asyncio auto).
+  Helfer in `tests_ha/helpers.py`: `async_setup_proxy`, `async_set_state`,
+  `async_advance` (Zeit via `freezer`). TRV-Befehle über `proxy.trv_commands()`
+  prüfen – `climate.*` nicht mit `async_mock_service` mocken, das trifft auch
+  die Proxy-Entity selbst. Neue Bridge-Logik (`climate*.py`, Switch/Number,
+  `__init__.py`) hier absichern.
+- Unter Windows läuft `tests_ha/` nicht (HA-Harness braucht `fcntl`/`resource`) –
+  dort ist der CI-Job `ha-integration` maßgeblich.
+- CI testet `tests_ha/` gegen das HA-Minimum aus `hacs.json` und eine neuere
+  Version. Wird `hacs.json` → `homeassistant` angehoben, die phcc-Pins der
+  Matrix mitziehen.
 - **Vor jedem Commit müssen alle Tests grün sein.**
 
 ## Commit-Konventionen

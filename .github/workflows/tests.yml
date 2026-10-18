@@ -23,3 +23,31 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests/ -v
+
+  ha-integration:
+    name: HA integration (HA ${{ matrix.homeassistant }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Minimum supported version (hacs.json "homeassistant").
+          - homeassistant: "2026.3.1"
+            phcc: "0.13.317"
+          # Newest version the suite has been verified against.
+          - homeassistant: "2026.10.2"
+            phcc: "0.13.373"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: .github/workflows/tests.yml
+
+      - name: Install dependencies
+        run: pip install "pytest-homeassistant-custom-component==${{ matrix.phcc }}"
+
+      - name: Run HA integration tests
+        run: python -m pytest tests_ha/ -v
