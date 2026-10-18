@@ -290,6 +290,7 @@ Assistant dependencies so it can be read and tested on its own:
 | `custom_components/tadox_proxy/parameters.py` | Every default value, with rationale |
 | `custom_components/tadox_proxy/climate_controllers.py` | Window, presence and follow state machines |
 | `tests/` | Test suite, runnable without Home Assistant |
+| `tests_ha/` | Integration tests against a real Home Assistant core (Linux/macOS) |
 
 The formula above corresponds directly to `FeedforwardPiRegulator.compute()`.
 
