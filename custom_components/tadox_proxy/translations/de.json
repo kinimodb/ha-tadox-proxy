@@ -49,9 +49,9 @@
               "window_close_delay_s": "Verzögerung Fenster schließen"
             },
             "data_description": {
-              "window_sensor_id": "Binärsensor zur Fenstererkennung. Bei Auslösung wird die Heizung pausiert.",
-              "window_delay_s": "Verzögerung bevor die Heizung pausiert wird, nachdem das Fenster geöffnet wurde.",
-              "window_close_delay_s": "Verzögerung bevor die Heizung fortgesetzt wird, nachdem das Fenster geschlossen wurde."
+              "window_sensor_id": "Binärsensor zur Fenstererkennung. Bei Auslösung wechselt das Thermostat in den Frostschutz.",
+              "window_delay_s": "Verzögerung bevor der Frostschutz aktiviert wird, nachdem das Fenster geöffnet wurde.",
+              "window_close_delay_s": "Verzögerung bevor das vorherige Preset wiederhergestellt wird, nachdem das Fenster geschlossen wurde."
             }
           },
           "presence_sensor": {
@@ -64,7 +64,7 @@
             "data_description": {
               "presence_sensor_id": "Binärsensor zur Präsenzerkennung. Wechselt bei fehlender Präsenz in den Abwesend-Modus.",
               "presence_away_delay_s": "Verzögerung bevor in den Abwesend-Modus gewechselt wird.",
-              "presence_home_delay_s": "Verzögerung bevor nach erkannter Präsenz zum Komfort-Modus zurückgekehrt wird."
+              "presence_home_delay_s": "Verzögerung bevor nach erkannter Präsenz das vorherige Preset wiederhergestellt wird."
             }
           },
           "pi_controller": {
@@ -191,6 +191,9 @@
     "switch": {
       "follow_tado_input": {
         "name": "Physischem Thermostat folgen"
+      },
+      "guest_mode": {
+        "name": "Gastmodus"
       }
     }
   }

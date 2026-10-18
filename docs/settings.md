@@ -14,12 +14,13 @@ Everything you can see, switch, and adjust — looked up rather than read start 
 1. [Presets](#presets)
 2. [Entities you get](#entities-you-get)
 3. [Window and presence detection](#window-and-presence-detection)
-4. [Turning the thermostat off](#turning-the-thermostat-off)
-5. [Following the physical thermostat](#following-the-physical-thermostat)
-6. [When the sensor drops out](#when-the-sensor-drops-out)
-7. [Adjustable settings](#adjustable-settings)
-8. [Diagnostic attributes](#diagnostic-attributes)
-9. [Supported radiators](#supported-radiators)
+4. [Guest mode](#guest-mode)
+5. [Turning the thermostat off](#turning-the-thermostat-off)
+6. [Following the physical thermostat](#following-the-physical-thermostat)
+7. [When the sensor drops out](#when-the-sensor-drops-out)
+8. [Adjustable settings](#adjustable-settings)
+9. [Diagnostic attributes](#diagnostic-attributes)
+10. [Supported radiators](#supported-radiators)
 
 ---
 
@@ -37,6 +38,8 @@ Everything you can see, switch, and adjust — looked up rather than read start 
 Every preset temperature is its own entity, named like
 `number.<your_name>_comfort_temperature`. You can change what each preset means in
 0.5 °C steps between 5 and 30 °C, from the interface or from an automation.
+Changes take effect right away and do not interrupt a running boost, an open-window
+or an away phase.
 
 Moving the temperature slider without picking a preset switches to **Manual**. Your
 stored Comfort temperature is left alone, so you can always get back to it.
@@ -59,6 +62,7 @@ Each entry creates:
 | `sensor.<name>_boost_remaining` | Minutes of boost left. Shows 0 when boost is off |
 | `binary_sensor.<name>_sensor_degraded` | Turns on when your room sensor stops reporting |
 | `switch.<name>_follow_physical_thermostat` | Off by default, see [below](#following-the-physical-thermostat) |
+| `switch.<name>_guest_mode` | Off by default, see [guest mode](#guest-mode) |
 
 The `sensor_degraded` entity is worth putting on a dashboard or wiring to a
 notification — a dead room sensor is the one failure that quietly ruins the
@@ -91,6 +95,38 @@ Point it at a presence sensor or person tracker (`binary_sensor.*`).
 - **Nobody home:** after a delay (default 10 minutes), the room switches to Away.
 - **Someone returns:** after a delay (default 30 s), the previous preset comes back.
 
+### What counts as a change
+
+Only a real switch between on and off counts. Many Zigbee sensors re-send their
+battery level or signal strength every few minutes; those updates do not restart the
+delays. A sensor that briefly drops out (`unavailable`) and comes back does not
+overwrite the preset that will be restored, either.
+
+### After a Home Assistant restart
+
+The integration does not remember which preset was active before a window opened or
+everybody left. If Home Assistant restarts during such a phase, closing the window or
+coming home brings back **Comfort**. A running boost does not survive a restart
+either; the room goes back to Comfort.
+
+---
+
+## Guest mode
+
+`switch.<name>_guest_mode` ("Gastmodus" in German), **off by default**.
+
+You are away, but guests are staying at your place. Your presence sensor says
+"nobody home", so the room would normally drop to Away. Turn guest mode on and the
+heating keeps running as usual. Put the switch on a dashboard to flip it with one tap.
+
+- **Turning it on:** the presence sensor no longer switches the room to Away. If the
+  room is already in Away, the previous preset comes back immediately.
+- **Turning it off:** presence detection works normally again. If nobody is home at
+  that moment, the room drops to Away after the usual delay (default 10 minutes).
+- Presets, the temperature slider and window detection keep working as usual.
+- The switch keeps its state across Home Assistant restarts.
+- Without a presence sensor configured, the switch has no effect.
+
 ---
 
 ## Turning the thermostat off
@@ -101,6 +137,11 @@ Tado X radiator thermostat.
 If that command fails — the radiator thermostat is unreachable, for instance — the
 proxy goes back to the mode it was in. This keeps what you see in Home Assistant
 honest about what the hardware is actually doing.
+
+While off, the proxy shows a target of 5 °C. Turning it off while a window is open
+ends the window detection for that window; turning it back on checks the window
+again. If the radiator thermostat does not respond when you turn it back on, the
+proxy stays on and tries again with its next temperature command.
 
 ---
 
@@ -210,11 +251,14 @@ something is wrong or when you are curious what the integration is thinking.
 | `i_correction_c` | Correction from a persistent offset |
 | `error_c` | The gap between target and actual room temperature |
 | `target_for_tado_c` | The number actually sent to the Tado |
-| `correction_kp` / `correction_ki` | The gains currently in effect |
+| `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
 | `window_open_active` | Window detection has taken over |
 | `window_close_delay_active` | Waiting after a window closed |
 | `presence_away_active` | Presence detection has taken over |
+| `guest_mode` | Guest mode is on, presence detection will not switch to Away |
+| `manual_target_c` | The temperature of the Manual preset. Only shown while Manual is active |
 | `sensor_degraded` | Room sensor missing, running on the last reading |
+| `overlay_refresh_s` | The configured overlay refresh interval. 0 means off |
 | `is_saturated` | The correction has hit its limit and cannot push harder |
 
 While the sensor is missing, `room_temp_last_valid_c` and

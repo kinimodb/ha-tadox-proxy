@@ -10,7 +10,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, DOMAIN
+from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, DOMAIN, LIVE_OPTION_KEYS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +49,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     value = float(state.state)
                     if math.isfinite(value):
                         data["room_temp"] = value
-                        data["room_temp_ts"] = state.last_updated.timestamp()
+                        # last_reported also advances when the sensor re-sends
+                        # an unchanged value; last_updated does not, which made
+                        # a stable reading look stale and skipped the grace
+                        # bridging on the next outage.
+                        data["room_temp_ts"] = state.last_reported.timestamp()
                     else:
                         _LOGGER.warning(
                             "Room temperature from %s is not finite: %s",
@@ -105,13 +109,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
+        config_entry=entry,
         name=f"{DOMAIN}_{entry.title}",
         update_method=async_update_data,
         update_interval=timedelta(seconds=60), # Poll every 60s as backup
     )
-
-    # 4. Attach the config entry to the coordinator
-    coordinator.config_entry = entry
 
     # 5. Perform initial refresh
     await coordinator.async_config_entry_first_refresh()
@@ -122,17 +124,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 7. Load the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # 8. Reload integration when options change (e.g. from the options flow).
+    # 8. Reload integration when options change via the options flow.
     # This listener fires AFTER HA has persisted the new options, so the
-    # reload always sees the up-to-date values.
+    # reload always sees the up-to-date values.  Options written at runtime
+    # by number/switch entities (LIVE_OPTION_KEYS) are applied live by the
+    # climate entity and must not reload – compare against a snapshot of the
+    # reload-relevant options taken at setup.
+    reload_snapshot = _reload_relevant_options(entry.options)
+
+    async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Reload the integration when reload-relevant options changed."""
+        if _reload_relevant_options(entry.options) != reload_snapshot:
+            await hass.config_entries.async_reload(entry.entry_id)
+
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
 
 
-async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the integration when options are changed."""
-    await hass.config_entries.async_reload(entry.entry_id)
+def _reload_relevant_options(options) -> dict:
+    """Return the options whose change requires a full reload."""
+    return {k: v for k, v in options.items() if k not in LIVE_OPTION_KEYS}
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""

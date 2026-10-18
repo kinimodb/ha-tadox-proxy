@@ -32,6 +32,7 @@ WindowAutomationController = _ctrl_mod.WindowAutomationController
 PresenceAutomationController = _ctrl_mod.PresenceAutomationController
 FollowPhysicalController = _ctrl_mod.FollowPhysicalController
 SavedState = _ctrl_mod.SavedState
+is_binary_sensor_transition = _ctrl_mod.is_binary_sensor_transition
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,21 @@ class TestWindowController:
         assert open_fake.scheduled_count == 0
         # Still active (still in frost protection)
         assert c.is_active
+
+    def test_open_event_while_active_keeps_saved_state(self):
+        """Sensor flicker on→unavailable→on while frost is active.
+
+        A new open timer would make the window action save FROST (→ COMFORT)
+        as the pre-open preset, losing the user's original preset.
+        """
+        c = self._ctrl()
+        c.activate("eco", 17.0)
+        fake = FakeCallLater()
+        c.handle_window_opened(None, 30, lambda now: None, call_later=fake)
+        assert fake.scheduled_count == 0
+        assert c.is_active
+        assert c.get_saved().preset == "eco"
+        assert c.get_saved().temp == 17.0
 
     def test_reopen_after_full_restore_reschedules_open_timer(self):
         """After a full close→restore cycle, a new open should schedule normally."""
@@ -610,6 +626,124 @@ class TestPresenceController:
         saved = c.restore()
         assert saved.preset == "comfort"
         assert saved.temp == 21.0
+
+
+class TestPresenceGuestMode:
+    """Guest mode: presence-away is suppressed so guests get normal heating."""
+
+    def _ctrl(self) -> PresenceAutomationController:
+        return PresenceAutomationController()
+
+    def test_guest_mode_off_by_default(self):
+        assert self._ctrl().guest_mode is False
+
+    def test_enable_sets_flag(self):
+        c = self._ctrl()
+        c.set_guest_mode(True)
+        assert c.guest_mode is True
+
+    def test_disable_clears_flag(self):
+        c = self._ctrl()
+        c.set_guest_mode(True)
+        c.set_guest_mode(False)
+        assert c.guest_mode is False
+
+    def test_away_event_ignored_while_guest_mode(self):
+        """Nobody home but guests present → no away timer is scheduled."""
+        c = self._ctrl()
+        c.set_guest_mode(True)
+        fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=fake)
+        assert fake.scheduled_count == 0
+        assert not c.is_active
+
+    def test_enable_cancels_pending_away_timer(self):
+        """Guest mode switched on during the away delay → AWAY never fires."""
+        c = self._ctrl()
+        fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=fake)
+        c.set_guest_mode(True)
+        assert fake.calls[0]["cancelled"]
+
+    def test_enable_cancels_pending_home_timer(self):
+        c = self._ctrl()
+        c.activate("comfort", 21.0)
+        fake = FakeCallLater()
+        c.handle_presence_home(None, 30, lambda now: None, call_later=fake)
+        c.set_guest_mode(True)
+        assert fake.calls[0]["cancelled"]
+
+    def test_enable_while_away_active_requests_restore(self):
+        """Already in AWAY → enabling returns True so the caller restores now."""
+        c = self._ctrl()
+        c.activate("eco", 17.0)
+        assert c.set_guest_mode(True) is True
+        # Saved state is still available for the caller's restore
+        saved = c.restore()
+        assert saved.preset == "eco"
+        assert saved.temp == 17.0
+
+    def test_enable_while_not_active_requests_no_restore(self):
+        c = self._ctrl()
+        assert c.set_guest_mode(True) is False
+
+    def test_disable_never_requests_restore(self):
+        c = self._ctrl()
+        c.set_guest_mode(True)
+        assert c.set_guest_mode(False) is False
+
+    def test_away_event_scheduled_again_after_disable(self):
+        """Guests leave → guest mode off → away automation works again."""
+        c = self._ctrl()
+        c.set_guest_mode(True)
+        c.set_guest_mode(False)
+        fake = FakeCallLater()
+        c.handle_presence_away(None, 600, lambda now: None, call_later=fake)
+        assert fake.scheduled_count == 1
+        assert fake.calls[0]["delay"] == 600
+
+    def test_home_event_harmless_while_guest_mode(self):
+        c = self._ctrl()
+        c.set_guest_mode(True)
+        assert c.handle_presence_home() is False
+        assert c.guest_mode is True
+
+
+# ---------------------------------------------------------------------------
+# Binary sensor event filter
+# ---------------------------------------------------------------------------
+
+class TestBinarySensorTransition:
+    """Only real on/off changes may drive window/presence automation."""
+
+    def test_off_to_on_is_transition(self):
+        assert is_binary_sensor_transition("off", "on") is True
+
+    def test_on_to_off_is_transition(self):
+        assert is_binary_sensor_transition("on", "off") is True
+
+    def test_attribute_only_update_is_ignored(self):
+        """Zigbee sensors re-publish battery/linkquality with the same state.
+
+        Treating those as new events would restart the open/away delay
+        timers again and again, so frost/away would never trigger.
+        """
+        assert is_binary_sensor_transition("on", "on") is False
+        assert is_binary_sensor_transition("off", "off") is False
+
+    def test_unavailable_new_state_is_ignored(self):
+        assert is_binary_sensor_transition("on", "unavailable") is False
+        assert is_binary_sensor_transition("off", "unknown") is False
+
+    def test_missing_new_state_is_ignored(self):
+        assert is_binary_sensor_transition("on", None) is False
+
+    def test_recovery_from_unavailable_is_transition(self):
+        """unavailable → on must still be processed (controller guards dedupe)."""
+        assert is_binary_sensor_transition("unavailable", "on") is True
+
+    def test_first_state_is_transition(self):
+        assert is_binary_sensor_transition(None, "off") is True
 
 
 # ---------------------------------------------------------------------------

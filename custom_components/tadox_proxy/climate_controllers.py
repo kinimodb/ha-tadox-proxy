@@ -7,9 +7,10 @@ timers), so a plain ``import`` in tests works without an HA bootstrap.
 Architecture
 ------------
 - ``WindowAutomationController``  – window-open/close delays & state
-- ``PresenceAutomationController`` – presence-away delay & state
+- ``PresenceAutomationController`` – presence-away delay, guest mode & state
 - ``FollowPhysicalController``    – pure-logic helper (no state, static method)
 - ``SavedState``                  – lightweight snapshot dataclass
+- ``is_binary_sensor_transition``  – window/presence event filter (pure function)
 """
 from __future__ import annotations
 
@@ -89,11 +90,19 @@ class WindowAutomationController:
         Special case: if a close-delay timer is running (window reopened
         during the restore countdown), cancel that timer and stay in frost
         protection without restarting the open-delay countdown.
+
+        If frost protection is already active (e.g. sensor flicker
+        on → unavailable → on), do nothing: a new open timer would make the
+        window action overwrite the saved pre-open preset.
         """
         if self._close_timer is not None:
             self._close_timer()
             self._close_timer = None
             _LOGGER.debug("Window reopened during close delay – staying in frost protection")
+            return
+
+        if self.is_active:
+            _LOGGER.debug("Window open event ignored – frost protection already active")
             return
 
         # Cancel any previously pending open timer before scheduling a new one
@@ -189,13 +198,34 @@ class PresenceAutomationController:
           └───────────────────────────────────────────┘                                            │
           ▲                                                                                       │
           └───────────────────────────────────────────────────────────────────────────────────────┘
+
+    Guest mode suppresses the away branch entirely: while it is on, the
+    sensor reporting "nobody home" is ignored so guests get normal heating.
     """
 
     def __init__(self) -> None:
         self.is_active: bool = False
+        self.guest_mode: bool = False
         self._away_timer: _CancelFn | None = None
         self._home_timer: _CancelFn | None = None
         self._saved: SavedState = SavedState()
+
+    def set_guest_mode(self, enabled: bool) -> bool:
+        """Enable or disable guest mode.
+
+        Enabling cancels any pending away/home timer and returns ``True``
+        when presence-away mode is active, so the caller restores the saved
+        preset immediately (the user switched explicitly – no home delay).
+
+        Disabling never restores anything and returns ``False``; the caller
+        re-evaluates the presence sensor and re-arms the away timer if
+        nobody is home.
+        """
+        self.guest_mode = enabled
+        if not enabled:
+            return False
+        self.cancel_timer()
+        return self.is_active
 
     def handle_presence_away(
         self,
@@ -213,7 +243,13 @@ class PresenceAutomationController:
         If already active (rooms already in AWAY mode), only cancel the home
         timer – do **not** schedule a new away timer, because that would
         overwrite the saved pre-away state with the current AWAY preset.
+
+        While guest mode is on, the event is ignored completely.
         """
+        if self.guest_mode:
+            _LOGGER.debug("Presence away event ignored – guest mode active")
+            return
+
         # Cancel any pending home-delay timer (flicker protection)
         if self._home_timer is not None:
             self._home_timer()
@@ -341,6 +377,23 @@ class FollowPhysicalController:
         if _now - last_sent_ts < grace_s:
             return False
         return True
+
+
+# ---------------------------------------------------------------------------
+# Binary sensor event filter (pure logic)
+# ---------------------------------------------------------------------------
+
+def is_binary_sensor_transition(old_state: str | None, new_state: str | None) -> bool:
+    """Return ``True`` if a window/presence sensor event is a real state change.
+
+    Ignored are events without a usable new state (missing, ``unavailable``,
+    ``unknown``) and attribute-only updates where the state did not change –
+    many Zigbee sensors re-publish battery/link quality every few minutes,
+    which would otherwise restart the open/away delay timers indefinitely.
+    """
+    if new_state is None or new_state in ("unavailable", "unknown"):
+        return False
+    return old_state != new_state
 
 
 # ---------------------------------------------------------------------------

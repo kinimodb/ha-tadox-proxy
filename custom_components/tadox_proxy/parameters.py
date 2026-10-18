@@ -97,6 +97,11 @@ class RegulationConfig:
     # 0.95 means ~5% reduction per 60s cycle → drains in ~15 min.
     integral_decay: float = 0.95
 
+    # Upper bound for the time step used by the integral (s).  Cycles skipped
+    # during a sensor/coordinator outage would otherwise make the next dt
+    # cover the whole gap and push the integral to its clamp in one step.
+    max_integration_dt_s: float = 2 * DEFAULT_CONTROL_INTERVAL_S
+
     # Rate limiting: minimum seconds between commands to Tado (battery saving)
     min_command_interval_s: float = 180.0
 
