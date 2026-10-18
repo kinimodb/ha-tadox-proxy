@@ -1,4 +1,4 @@
-"""Switch entity for Tado X Proxy optional behaviour flags."""
+"""Switch entities for Tado X Proxy optional behaviour flags."""
 from __future__ import annotations
 
 from homeassistant.components.switch import SwitchEntity
@@ -18,7 +18,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up Tado X Proxy switch entities."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([FollowTadoInputSwitch(coordinator, entry)])
+    guest_mode = GuestModeSwitch(coordinator, entry)
+    coordinator.guest_mode_switch_entity = guest_mode
+    async_add_entities([FollowTadoInputSwitch(coordinator, entry), guest_mode])
 
 
 class FollowTadoInputSwitch(CoordinatorEntity, SwitchEntity):
@@ -62,3 +64,53 @@ class FollowTadoInputSwitch(CoordinatorEntity, SwitchEntity):
         new_opts = {**self._entry.options, CONF_FOLLOW_TADO_INPUT: False}
         self.hass.config_entries.async_update_entry(self._entry, options=new_opts)
         self.async_write_ha_state()
+
+
+class GuestModeSwitch(CoordinatorEntity, SwitchEntity):
+    """Switch that suspends the presence-away automation for guests.
+
+    When on, the presence sensor reporting "nobody home" no longer switches
+    to AWAY – the heating keeps running normally.  Turning it on while AWAY
+    is active restores the previous preset immediately.  Only has an effect
+    when a presence sensor is configured.
+
+    The state lives in the climate entity (persisted across restarts via its
+    state attributes); this switch is only the dashboard-facing control.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "guest_mode"
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        """Initialize the guest-mode switch."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_guest_mode"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info so this entity appears on the same device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry.entry_id)},
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True while guest mode is active."""
+        climate = getattr(self.coordinator, "climate_entity", None)
+        return climate is not None and climate.guest_mode
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable guest mode."""
+        await self._async_set(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable guest mode."""
+        await self._async_set(False)
+
+    async def _async_set(self, enabled: bool) -> None:
+        climate = getattr(self.coordinator, "climate_entity", None)
+        if climate is None:
+            return
+        # The climate entity writes this switch's state via its linked entities.
+        await climate.async_set_guest_mode(enabled)

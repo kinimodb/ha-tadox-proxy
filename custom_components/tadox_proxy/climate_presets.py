@@ -16,8 +16,8 @@ from homeassistant.components.climate import (
 )
 from homeassistant.core import callback
 
+from .climate_controllers import is_binary_sensor_transition
 from .const import (
-    CONF_COMFORT_TARGET,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -26,7 +26,6 @@ from .const import (
     CONF_WINDOW_SENSOR_ID,
     PRESET_FROST_PROTECTION,
     PRESET_LIST,
-    safe_float,
 )
 from .parameters import FROST_PROTECT_C
 
@@ -62,7 +61,11 @@ class PresetMixin:
     def _async_window_changed(self, event) -> None:
         """Handle window sensor state changes."""
         new_state = event.data.get("new_state")
-        if new_state is None or new_state.state in ("unavailable", "unknown"):
+        old_state = event.data.get("old_state")
+        if not is_binary_sensor_transition(
+            old_state.state if old_state else None,
+            new_state.state if new_state else None,
+        ):
             return
 
         if new_state.state == "on":  # window opened
@@ -106,9 +109,7 @@ class PresetMixin:
         # to comfort so the user isn't stuck in frost mode after restore.
         if saved_preset == PRESET_FROST_PROTECTION:
             saved_preset = PRESET_COMFORT
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            if comfort is not None:
-                saved_temp = comfort
+            saved_temp = self._config.presets.comfort_target_c
         self._window_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_FROST_PROTECTION
         _LOGGER.info("Window open: switching to frost protection")
@@ -128,21 +129,16 @@ class PresetMixin:
             if preset_to_restore == PRESET_FROST_PROTECTION:
                 preset_to_restore = PRESET_COMFORT
             # Safety net: don't restore AWAY when presence sensor shows home
-            if preset_to_restore == PRESET_AWAY:
-                presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
-                if presence_sensor:
-                    ps = self.hass.states.get(presence_sensor)
-                    if ps and ps.state not in ("off", "unavailable", "unknown"):
-                        preset_to_restore = PRESET_COMFORT
-                        _LOGGER.info(
-                            "Window restore: AWAY overridden to COMFORT "
-                            "(presence is home)"
-                        )
+            # (or guest mode keeps the heating in normal operation)
+            if preset_to_restore == PRESET_AWAY and self._presence_effectively_home():
+                preset_to_restore = PRESET_COMFORT
+                _LOGGER.info(
+                    "Window restore: AWAY overridden to COMFORT "
+                    "(presence is home or guest mode active)"
+                )
             self._preset_mode = preset_to_restore
             if preset_to_restore == PRESET_COMFORT:
-                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-                if comfort is not None:
-                    self._target_temp = comfort
+                self._target_temp = self._config.presets.comfort_target_c
             elif saved.temp is not None:
                 self._target_temp = saved.temp
 
@@ -152,8 +148,7 @@ class PresetMixin:
             # took over.
             if preset_to_restore == PRESET_BOOST:
                 self._boost_saved_preset = PRESET_COMFORT
-                comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-                self._boost_saved_temp = comfort if comfort is not None else self._target_temp
+                self._boost_saved_temp = self._config.presets.comfort_target_c
                 duration_s = self._config.presets.boost_duration_min * 60
                 self._boost_end_ts = time.time() + duration_s
                 self._boost_cancel = async_call_later_boost(
@@ -177,20 +172,66 @@ class PresetMixin:
     def _async_presence_changed(self, event) -> None:
         """Handle presence sensor state changes."""
         new_state = event.data.get("new_state")
-        if new_state is None or new_state.state in ("unavailable", "unknown"):
+        old_state = event.data.get("old_state")
+        if not is_binary_sensor_transition(
+            old_state.state if old_state else None,
+            new_state.state if new_state else None,
+        ):
             return
 
         if new_state.state == "off":  # nobody home
-            delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
-            self._presence_ctrl.handle_presence_away(
-                self.hass, delay, self._async_presence_away_action
-            )
+            self._schedule_presence_away()
         else:  # someone home
             home_delay = self._config_entry.options.get(CONF_PRESENCE_HOME_DELAY_S, 30)
             if self._presence_ctrl.handle_presence_home(
                 self.hass, home_delay, self._async_presence_home_action,
             ):
                 self._restore_presence_state()
+
+    def _schedule_presence_away(self) -> None:
+        """Arm the away timer with the configured delay (nobody home)."""
+        delay = self._config_entry.options.get(CONF_PRESENCE_AWAY_DELAY_S, 600)
+        self._presence_ctrl.handle_presence_away(
+            self.hass, delay, self._async_presence_away_action
+        )
+
+    def _presence_effectively_home(self) -> bool:
+        """Return True if presence counts as home (sensor home or guest mode).
+
+        Unavailable/unknown or missing sensors do not count as home.
+        """
+        if self._presence_ctrl.guest_mode:
+            return True
+        presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
+        if not presence_sensor:
+            return False
+        ps = self.hass.states.get(presence_sensor)
+        return ps is not None and ps.state not in ("off", "unavailable", "unknown")
+
+    @property
+    def guest_mode(self) -> bool:
+        """Return True while guest mode suspends the presence-away automation."""
+        return self._presence_ctrl.guest_mode
+
+    async def async_set_guest_mode(self, enabled: bool) -> None:
+        """Enable/disable guest mode (heat normally although nobody is home).
+
+        Enabling while AWAY is active restores the saved preset immediately.
+        Disabling re-arms the away timer if the presence sensor reports
+        nobody home, so AWAY follows after the configured away delay.
+        """
+        if enabled == self._presence_ctrl.guest_mode:
+            return
+        should_restore = self._presence_ctrl.set_guest_mode(enabled)
+        _LOGGER.info("Guest mode %s", "enabled" if enabled else "disabled")
+        if should_restore:
+            self._restore_presence_state()
+        elif not enabled:
+            presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
+            ps = self.hass.states.get(presence_sensor) if presence_sensor else None
+            if ps is not None and ps.state == "off":
+                self._schedule_presence_away()
+        self._write_state_with_linked_entities()
 
     async def _async_presence_away_action(self, _now) -> None:
         """Switch to AWAY preset after presence-away delay."""
@@ -200,6 +241,9 @@ class PresetMixin:
             _LOGGER.info(
                 "Presence away action skipped: controller already active"
             )
+            return
+        if self._presence_ctrl.guest_mode:
+            _LOGGER.info("Presence away action skipped: guest mode active")
             return
 
         # Revalidate: only proceed if presence sensor is still "off"
@@ -241,8 +285,7 @@ class PresetMixin:
         # the presence sensor was briefly unavailable at boot).
         if saved_preset == PRESET_AWAY:
             saved_preset = PRESET_COMFORT
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            saved_temp = comfort if comfort is not None else self._config.presets.comfort_target_c
+            saved_temp = self._config.presets.comfort_target_c
         self._presence_ctrl.activate(saved_preset, saved_temp)
         self._preset_mode = PRESET_AWAY
         _LOGGER.info("Presence away: switching to AWAY preset")
@@ -287,8 +330,7 @@ class PresetMixin:
         # took over.
         if saved.preset == PRESET_BOOST:
             self._boost_saved_preset = PRESET_COMFORT
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            self._boost_saved_temp = comfort if comfort is not None else self._target_temp
+            self._boost_saved_temp = self._config.presets.comfort_target_c
             duration_s = self._config.presets.boost_duration_min * 60
             self._boost_end_ts = time.time() + duration_s
             self._boost_cancel = async_call_later_boost(
@@ -301,9 +343,7 @@ class PresetMixin:
         # If restoring COMFORT, take the current comfort_target from options
         # (it may have been changed via number entity while away).
         elif saved.preset == PRESET_COMFORT:
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            if comfort is not None:
-                self._target_temp = comfort
+            self._target_temp = self._config.presets.comfort_target_c
         elif saved.temp is not None:
             self._target_temp = saved.temp
         _LOGGER.info("Presence home: restoring previous preset")
@@ -363,9 +403,7 @@ class PresetMixin:
 
         # When switching to COMFORT, restore the stored comfort target
         if preset_mode == PRESET_COMFORT:
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            if comfort is not None:
-                self._target_temp = comfort
+            self._target_temp = self._config.presets.comfort_target_c
 
         # Start boost timer if entering boost mode
         if preset_mode == PRESET_BOOST:
@@ -422,8 +460,7 @@ class PresetMixin:
     def _get_preset_target(self, preset_mode: str) -> float:
         """Return the target temperature for a given preset mode."""
         if preset_mode == PRESET_COMFORT:
-            comfort = safe_float(self._config_entry.options.get(CONF_COMFORT_TARGET))
-            return comfort if comfort is not None else self._target_temp
+            return self._config.presets.comfort_target_c
         if preset_mode == PRESET_ECO:
             return self._config.presets.eco_target_c
         if preset_mode == PRESET_BOOST:

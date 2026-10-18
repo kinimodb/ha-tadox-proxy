@@ -15,15 +15,25 @@ _LOGGER = logging.getLogger(__name__)
 class RegulationMixin:
     """Regulation cycle methods extracted from TadoXProxyClimate."""
 
-    def _write_state_with_binary_sensor(self) -> None:
+    # Coordinator attributes under which sub-entities register themselves so
+    # the climate entity can push its state changes to them.
+    _LINKED_ENTITY_ATTRS = (
+        "binary_sensor_entity",
+        "sensor_entity",
+        "guest_mode_switch_entity",
+    )
+
+    def _write_state_with_linked_entities(self) -> None:
         """Write HA state for this entity and linked sub-entities."""
         self.async_write_ha_state()
-        bs = getattr(self.coordinator, "binary_sensor_entity", None)
-        if bs is not None:
-            bs.async_write_ha_state()
-        se = getattr(self.coordinator, "sensor_entity", None)
-        if se is not None:
-            se.async_write_ha_state()
+        self._write_linked_entities()
+
+    def _write_linked_entities(self) -> None:
+        """Write HA state for linked sub-entities that are already added."""
+        for attr in self._LINKED_ENTITY_ATTRS:
+            entity = getattr(self.coordinator, attr, None)
+            if entity is not None and entity.hass is not None:
+                entity.async_write_ha_state()
 
     async def _async_regulation_cycle_timer(self, _now) -> None:
         """Periodic timer callback."""
@@ -42,14 +52,14 @@ class RegulationMixin:
         # no regulation needed.
         if self._hvac_mode == HVACMode.OFF:
             self._last_reason = "hvac_off"
-            self._write_state_with_binary_sensor()
+            self._write_state_with_linked_entities()
             return
 
         # Guard: skip when coordinator data is stale (update method raised an exception).
         if not self.coordinator.last_update_success:
             _LOGGER.debug("Skipping regulation cycle – coordinator update failed")
             self._last_reason = "coordinator_unavailable"
-            self._write_state_with_binary_sensor()
+            self._write_state_with_linked_entities()
             return
 
         # 1. Gather sensor data from coordinator
@@ -87,7 +97,7 @@ class RegulationMixin:
 
         if room_temp is None or tado_internal is None:
             self._last_reason = "waiting_for_sensors"
-            self._write_state_with_binary_sensor()
+            self._write_state_with_linked_entities()
             return
 
         # 2. Time delta
@@ -171,13 +181,20 @@ class RegulationMixin:
 
         # 6. Send command to Tado
         if should_send:
-            await self._async_send_to_tado(result.target_for_tado_c)
+            # Record the attempt BEFORE awaiting the service call: the TRV's
+            # state update can arrive while the call is still running, and
+            # follow-tado must then see it inside its grace window – otherwise
+            # the proxy's own command is mistaken for a manual change.  A
+            # failed send keeps the timestamp so retries honour the rate limit.
             self._last_command_sent_ts = now
-            self._last_reason = f"sent({reason})"
+            if await self._async_send_to_tado(result.target_for_tado_c):
+                self._last_reason = f"sent({reason})"
+            else:
+                self._last_reason = f"send_failed({reason})"
         else:
             self._last_reason = reason
 
-        self._write_state_with_binary_sensor()
+        self._write_state_with_linked_entities()
 
     async def _async_send_hvac_mode_to_tado(self, mode: HVACMode) -> None:
         """Forward an HVAC mode change to the source Tado entity."""
@@ -205,12 +222,15 @@ class RegulationMixin:
             _LOGGER.exception("Failed to send HVAC mode to Tado")
             raise
 
-    async def _async_send_to_tado(self, target_c: float) -> None:
-        """Send a temperature command to the source Tado entity."""
+    async def _async_send_to_tado(self, target_c: float) -> bool:
+        """Send a temperature command to the source Tado entity.
+
+        Returns ``True`` on success, ``False`` if the command failed.
+        """
         source_entity = self._config_entry.data.get("source_entity_id")
         if not source_entity:
             _LOGGER.warning("No source_entity_id configured – cannot send command to Tado")
-            return
+            return False
 
         _LOGGER.debug("Sending %.1f°C to %s", target_c, source_entity)
 
@@ -229,3 +249,5 @@ class RegulationMixin:
             self._last_sent_setpoint = target_c
         except (TimeoutError, HomeAssistantError):
             _LOGGER.exception("Failed to send command to Tado")
+            return False
+        return True

@@ -660,6 +660,39 @@ class TestTimeDeltaEdgeCases:
         assert state.integral_c <= 2.0
         assert state.integral_c >= -2.0
 
+    def test_gap_after_sensor_outage_does_not_spike_integral(self):
+        """Skipped cycles (sensor outage) must not integrate the whole gap.
+
+        After a 40-minute outage dt is ~2400s.  Without a cap a single
+        near-target cycle would add 0.2 * 0.003 * 2400 = 1.44°C at once.
+        """
+        reg = make_regulator()
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.8,   # error = 0.2 < deadband (0.3)
+            tado_internal_c=22.0,
+            time_delta_s=2400.0,
+            state=RegulationState(integral_c=0.0),
+        )
+        cfg = RegulationConfig()
+        max_step = 0.2 * cfg.tuning.ki * cfg.max_integration_dt_s
+        assert result.new_state.integral_c == pytest.approx(max_step)
+
+    def test_normal_time_delta_is_not_capped(self):
+        reg = make_regulator()
+        result = reg.compute(
+            setpoint_c=21.0,
+            room_temp_c=20.8,
+            tado_internal_c=22.0,
+            time_delta_s=60.0,
+            state=RegulationState(integral_c=0.0),
+        )
+        assert result.new_state.integral_c == pytest.approx(0.2 * 0.003 * 60.0)
+
+    def test_integration_cap_covers_regular_cycle(self):
+        """The cap must never truncate a regular 60s control cycle."""
+        assert RegulationConfig().max_integration_dt_s >= _params.DEFAULT_CONTROL_INTERVAL_S
+
     def test_decay_applied_outside_deadband(self):
         """Integral must shrink each cycle when |error| exceeds deadband."""
         reg = make_regulator(integral_decay=0.9, integral_deadband_c=0.3)

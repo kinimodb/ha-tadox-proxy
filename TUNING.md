@@ -198,6 +198,7 @@ These values are defined in `parameters.py` and optimized for Tado X:
 |-----------|-------|---------|
 | `integral_decay` | 0.95 | Integral loses 5% per cycle when error > deadband |
 | `integral_min_c / max_c` | ±2.0°C | Absolute limit for integral accumulation |
+| `max_integration_dt_s` | 120s | Max time step per integration – prevents an integral jump after a sensor outage |
 | `min_target_c / max_target_c` | 5 / 30°C | Safety limits for Tado commands |
 
 ### Tuning by Radiator Type
@@ -247,6 +248,9 @@ regulation_reason: rate_limited(95s)
 ```
 
 **In this case:** Reduce Kp, check if the external sensor is working correctly.
+
+A `regulation_reason` of `send_failed(...)` means the command to the TRV failed
+(e.g. TRV unreachable). The proxy retries after the rate-limit interval.
 
 ---
 

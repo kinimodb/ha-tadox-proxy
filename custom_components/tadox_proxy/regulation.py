@@ -192,8 +192,10 @@ class FeedforwardPiRegulator:
             near_target = abs(error) < self.cfg.integral_deadband_c
 
             if may_integrate and near_target:
-                # Near target → accumulate integral for steady-state accuracy
-                new_integral += error * self.cfg.tuning.ki * time_delta_s
+                # Near target → accumulate integral for steady-state accuracy.
+                # Cap dt so a long gap (skipped cycles) cannot spike it.
+                dt = min(time_delta_s, self.cfg.max_integration_dt_s)
+                new_integral += error * self.cfg.tuning.ki * dt
                 new_integral = max(
                     self.cfg.integral_min_c,
                     min(self.cfg.integral_max_c, new_integral),

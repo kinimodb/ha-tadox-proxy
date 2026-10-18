@@ -67,6 +67,23 @@ CONF_MIN_COMMAND_INTERVAL_S = "min_command_interval_s"
 CONF_MIN_CHANGE_THRESHOLD_C = "min_change_threshold_c"
 CONF_INTEGRAL_DEADBAND_C = "integral_deadband_c"
 
+# Options written at runtime by the number/switch entities.  The climate
+# entity applies them live via its update listener; they must NOT trigger a
+# full integration reload (that would wipe boost timers, window/presence
+# automation state and the PI integral).
+LIVE_OPTION_KEYS = frozenset({
+    CONF_COMFORT_TARGET,
+    CONF_ECO_TARGET,
+    CONF_BOOST_TARGET,
+    CONF_AWAY_TARGET,
+    CONF_FROST_PROTECTION_TARGET,
+    CONF_FOLLOW_TADO_INPUT,
+})
+
+# Climate state attributes that are also read back on restart (RestoreEntity)
+ATTR_GUEST_MODE = "guest_mode"
+ATTR_MANUAL_TARGET = "manual_target_c"
+
 
 # ---------------------------------------------------------------------------
 # Shared utilities (used by climate.py, climate_presets.py, climate_regulation.py)

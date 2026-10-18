@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.1.5-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 A Home Assistant custom component (HACS) that creates a virtual proxy thermostat
@@ -67,7 +67,8 @@ Additional options are available under **Settings → Devices & Services → Tad
 | **Manual** | — | Free temperature selection via slider, no preset active |
 
 Each preset temperature is exposed as a `number.*` entity (e.g., `number.*_comfort_temperature`),
-adjustable in 0.5°C steps (range 5–30°C) and usable in automations.
+adjustable in 0.5°C steps (range 5–30°C) and usable in automations. Changes apply live –
+a running boost, window or presence automation is not interrupted.
 
 Moving the temperature slider without selecting a preset activates **Manual** mode
 without changing the stored comfort temperature.
@@ -94,11 +95,33 @@ An optional `binary_sensor.*` (e.g., person tracker) can trigger automatic away 
 
 Both sensors work independently and can be active simultaneously.
 
+Only real on/off changes count: attribute-only updates (e.g. Zigbee battery or link
+quality reports) and brief `unavailable` flickers do not restart the delay timers or
+overwrite the preset that will be restored.
+
+### Guest Mode
+
+The switch `switch.*_guest_mode` ("Guest mode" / "Gastmodus") keeps the heating in
+normal operation while the presence sensor reports nobody home – e.g. when guests stay
+at your place while you are away. Add it to a dashboard to toggle it with one tap.
+
+- **Guest mode on:** The presence sensor no longer switches to Away. If Away is already
+  active, the previous preset is restored immediately (no home delay).
+- **Guest mode off:** Presence automation works normally again. If nobody is home at that
+  moment, Away follows after the configured away delay.
+- Presets, the temperature slider and window detection keep working as usual.
+- The state survives Home Assistant restarts. Without a presence sensor the switch has
+  no effect.
+
 ### HVAC OFF
 
 When the proxy thermostat is turned off (HVAC mode → OFF), the OFF command is forwarded
-directly to the source Tado TRV. If the command fails (e.g., TRV unreachable), the proxy
-reverts to its previous mode to stay in sync with the actual device state.
+directly to the source Tado TRV. If the OFF command fails (e.g., TRV unreachable), the proxy
+reverts to its previous mode to stay in sync with the actual device state. If reactivating
+the TRV fails when turning back on, the proxy stays in HEAT and retries with the next
+setpoint command (every setpoint command also sets the TRV to heat). While OFF, the
+proxy shows a target of 5°C. Turning OFF while frost protection is active (open window)
+ends the window automation; turning back on re-checks the window sensor.
 
 ### Follow Physical Thermostat
 
@@ -204,11 +227,14 @@ Visible under **Developer Tools → States**:
 | `p_correction_c` / `i_correction_c` | P and I correction components (°C) |
 | `error_c` | Current error between target and room temperature (°C) |
 | `target_for_tado_c` | Calculated setpoint sent to Tado (°C) |
-| `correction_kp` / `correction_ki` | Active Kp/Ki gains |
+| `correction_kp` / `correction_ki` | Configured Kp/Ki gains (before gain scheduling) |
 | `window_open_active` | Window detection active |
 | `window_close_delay_active` | Close delay active |
 | `presence_away_active` | Presence-away mode active |
+| `guest_mode` | Guest mode active (presence-away suspended) |
+| `manual_target_c` | Temperature of the Manual preset (only while Manual is active) |
 | `sensor_degraded` | External sensor unavailable, bridging active |
+| `overlay_refresh_s` | Configured overlay refresh interval (0 = off) |
 | `is_saturated` | Controller saturation active |
 
 When sensor bridging is active, `room_temp_last_valid_c` and `room_temp_last_valid_age_s` are also shown.
@@ -218,6 +244,9 @@ When sensor bridging is active, `room_temp_last_valid_c` and `room_temp_last_val
 ## Known Limitations
 
 - **iOS Companion App:** Entity selection crashes due to an HA frontend bug in `ha-entity-picker`. **Workaround:** Use a browser for configuration.
+- **Restart during window/presence automation:** The saved "previous preset" is not persisted.
+  After a Home Assistant restart, closing the window or coming home restores **Comfort**.
+  A running boost is not resumed after a restart (falls back to Comfort).
 
 ---
 

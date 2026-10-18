@@ -40,9 +40,9 @@
               "window_close_delay_s": "Window close delay"
             },
             "data_description": {
-              "window_sensor_id": "Binary sensor that detects an open window. When triggered, heating is paused.",
-              "window_delay_s": "Delay before heating is paused after the window opens.",
-              "window_close_delay_s": "Delay before heating resumes after the window closes."
+              "window_sensor_id": "Binary sensor that detects an open window. When triggered, the thermostat switches to frost protection.",
+              "window_delay_s": "Delay before frost protection is activated after the window opens.",
+              "window_close_delay_s": "Delay before the previous preset is restored after the window closes."
             }
           },
           "presence_sensor": {
@@ -55,7 +55,7 @@
             "data_description": {
               "presence_sensor_id": "Binary sensor for presence detection. Switches to away mode when no presence is detected.",
               "presence_away_delay_s": "Delay before switching to away mode after presence is lost.",
-              "presence_home_delay_s": "Delay before switching back to comfort mode after presence is detected."
+              "presence_home_delay_s": "Delay before the previous preset is restored after presence is detected."
             }
           },
           "pi_controller": {
@@ -182,6 +182,9 @@
     "switch": {
       "follow_tado_input": {
         "name": "Follow physical thermostat"
+      },
+      "guest_mode": {
+        "name": "Guest mode"
       }
     }
   }

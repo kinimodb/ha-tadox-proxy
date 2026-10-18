@@ -72,6 +72,12 @@
     "switch": {
       "follow_tado_input": {
         "default": "mdi:gesture-tap"
+      },
+      "guest_mode": {
+        "default": "mdi:account-group-outline",
+        "state": {
+          "on": "mdi:account-group"
+        }
       }
     }
   }
