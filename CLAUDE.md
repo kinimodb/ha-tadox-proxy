@@ -22,13 +22,19 @@ climate_controllers.py             ├─ climate_regulation.py (RegulationMixin
 
 Neue Features immer erst in den HA-freien Modulen (`parameters.py`, `regulation.py`, `climate_controllers.py` – testbar ohne HA), dann in den HA-Modulen verdrahten.
 
+Entscheidungslogik (wann senden, welches Ziel, was wiederherstellen) gehört in die
+HA-freien Module; die Mixins lesen nur HA-Zustand ein und rufen sie auf. Tests
+importieren die echten Funktionen – **keine Kopien von Produktionslogik in Tests**
+(solche Spiegel sind schon einmal auseinandergelaufen). Was sich nur im HA-Code
+prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`).
+
 ### Schlüsseldateien
 
-- `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning, BehaviourConfig)
+- `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning, BehaviourConfig, Fenster-/Präsenz-/Overlay-Zeiten)
 - `regulation.py` – Feedforward + PI Engine (HA-unabhängig)
-- `climate_controllers.py` – Window/Presence/Follow-Zustandsmaschinen (HA-unabhängig)
+- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Window/Presence/Boost-Zustandsmaschinen, Follow-Tado, Sensor-Grace (`RoomTempBridge`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`)
 - `climate.py` – HA ClimateEntity: Properties, Lifecycle, Config, Follow-Tado
-- `climate_regulation.py` – RegulationMixin: Regelzyklus, Rate-Limiting, TRV-Kommandos
+- `climate_regulation.py` – RegulationMixin: Regelzyklus, TRV-Kommandos
 - `climate_presets.py` – PresetMixin: Preset-Wechsel, Boost-Timer, Window/Presence-Aktionen
 - `number.py` – NumberEntity für Preset-Temperaturen
 - `sensor.py` – Boost-Restzeit-Sensor

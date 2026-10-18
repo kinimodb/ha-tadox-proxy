@@ -35,7 +35,16 @@ from .const import (
     CONF_WINDOW_SENSOR_ID,
     DOMAIN,
 )
-from .parameters import DEFAULT_SENSOR_GRACE_S, BehaviourConfig, RegulationConfig
+from .parameters import (
+    DEFAULT_OVERLAY_REFRESH_S,
+    DEFAULT_PRESENCE_AWAY_DELAY_S,
+    DEFAULT_PRESENCE_HOME_DELAY_S,
+    DEFAULT_SENSOR_GRACE_S,
+    DEFAULT_WINDOW_CLOSE_DELAY_S,
+    DEFAULT_WINDOW_DELAY_S,
+    BehaviourConfig,
+    RegulationConfig,
+)
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -132,7 +141,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Required(
                 CONF_WINDOW_DELAY_S,
-                default=opts.get(CONF_WINDOW_DELAY_S, 30),
+                default=opts.get(CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=3600, step=1,
@@ -142,7 +151,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Required(
                 CONF_WINDOW_CLOSE_DELAY_S,
-                default=opts.get(CONF_WINDOW_CLOSE_DELAY_S, 120),
+                default=opts.get(CONF_WINDOW_CLOSE_DELAY_S, DEFAULT_WINDOW_CLOSE_DELAY_S),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=600, step=1,
@@ -167,7 +176,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Required(
                 CONF_PRESENCE_AWAY_DELAY_S,
-                default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, 600),
+                default=opts.get(CONF_PRESENCE_AWAY_DELAY_S, DEFAULT_PRESENCE_AWAY_DELAY_S),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=7200, step=1,
@@ -177,7 +186,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Required(
                 CONF_PRESENCE_HOME_DELAY_S,
-                default=opts.get(CONF_PRESENCE_HOME_DELAY_S, 30),
+                default=opts.get(CONF_PRESENCE_HOME_DELAY_S, DEFAULT_PRESENCE_HOME_DELAY_S),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=600, step=1,
@@ -341,7 +350,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                             ),
                             vol.Required(
                                 CONF_OVERLAY_REFRESH_S,
-                                default=opts.get(CONF_OVERLAY_REFRESH_S, 0),
+                                default=opts.get(CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S),
                             ): selector.NumberSelector(
                                 selector.NumberSelectorConfig(
                                     min=0, max=3600, step=60,

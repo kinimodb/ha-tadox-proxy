@@ -9,6 +9,8 @@ import time
 from homeassistant.components.climate import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
+from .climate_controllers import decide_send
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -62,38 +64,14 @@ class RegulationMixin:
             self._write_state_with_linked_entities()
             return
 
-        # 1. Gather sensor data from coordinator
-        room_temp = self.coordinator.data.get("room_temp")
+        # 1. Gather sensor data from coordinator; short room-sensor gaps are
+        # bridged with the last valid value
+        room_temp = self._room_temp_bridge.resolve(
+            self.coordinator.data.get("room_temp"),
+            self.coordinator.data.get("room_temp_ts"),
+            now,
+        )
         tado_internal = self.coordinator.data.get("tado_internal_temp")
-
-        # Sensor resilience: bridge short gaps with last-valid value
-        if room_temp is not None:
-            self._last_valid_room_temp = room_temp
-            self._last_valid_room_temp_ts = self.coordinator.data.get("room_temp_ts") or now
-            self._sensor_degraded = False
-        elif (
-            self._last_valid_room_temp is not None
-            and (now - self._last_valid_room_temp_ts) <= self._sensor_grace_s
-        ):
-            room_temp = self._last_valid_room_temp
-            self._sensor_degraded = True
-            age = int(now - self._last_valid_room_temp_ts)
-            _LOGGER.debug(
-                "Room temp unavailable – using last valid %.1f°C (age %ds, grace %ds)",
-                room_temp, age, self._sensor_grace_s,
-            )
-        else:
-            if room_temp is None and self._last_valid_room_temp is not None:
-                self._sensor_degraded = True
-                _LOGGER.warning(
-                    "Room sensor unavailable and grace period expired "
-                    "(last valid: %.1f°C, %ds ago, grace: %ds)",
-                    self._last_valid_room_temp,
-                    int(now - self._last_valid_room_temp_ts),
-                    self._sensor_grace_s,
-                )
-            else:
-                self._sensor_degraded = False
 
         if room_temp is None or tado_internal is None:
             self._last_reason = "waiting_for_sensors"
@@ -120,64 +98,24 @@ class RegulationMixin:
 
         # 5. Rate limiting & send decision
         # Prefer our own last-sent value (always fresh) over coordinator data
-        # (which may be up to 60s stale from the polling interval).
-        # NOTE: do NOT fall back to 0.0 – an unknown baseline makes the
-        # urgent-decrease check (target < baseline - threshold) always False
-        # for realistic temperatures, so a needed fast cooldown would be
-        # suppressed.  Instead, skip rate limiting entirely when no baseline
-        # is known (e.g. after a quick HVAC OFF → HEAT cycle).
-        current_tado_setpoint = (
+        # (which may be up to 60s stale from the polling interval).  The
+        # coordinator reports None while Tado is off/unavailable – an unknown
+        # baseline is handled by decide_send, never replaced by 0.0.
+        baseline = (
             self._last_sent_setpoint
             if self._last_sent_setpoint is not None
-            else self.coordinator.data.get("tado_setpoint")  # None if Tado is off/unavailable
+            else self.coordinator.data.get("tado_setpoint")
         )
-        time_since_last = now - self._last_command_sent_ts
-        is_rate_limited = time_since_last < self._config.min_command_interval_s
-
-        should_send = False
-        reason = "noop"
-
-        if current_tado_setpoint is None:
-            # No known Tado baseline – send to establish one.
-            # On the very first attempt (_last_command_sent_ts == 0) we send
-            # immediately.  On subsequent retries (e.g. after a failed send)
-            # we honour the rate limiter so a transient TRV/backend outage
-            # does not cause command spam every regulation cycle.
-            if is_rate_limited and self._last_command_sent_ts > 0:
-                remaining = int(self._config.min_command_interval_s - time_since_last)
-                reason = f"rate_limited({remaining}s)"
-            else:
-                should_send = True
-                reason = "no_baseline"
-        else:
-            diff = abs(result.target_for_tado_c - current_tado_setpoint)
-
-            # Overlay refresh: resend the same setpoint if overlay_refresh_s has
-            # elapsed, keeping timer-based overlays alive (cloud-API integrations).
-            overlay_refresh_due = (
-                self._overlay_refresh_s > 0
-                and time_since_last >= self._overlay_refresh_s
-            )
-
-            if diff < self._config.min_change_threshold_c and not overlay_refresh_due:
-                reason = "already_at_target"
-            elif diff < self._config.min_change_threshold_c and overlay_refresh_due:
-                should_send = True
-                reason = "overlay_refresh"
-            elif is_rate_limited:
-                is_urgent_decrease = (
-                    result.target_for_tado_c
-                    < current_tado_setpoint - self._behaviour.urgent_decrease_threshold_c
-                )
-                if is_urgent_decrease:
-                    should_send = True
-                    reason = "urgent_decrease"
-                else:
-                    remaining = int(self._config.min_command_interval_s - time_since_last)
-                    reason = f"rate_limited({remaining}s)"
-            else:
-                should_send = True
-                reason = "normal_update"
+        should_send, reason = decide_send(
+            target_c=result.target_for_tado_c,
+            baseline_c=baseline,
+            last_command_ts=self._last_command_sent_ts,
+            now=now,
+            min_interval_s=self._config.min_command_interval_s,
+            min_change_c=self._config.min_change_threshold_c,
+            urgent_decrease_c=self._behaviour.urgent_decrease_threshold_c,
+            overlay_refresh_s=self._overlay_refresh_s,
+        )
 
         # 6. Send command to Tado
         if should_send:
