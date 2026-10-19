@@ -323,6 +323,26 @@ class TestSensorMissingSinceStartup:
         assert d.mode == CONTROL_ROOM_SENSOR
         assert d.room_temp_c == 20.5
 
+    def test_frost_uses_trv_before_first_room_reading(self):
+        r = ControlModeResolver(grace_s=300, loss_action=CONTROL_HOLD)
+        d = _resolve(r, None, now=1000.0, frost_protection=True)
+        assert d.mode == CONTROL_TRV
+        assert d.room_temp_c is None
+
+    def test_first_room_reading_resumes_regulation_after_frost(self):
+        r = ControlModeResolver(grace_s=300, loss_action=CONTROL_HOLD)
+        _resolve(r, None, now=1000.0, frost_protection=True)
+        d = _resolve(r, 20.5, now=1030.0, frost_protection=True)
+        assert d.mode == CONTROL_ROOM_SENSOR
+        assert d.room_temp_c == 20.5
+        assert d.mode_changed is True
+
+    def test_window_close_without_room_reading_keeps_direct_control(self):
+        r = ControlModeResolver(grace_s=300, loss_action=CONTROL_HOLD)
+        _resolve(r, None, now=1000.0, frost_protection=True)
+        assert _resolve(r, None, now=1060.0).mode == CONTROL_TRV
+        assert _resolve(r, None, now=1301.0).mode == CONTROL_TRV
+
 
 class TestHoldAction:
     """Hold keeps the TRV on the last regulated command – but only while the

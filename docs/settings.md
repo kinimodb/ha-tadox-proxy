@@ -208,7 +208,9 @@ Two things always win, whatever you picked:
   knows which temperature the TRV holds.
 
 A sensor that has not reported at all since Home Assistant started gets the same
-grace period, counted from the start. Whenever the integration switches between the
+grace period, counted from the start. An open window does not wait for it: the TRV
+goes to the frost protection temperature right away and regulates on its own until
+the room sensor reports. Whenever the integration switches between the
 room sensor, the backup sensor and the TRV, it starts its long-term correction from
 zero: a correction learned for one sensor does not fit another.
 

@@ -520,7 +520,8 @@ class ControlModeResolver:
     period counts from when the sensor last reported, not from when the
     proxy polled it.  Without a sensor timestamp the poll time is used.  A
     sensor that has not reported since startup gets the same grace period,
-    counted from the first cycle.
+    counted from the first cycle; frost protection hands control to the TRV
+    right away instead of waiting.
 
     Once the grace period has expired, ``loss_action`` picks the mode:
     regulate on the backup sensor, let the TRV regulate on its own, or hold
@@ -581,7 +582,12 @@ class ControlModeResolver:
     ) -> tuple[str, float | None]:
         if not self._expired:
             # Without a reading (startup) or the TRV's own reading the cycle
-            # waits, as before.
+            # waits – except for frost protection, which must reach the TRV
+            # right away.  After that direct command the TRV keeps regulating
+            # until the room sensor reports, so the frost target is not left
+            # on the TRV (or held) once the window closes.
+            if room_temp is None and (frost_protection or self.mode == CONTROL_TRV):
+                return CONTROL_TRV, None
             if room_temp is None or tado_internal_c is None:
                 return CONTROL_ROOM_SENSOR, None
             return CONTROL_ROOM_SENSOR, room_temp

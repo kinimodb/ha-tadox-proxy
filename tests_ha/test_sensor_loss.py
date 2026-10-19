@@ -151,6 +151,36 @@ async def test_hold_still_lowers_for_open_window_and_restores_target(hass, freez
     assert _last_sent(proxy) == COMFORT_C
 
 
+async def test_startup_frost_sends_without_a_room_reading(hass, freezer):
+    proxy = await async_setup_proxy(hass, window=STATE_ON, room_state=STATE_UNAVAILABLE)
+
+    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+
+    assert proxy.preset == "frost_protection"
+    assert proxy.state.attributes["active_control_mode"] == "trv"
+    assert _last_sent(proxy) == FROST_C
+
+    await async_set_state(hass, ROOM_SENSOR, "20.0", TEMPERATURE)
+    for _ in range(2):
+        await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+
+    assert proxy.state.attributes["active_control_mode"] == "room_sensor"
+
+
+async def test_startup_frost_window_close_without_room_reading_restores_target(hass, freezer):
+    proxy = await async_setup_proxy(hass, window=STATE_ON, room_state=STATE_UNAVAILABLE)
+    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    assert _last_sent(proxy) == FROST_C
+
+    await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
+    await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)
+    for _ in range(MIN_COMMAND_INTERVAL_S // CONTROL_INTERVAL_S + 1):
+        await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+
+    assert proxy.state.attributes["active_control_mode"] == "trv"
+    assert _last_sent(proxy) == COMFORT_C
+
+
 async def test_hold_after_turning_back_on_sends_room_target(hass, freezer):
     """After OFF the proxy no longer knows what the TRV holds."""
     proxy = await async_setup_proxy(hass)
