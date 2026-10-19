@@ -36,6 +36,7 @@ prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`
 - `climate.py` – HA ClimateEntity: Properties, Lifecycle, Config, Follow-Tado
 - `climate_regulation.py` – RegulationMixin: Regelzyklus, TRV-Kommandos
 - `climate_presets.py` – PresetMixin: Preset-Wechsel, Boost-Timer, Window/Presence-Aktionen
+- `device.py` – `proxy_device_info()`: vollständige DeviceInfo für **alle** Entities (sonst fehlt der Gerätename im Entity-ID-Präfix)
 - `number.py` – NumberEntity für Preset-Temperaturen
 - `sensor.py` – Boost-Restzeit-Sensor
 - `binary_sensor.py` – Sensor-Degraded-Diagnose

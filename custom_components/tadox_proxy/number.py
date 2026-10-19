@@ -25,6 +25,7 @@ from .const import (
     CONF_FROST_PROTECTION_TARGET,
     DOMAIN,
 )
+from .device import proxy_device_info
 from .parameters import PresetConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -103,9 +104,7 @@ class PresetTemperatureNumber(CoordinatorEntity, NumberEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info so this entity appears on the same device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
+        return proxy_device_info(self._entry)
 
     @property
     def native_value(self) -> float:

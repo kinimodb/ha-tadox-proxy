@@ -9,6 +9,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_FOLLOW_TADO_INPUT, DOMAIN
+from .device import proxy_device_info
 
 
 async def async_setup_entry(
@@ -44,9 +45,7 @@ class FollowTadoInputSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info so this entity appears on the same device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
+        return proxy_device_info(self._entry)
 
     @property
     def is_on(self) -> bool:
@@ -90,9 +89,7 @@ class GuestModeSwitch(CoordinatorEntity, SwitchEntity):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info so this entity appears on the same device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-        )
+        return proxy_device_info(self._entry)
 
     @property
     def is_on(self) -> bool:
