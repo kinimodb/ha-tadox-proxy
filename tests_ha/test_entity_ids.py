@@ -14,8 +14,9 @@ PLATFORMS = {"binary_sensor", "climate", "number", "sensor", "switch"}
 async def test_every_entity_is_on_the_named_device(hass):
     proxy = await async_setup_proxy(hass)
 
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, proxy.entry.entry_id)})
-    assert device is not None
+    # async_get_device(identifiers=...) is deprecated on newer HA versions.
+    [device] = dr.async_entries_for_config_entry(dr.async_get(hass), proxy.entry.entry_id)
+    assert device.identifiers == {(DOMAIN, proxy.entry.entry_id)}
     assert device.name == "Living"
 
     entries = er.async_entries_for_config_entry(er.async_get(hass), proxy.entry.entry_id)
