@@ -829,6 +829,56 @@ class TestHvacModeChangeRestoresPreset:
 
 
 # ---------------------------------------------------------------------------
+# HVAC mode change must hold the regulation lock (AST-based guard)
+# ---------------------------------------------------------------------------
+
+def _calls_inside_lock(file_path: str, method_name: str) -> tuple[set[str], set[str]]:
+    """(calls inside ``async with self._regulation_lock``, all calls) of a method."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+
+    def _names(node: ast.AST) -> set[str]:
+        return {
+            sub.func.attr
+            for sub in ast.walk(node)
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+        }
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == method_name:
+            locked: set[str] = set()
+            for sub in ast.walk(node):
+                if isinstance(sub, ast.AsyncWith) and any(
+                    isinstance(item.context_expr, ast.Attribute)
+                    and item.context_expr.attr == "_regulation_lock"
+                    for item in sub.items
+                ):
+                    locked |= _names(sub)
+            return locked, _names(node)
+    raise AssertionError(f"{method_name} not found in {file_path}")
+
+
+class TestHvacModeChangeHoldsRegulationLock:
+    """Regression (from PR #101): a regulation cycle whose setpoint command
+    (sent with hvac_mode=heat) is still in flight must not interleave with
+    turning the TRV off.  async_set_hvac_mode therefore runs the TRV command
+    and the follow-up cycle under _regulation_lock – and must call the
+    lock-free cycle body, since asyncio.Lock is not re-entrant."""
+
+    def test_hvac_command_is_sent_under_lock(self):
+        locked, _ = _calls_inside_lock(_CLIMATE_PY, "async_set_hvac_mode")
+        assert "_async_send_hvac_mode_to_tado" in locked
+
+    def test_follow_up_cycle_runs_under_lock(self):
+        locked, _ = _calls_inside_lock(_CLIMATE_PY, "async_set_hvac_mode")
+        assert "_async_regulation_cycle_locked" in locked
+
+    def test_does_not_reacquire_lock(self):
+        _, calls = _calls_inside_lock(_CLIMATE_PY, "async_set_hvac_mode")
+        assert "_async_regulation_cycle" not in calls
+
+
+# ---------------------------------------------------------------------------
 # Bug 5: Comfort target restore silently fails when comfort_target is unset
 # ---------------------------------------------------------------------------
 #

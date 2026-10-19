@@ -124,9 +124,11 @@ class WindowAutomationController:
             _LOGGER.debug("Window open event ignored – frost protection already active")
             return
 
-        # Cancel any previously pending open timer before scheduling a new one
+        # Keep a pending open delay: a repeated "on" (e.g. after a brief
+        # unavailable) must not push the action further out.
         if self._open_timer is not None:
-            self._open_timer()
+            _LOGGER.debug("Window open event ignored – open delay already running")
+            return
         _cl = call_later or _get_call_later()
         self._open_timer = _cl(hass, delay_s, on_open_action)
         _LOGGER.debug("Window opened – frost-protection action in %ds", delay_s)
@@ -148,9 +150,11 @@ class WindowAutomationController:
         if self._open_timer is not None:
             self._open_timer()
             self._open_timer = None
+        # Keep a pending close delay: a repeated "off" (e.g. after a brief
+        # unavailable) must not push the restore further out.
         if self._close_timer is not None:
-            self._close_timer()
-            self._close_timer = None
+            _LOGGER.debug("Window close event ignored – close delay already running")
+            return False
 
         if not self.is_active:
             # Window closed before the open-delay fired – nothing to restore.
@@ -282,8 +286,11 @@ class PresenceAutomationController:
             _LOGGER.debug("Presence away event ignored – already active")
             return
 
+        # Keep a pending away delay: a repeated "off" (e.g. after a brief
+        # unavailable) must not push the action further out.
         if self._away_timer is not None:
-            self._away_timer()
+            _LOGGER.debug("Presence away event ignored – away delay already running")
+            return
         _cl = call_later or _get_call_later()
         self._away_timer = _cl(hass, delay_s, on_away_action)
         _LOGGER.debug("Presence away – switching to AWAY preset in %ds", delay_s)
@@ -314,9 +321,11 @@ class PresenceAutomationController:
             return False
 
         if delay_s > 0 and on_home_action is not None:
-            # Cancel any previously pending home timer
+            # Keep a pending home delay: a repeated "on" (e.g. after a brief
+            # unavailable) must not push the restore further out.
             if self._home_timer is not None:
-                self._home_timer()
+                _LOGGER.debug("Presence home event ignored – home delay already running")
+                return False
             _cl = call_later or _get_call_later()
             self._home_timer = _cl(hass, delay_s, on_home_action)
             _LOGGER.debug("Presence home – restoring preset in %ds", delay_s)

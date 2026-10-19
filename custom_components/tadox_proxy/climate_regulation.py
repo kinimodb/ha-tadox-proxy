@@ -37,6 +37,16 @@ class RegulationMixin:
             if entity is not None and entity.hass is not None:
                 entity.async_write_ha_state()
 
+    def _skip_regulation_cycle(self, reason: str) -> None:
+        """End a cycle without computing a new result.
+
+        The previous result is dropped so its diagnostics (error_c, the
+        corrections, target_for_tado_c) do not linger as if still current.
+        """
+        self._last_result = None
+        self._last_reason = reason
+        self._write_state_with_linked_entities()
+
     async def _async_regulation_cycle_timer(self, _now) -> None:
         """Periodic timer callback."""
         await self._async_regulation_cycle(trigger="timer")
@@ -53,15 +63,13 @@ class RegulationMixin:
         # Guard: skip when HVAC is OFF – the TRV has been turned off directly,
         # no regulation needed.
         if self._hvac_mode == HVACMode.OFF:
-            self._last_reason = "hvac_off"
-            self._write_state_with_linked_entities()
+            self._skip_regulation_cycle("hvac_off")
             return
 
         # Guard: skip when coordinator data is stale (update method raised an exception).
         if not self.coordinator.last_update_success:
             _LOGGER.debug("Skipping regulation cycle – coordinator update failed")
-            self._last_reason = "coordinator_unavailable"
-            self._write_state_with_linked_entities()
+            self._skip_regulation_cycle("coordinator_unavailable")
             return
 
         # 1. Gather sensor data from coordinator; short room-sensor gaps are
@@ -74,8 +82,7 @@ class RegulationMixin:
         tado_internal = self.coordinator.data.get("tado_internal_temp")
 
         if room_temp is None or tado_internal is None:
-            self._last_reason = "waiting_for_sensors"
-            self._write_state_with_linked_entities()
+            self._skip_regulation_cycle("waiting_for_sensors")
             return
 
         # 2. Time delta

@@ -87,6 +87,11 @@ Point it at a window contact (`binary_sensor.*`).
   This delay is intentional — it stops the radiator from firing hard the instant you
   shut the window, while the room air is still cold from the draught.
 - If the window shuts again before the first delay is up, nothing happens at all.
+- **Changes while the window is open:** the room stays in Frost Protection. If you
+  pick another preset or temperature in the meantime, that is what comes back when
+  the window closes — not the one from before the window opened.
+- A preset or temperature change during the close delay ends the wait and takes
+  effect right away.
 
 ### Presence detection
 
@@ -99,14 +104,15 @@ Point it at a presence sensor or person tracker (`binary_sensor.*`).
 
 Only a real switch between on and off counts. Many Zigbee sensors re-send their
 battery level or signal strength every few minutes; those updates do not restart the
-delays. A sensor that briefly drops out (`unavailable`) and comes back does not
-overwrite the preset that will be restored, either.
+delays. A sensor that briefly drops out (`unavailable`) and comes back does not restart a
+running delay, and it does not overwrite the preset that will be restored.
 
 ### After a Home Assistant restart
 
 The integration does not remember which preset was active before a window opened or
 everybody left. If Home Assistant restarts during such a phase, closing the window or
-coming home brings back **Comfort**. A running boost does not survive a restart
+coming home brings back **Comfort**. If the window is still open after the restart,
+the open delay simply starts again. A running boost does not survive a restart
 either; the room goes back to Comfort.
 
 ---
@@ -263,6 +269,24 @@ something is wrong or when you are curious what the integration is thinking.
 
 While the sensor is missing, `room_temp_last_valid_c` and
 `room_temp_last_valid_age_s` appear as well.
+
+The regulation values — `feedforward_offset_c`, `p_correction_c`, `i_correction_c`,
+`error_c`, `target_for_tado_c` and `is_saturated` — only appear while the integration
+is actually regulating. They disappear while the proxy is off, and when the room
+sensor has been gone for longer than the grace period.
+
+### What "heating" means
+
+The proxy shows **Heating** (`hvac_action: heating`) when the target it sent to the
+Tado is above the Tado's own reading. In practice this means the valve is open. It
+does **not** mean that the room still needs heat: the correction keeps the valve
+slightly open to hold the room at its target, so a room only 0.05 °C below target can
+show Heating.
+
+To decide whether a boiler should run, use `error_c` instead (target minus room
+temperature). Leave out rooms that are off or have `sensor_degraded` on. Add some
+hysteresis so the boiler does not start for tiny gaps — for example, start above
+0.5 °C and keep running until the gap drops below 0.2 °C.
 
 The [tuning guide](../TUNING.md#diagnostics-what-the-attributes-tell-you) shows what
 healthy and unhealthy values look like side by side.
