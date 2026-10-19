@@ -485,77 +485,85 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         """Set new target HVAC mode."""
         if hvac_mode not in self._attr_hvac_modes:
             return
-        # Turning the heating OFF clears any active window-open state so the
-        # user's intention is respected.  Restore the saved pre-frost preset
-        # first – otherwise the entity stays in FROST_PROTECTION with no
-        # automation left to ever restore it (e.g. window closes while OFF).
-        # Only for OFF: a HEAT request (e.g. climate.turn_on while already
-        # heating) must not end frost protection with the window still open.
-        if hvac_mode == HVACMode.OFF and self._window_ctrl.is_active:
-            saved = self._window_ctrl.get_saved()
-            self._window_ctrl.cancel_all()
-            restore_preset = saved.preset if saved.preset is not None else PRESET_COMFORT
-            # Frost must never survive the cancel; a saved BOOST has lost its
-            # timer context – both fall back to COMFORT (same policy as the
-            # state restore in async_added_to_hass).
-            if restore_preset in (PRESET_FROST_PROTECTION, PRESET_BOOST):
-                restore_preset = PRESET_COMFORT
-            self._preset_mode = restore_preset
-            if restore_preset == PRESET_COMFORT:
-                self._target_temp = self._comfort_target()
-            elif saved.temp is not None:
-                self._target_temp = saved.temp
+        # Hold the regulation lock for the whole transition: a cycle whose
+        # setpoint command (sent with hvac_mode=heat) is still in flight must
+        # not interleave with turning the TRV off.  The follow-up cycle runs
+        # the lock-free body – asyncio.Lock is not re-entrant.
+        async with self._regulation_lock:
+            # Turning the heating OFF clears any active window-open state so the
+            # user's intention is respected.  Restore the saved pre-frost preset
+            # first – otherwise the entity stays in FROST_PROTECTION with no
+            # automation left to ever restore it (e.g. window closes while OFF).
+            # Only for OFF: a HEAT request (e.g. climate.turn_on while already
+            # heating) must not end frost protection with the window still open.
+            if hvac_mode == HVACMode.OFF and self._window_ctrl.is_active:
+                saved = self._window_ctrl.get_saved()
+                self._window_ctrl.cancel_all()
+                restore_preset = saved.preset if saved.preset is not None else PRESET_COMFORT
+                # Frost must never survive the cancel; a saved BOOST has lost its
+                # timer context – both fall back to COMFORT (same policy as the
+                # state restore in async_added_to_hass).
+                if restore_preset in (PRESET_FROST_PROTECTION, PRESET_BOOST):
+                    restore_preset = PRESET_COMFORT
+                self._preset_mode = restore_preset
+                if restore_preset == PRESET_COMFORT:
+                    self._target_temp = self._comfort_target()
+                elif saved.temp is not None:
+                    self._target_temp = saved.temp
 
-        previous_mode = self._hvac_mode
-        self._hvac_mode = hvac_mode
-        self.async_write_ha_state()
-
-        # Forward HVAC mode to the source TRV entity
-        if hvac_mode == HVACMode.OFF:
-            try:
-                await self._async_send_hvac_mode_to_tado(HVACMode.OFF)
-            except (TimeoutError, HomeAssistantError):
-                # Command failed – revert local state so the proxy stays in sync
-                # with the TRV (which may still be heating).
-                self._hvac_mode = previous_mode
-                self._last_reason = "hvac_off_failed"
-                self.async_write_ha_state()
-                return
-            self._last_reason = "sent(hvac_off)"
+            previous_mode = self._hvac_mode
+            self._hvac_mode = hvac_mode
             self.async_write_ha_state()
-        elif hvac_mode == HVACMode.HEAT and previous_mode == HVACMode.OFF:
-            # Returning from OFF → reset timestamp so the first HEAT cycle uses
-            # dt=0 and avoids an integral spike from the long OFF period.
-            self._last_regulation_ts = 0
-            # Re-evaluate window sensor: if the window is still open after
-            # OFF→HEAT, restart frost protection so we don't heat into the void.
-            window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
-            if window_sensor:
-                ws = self.hass.states.get(window_sensor)
-                if ws and ws.state == "on":
-                    delay = self._config_entry.options.get(
-                        CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
+
+            # Forward HVAC mode to the source TRV entity
+            if hvac_mode == HVACMode.OFF:
+                try:
+                    await self._async_send_hvac_mode_to_tado(HVACMode.OFF)
+                except (TimeoutError, HomeAssistantError):
+                    # Command failed – revert local state so the proxy stays in sync
+                    # with the TRV (which may still be heating).
+                    self._hvac_mode = previous_mode
+                    self._last_reason = "hvac_off_failed"
+                    self.async_write_ha_state()
+                    return
+                # No regulation while OFF: drop the last result so error_c and
+                # the corrections do not linger as if still current.
+                self._last_result = None
+                self._last_reason = "sent(hvac_off)"
+                self.async_write_ha_state()
+            elif hvac_mode == HVACMode.HEAT and previous_mode == HVACMode.OFF:
+                # Returning from OFF → reset timestamp so the first HEAT cycle uses
+                # dt=0 and avoids an integral spike from the long OFF period.
+                self._last_regulation_ts = 0
+                # Re-evaluate window sensor: if the window is still open after
+                # OFF→HEAT, restart frost protection so we don't heat into the void.
+                window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
+                if window_sensor:
+                    ws = self.hass.states.get(window_sensor)
+                    if ws and ws.state == "on":
+                        delay = self._config_entry.options.get(
+                            CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
+                        )
+                        self._window_ctrl.handle_window_opened(
+                            self.hass, delay, self._async_window_action
+                        )
+                        _LOGGER.info(
+                            "HVAC OFF→HEAT: window still open, frost action in %ds",
+                            delay,
+                        )
+                # Reactivate the TRV, then run regulation to send the correct setpoint.
+                # If set_hvac_mode fails, still run the cycle: every setpoint
+                # command carries hvac_mode=heat, so it retries the activation
+                # (rate limited) instead of aborting with an unhandled error.
+                try:
+                    await self._async_send_hvac_mode_to_tado(HVACMode.HEAT)
+                except (TimeoutError, HomeAssistantError):
+                    _LOGGER.warning(
+                        "HVAC OFF→HEAT: activating the TRV failed, retrying via setpoint command"
                     )
-                    self._window_ctrl.handle_window_opened(
-                        self.hass, delay, self._async_window_action
-                    )
-                    _LOGGER.info(
-                        "HVAC OFF→HEAT: window still open, frost action in %ds",
-                        delay,
-                    )
-            # Reactivate the TRV, then run regulation to send the correct setpoint.
-            # If set_hvac_mode fails, still run the cycle: every setpoint
-            # command carries hvac_mode=heat, so it retries the activation
-            # (rate limited) instead of aborting with an unhandled error.
-            try:
-                await self._async_send_hvac_mode_to_tado(HVACMode.HEAT)
-            except (TimeoutError, HomeAssistantError):
-                _LOGGER.warning(
-                    "HVAC OFF→HEAT: activating the TRV failed, retrying via setpoint command"
-                )
-            await self._async_regulation_cycle(trigger="hvac_mode_change")
-        else:
-            await self._async_regulation_cycle(trigger="hvac_mode_change")
+                await self._async_regulation_cycle_locked(trigger="hvac_mode_change")
+            else:
+                await self._async_regulation_cycle_locked(trigger="hvac_mode_change")
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature; enters manual (PRESET_NONE) mode.
