@@ -162,8 +162,9 @@ Use a normal web browser to set it up.
 - At least one Tado X radiator thermostat visible in Home Assistant — the one screwed
   onto the radiator, not a wall thermostat
 - One temperature sensor per room
-- One entry per radiator: a room with two radiators gets two entries, both using the
-  same room sensor
+- Usually one entry per radiator: a room with two radiators gets two entries, both
+  using the same room sensor. Some setups need one entry per room instead — the
+  [setup guide](docs/setup.md#how-many-entries-you-need) tells you which
 
 ---
 

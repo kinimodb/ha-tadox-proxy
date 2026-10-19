@@ -3,16 +3,16 @@
     "step": {
       "user": {
         "title": "Tado X Proxy Thermostat",
-        "description": "Ein Eintrag steuert genau ein Tado X Heizkörperthermostat (TRV). Hat ein Raum mehrere Heizkörper, lege pro TRV einen Eintrag an und verweise alle auf denselben Raum-Temperatursensor.",
+        "description": "Ein Eintrag steuert genau eine Tado X Climate-Entität. Über Matter ist das ein Heizkörperthermostat (TRV): Hat ein Raum mehrere Heizkörper, lege pro TRV einen Eintrag an und verweise alle auf denselben Raum-Temperatursensor. Mit der Tado X Cloud-Integration (exabird/ha-tado-x) steuert eine Climate-Entität den ganzen Tado-Raum: Lege pro Raum einen Eintrag an und setze danach das Overlay-Refresh-Intervall auf 900 s (Konfigurieren → TRV-Kommunikation).",
         "data": {
           "source_entity_id": "Tado X Heizkörperthermostat (TRV)",
           "external_temperature_entity_id": "Externer Temperatursensor",
           "name": "Name"
         },
         "data_description": {
-          "source_entity_id": "Die Climate-Entität des Thermostatkopfs am Heizkörper. Hier kein Wandthermostat auswählen. Jedes TRV kann nur von einem Eintrag verwendet werden.",
+          "source_entity_id": "Matter: die Climate-Entität des Thermostatkopfs am Heizkörper. Tado X Cloud-Integration: die Climate-Entität des Tado-Raums. Hier kein Wandthermostat auswählen. Jede Climate-Entität kann nur von einem Eintrag verwendet werden.",
           "external_temperature_entity_id": "Ein Temperatursensor im Raum, mit Abstand zum Heizkörper. Für alle Einträge desselben Raums denselben Sensor verwenden.",
-          "name": "Name des Proxy-Thermostats. Pro Heizkörper einen sprechenden Namen wählen, zum Beispiel \"Lounge Fenster\" und \"Lounge Wand\", damit die Entitäten in Automationen wiederzufinden sind."
+          "name": "Name des Proxy-Thermostats. Einen sprechenden Namen wählen, zum Beispiel \"Lounge Fenster\" und \"Lounge Wand\" für zwei Heizkörper oder \"Lounge\" für einen ganzen Tado-Raum, damit die Entitäten in Automationen wiederzufinden sind."
         }
       }
     },
@@ -24,7 +24,7 @@
       "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
     },
     "abort": {
-      "already_configured": "Dieses Heizkörperthermostat (TRV) wird bereits von einem anderen Eintrag verwendet. Jedes TRV kann nur von einem Proxy gesteuert werden."
+      "already_configured": "Dieses Thermostat wird bereits von einem anderen Eintrag verwendet. Jede Climate-Entität kann nur von einem Proxy gesteuert werden."
     }
   },
   "options": {
@@ -114,7 +114,7 @@
             "data_description": {
               "min_command_interval_s": "Mindestzeit zwischen Befehlen an das TRV (Batterieschonung).",
               "min_change_threshold_c": "Mindestdifferenz zum aktuellen Tado-Sollwert, bevor ein neuer Befehl gesendet wird.",
-              "overlay_refresh_s": "Sollwert periodisch erneut an das TRV senden, um Cloud-API-Overlays aktiv zu halten. 0 = aus."
+              "overlay_refresh_s": "Einen unveränderten Sollwert nach dieser Zeit erneut senden, damit Timer-Overlays nicht ablaufen. Tado X Cloud-Integration (exabird/ha-tado-x): 900 s. Matter: 0 = aus."
             }
           },
           "behaviour": {

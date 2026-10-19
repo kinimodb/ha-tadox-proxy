@@ -16,9 +16,18 @@ You need three things:
 
 1. **A Tado X radiator thermostat (TRV)** that already appears in Home Assistant.
    That is the valve head screwed onto the radiator itself — **not** a wall
-   thermostat. Tado X devices connect through Matter. If you cannot see your
-   radiator thermostat in Home Assistant yet, set that up first — this integration
-   cannot help until Home Assistant can see the device.
+   thermostat. If you cannot see your radiator thermostat in Home Assistant yet,
+   set that up first — this integration cannot help until Home Assistant can see
+   the device.
+
+   Tado X can reach Home Assistant in two ways. Both work. Note which one you use,
+   because it changes Step 4:
+
+   - **Through Matter.** This is the usual way. Each radiator thermostat shows up
+     as its own thermostat.
+   - **Through the Tado cloud**, with the HACS integration
+     [Tado X by exabird](https://github.com/exabird/ha-tado-x). It shows one
+     thermostat for each Tado room, not one for each radiator.
 2. **A temperature sensor in the room.** Any brand, any protocol, as long as it
    shows up in Home Assistant and reports a temperature.
 3. **HACS installed** in Home Assistant. See [hacs.xyz](https://hacs.xyz).
@@ -90,27 +99,48 @@ From now on you control the room through Home Assistant, not through the Tado ap
 
 | Field | What to pick |
 |---|---|
-| **Tado X radiator thermostat (TRV)** | The real Tado X on the radiator — the valve head, not a wall thermostat. It starts with `climate.` |
+| **Tado X radiator thermostat (TRV)** | **Matter:** the real Tado X on the radiator — the valve head, not a wall thermostat. **Tado cloud:** the thermostat of the Tado room. It starts with `climate.` |
 | **External Temperature Sensor** | The room sensor from Step 1. It starts with `sensor.` |
-| **Name** | A name for this radiator, for example "Living Room Proxy" |
+| **Name** | A name for this radiator or room, for example "Living Room Proxy" |
 
 5. Click **Submit**.
 
-That is the entire configuration. Everything else has sensible defaults.
+With Matter, that is the entire configuration. Everything else has sensible defaults.
 
 **Wall thermostats do not belong here.** If you have a Tado X on the wall, leave it
 alone — this integration only controls the thermostats mounted on the radiators.
 
+### Using the Tado cloud? Change one setting
+
+The Tado cloud integration keeps each new temperature for 30 minutes only. Tell the
+proxy to send it again before that time runs out:
+
+1. Go to **Settings → Devices & Services → Tado X Proxy Thermostat**.
+2. Click **Configure** on your new entry.
+3. Open the **TRV Communication** section.
+4. Set **Overlay refresh interval** to **900** seconds (15 minutes).
+5. Click **Submit**.
+
+Do this for every entry. With Matter, leave this setting at 0. The
+[settings reference](settings.md#trv-communication) has the details.
+
 ---
 
-## One entry per radiator thermostat
+## How many entries you need
 
 This is worth knowing before you carry on, because it is easy to assume otherwise.
 
-**One entry controls exactly one radiator thermostat.** Not one room. Even when you
-name it "Living Room Proxy", what it drives is the single TRV you picked in Step 4.
-The same TRV also cannot be used twice — if you try to add it a second time, Home
+**One entry controls exactly one thermostat** — the one you picked in Step 4. The
+same thermostat cannot be used twice. If you try to add it a second time, Home
 Assistant refuses the entry.
+
+How many entries a room needs depends on how your Tado X reaches Home Assistant.
+
+### Matter: one entry per radiator
+
+With Matter, each radiator thermostat is its own thermostat in Home Assistant. So
+one entry drives one radiator, not a whole room. Even when you name it "Living Room
+Proxy", it only drives the single TRV you picked in Step 4.
 
 **A room with one radiator** is therefore finished. That is the normal case.
 
@@ -123,15 +153,27 @@ same sensor, they agree on how warm the room actually is.
 more useful than "Lounge 1" and "Lounge 2". These names become the entity names, and
 you will meet them again in automations and in the Scheduler Component.
 
-So the basic kit for a room is: **one temperature sensor, plus one entry for every
-radiator thermostat in that room.** Repeat all of it for each room you want to fix.
+### Tado cloud: one entry per room
+
+The Tado cloud integration shows one thermostat for each Tado room. That one
+thermostat already drives every radiator thermostat in the room. So you need
+**one entry per room**, no matter how many radiators the room has. Do not try to
+add an entry for each radiator.
+
+### The basic kit
+
+For each room you want to fix, you need **one temperature sensor**, plus:
+
+- **Matter:** one entry for every radiator thermostat in the room.
+- **Tado cloud:** one entry for the whole room, with the
+  [extra setting](#using-the-tado-cloud-change-one-setting) from Step 4.
 
 ---
 
 ## Step 5: Check that it works
 
 You now have a new thermostat in Home Assistant, named whatever you chose. Use this
-one from now on. Ignore the original Tado X radiator thermostat entity — the
+one from now on. Ignore the original Tado X thermostat entity — the
 integration drives it for you.
 
 **Test it:**
@@ -158,7 +200,9 @@ typical room — the same as it always did.
 Set your temperature and use the room normally.
 
 **Do not go into the settings.** You will find a lot of adjustable values in
-**Configure**, and none of them need your attention. They exist for unusual rooms.
+**Configure**, and none of them need your attention — apart from the one
+[Tado cloud setting](#using-the-tado-cloud-change-one-setting) from Step 4. They
+exist for unusual rooms.
 The defaults are the result of a lot of testing and they work in most homes.
 
 If the room heats up and stays at the temperature you asked for, there is nothing
@@ -213,14 +257,19 @@ Both are optional and work independently.
 3. **Check your sensor.** Is it still reporting? Look at the
    `sensor_degraded` warning entity. If it is on, your room sensor has dropped out
    and the integration is flying blind.
-4. **Check the radiator itself.** Is it actually getting hot? If the valve is stuck
+4. **Using the Tado cloud?** Check that **Overlay refresh interval** is set to
+   900 seconds. See [Step 4](#using-the-tado-cloud-change-one-setting).
+5. **Check the radiator itself.** Is it actually getting hot? If the valve is stuck
    or the radiator needs bleeding, no software can fix that.
 
 ### Only one radiator in the room heats up
 
-The room has more than one radiator, and you only created one entry. Each radiator
-thermostat needs its own — see
-[One entry per radiator thermostat](#one-entry-per-radiator-thermostat).
+**With Matter:** the room has more than one radiator, and you only created one
+entry. Each radiator thermostat needs its own — see
+[How many entries you need](#how-many-entries-you-need).
+
+**With the Tado cloud:** one entry is correct. Open the Tado app and check that
+every radiator thermostat belongs to that room.
 
 ### The room gets too warm
 
@@ -242,7 +291,7 @@ settings. See the [tuning guide](../TUNING.md).
 
 - Did you restart Home Assistant after installing? It will not work otherwise.
 - Are you looking at the right thermostat? The integration creates a **new** one.
-  Changing the original Tado X radiator thermostat entity does nothing useful.
+  Changing the original Tado X thermostat entity does nothing useful.
 - Give it 3 minutes. Commands are deliberately rate-limited to save batteries.
 - Check the logs: **Settings → System → Logs**, search for `tadox_proxy`.
 

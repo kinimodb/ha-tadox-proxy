@@ -48,10 +48,17 @@ stored Comfort temperature is left alone, so you can always get back to it.
 
 ## Entities you get
 
-One entry controls exactly one Tado X radiator thermostat (TRV) — the valve head on
-the radiator, never a wall thermostat. A room with two radiators therefore has two
-entries, both pointing at the same room temperature sensor. See
-[one entry per radiator thermostat](setup.md#one-entry-per-radiator-thermostat).
+One entry controls exactly one Tado X climate entity, never a wall thermostat. What
+that entity stands for depends on how Tado X reaches Home Assistant:
+
+- **Matter:** one radiator thermostat (TRV), the valve head on the radiator. A room
+  with two radiators therefore has two entries, both pointing at the same room
+  temperature sensor.
+- **Tado cloud** ([exabird/ha-tado-x](https://github.com/exabird/ha-tado-x)): one
+  Tado room, which already drives all radiator thermostats in it. Each room gets one
+  entry. Also set the [overlay refresh interval](#trv-communication) to 900 s.
+
+See [how many entries you need](setup.md#how-many-entries-you-need).
 
 Each entry creates:
 
@@ -260,6 +267,12 @@ How often the integration is allowed to talk to your radiator thermostat (TRV).
 
 **Do not lower the command interval without a good reason.** Tado X thermostats
 communicate wirelessly and every command costs battery.
+
+**Overlay refresh is for the Tado cloud integration only.**
+[exabird/ha-tado-x](https://github.com/exabird/ha-tado-x) sends every setpoint as a
+timer overlay that ends after 30 minutes. Set the refresh to **900 s**: when no other
+command went out for 15 minutes, the proxy resends the current setpoint, so the
+overlay never runs out. Over Matter there is no timer — leave it at 0.
 
 ### Behaviour
 
