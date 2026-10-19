@@ -10,20 +10,19 @@ from homeassistant.components.climate import (
 from homeassistant.const import STATE_OFF, STATE_ON
 
 from .helpers import (
-    BASE_OPTIONS,
     PRESENCE_AWAY_DELAY_S,
     PRESENCE_HOME_DELAY_S,
     PRESENCE_SENSOR,
     PRESET_FROST_PROTECTION,
-    WINDOW_DELAY_S,
+    WINDOW_CLOSE_DELAY_S,
     WINDOW_SENSOR,
     Proxy,
     async_advance,
+    async_open_window,
     async_set_state,
     async_setup_proxy,
 )
 
-WINDOW_CLOSE_DELAY_S = BASE_OPTIONS["window_close_delay_s"]
 BOOST_DURATION_MIN = 10
 
 
@@ -43,8 +42,7 @@ async def test_attribute_only_presence_updates_keep_away_timer(hass, freezer):
 
 async def test_turn_on_keeps_window_frost_protection(hass, freezer):
     proxy = await async_setup_proxy(hass)
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_open_window(hass, freezer)
     assert proxy.preset == PRESET_FROST_PROTECTION
 
     await proxy.call("climate", "turn_on", proxy.climate)
@@ -55,8 +53,7 @@ async def test_turn_on_keeps_window_frost_protection(hass, freezer):
 
 async def test_close_delay_shows_right_away(hass, freezer):
     proxy = await async_setup_proxy(hass)
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_open_window(hass, freezer)
 
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
     assert proxy.state.attributes["window_close_delay_active"] is True
@@ -70,8 +67,7 @@ async def test_close_delay_shows_right_away(hass, freezer):
 async def test_presence_away_under_open_window_updates_restore_preset(hass, freezer):
     """The state shows Away as the preset to restore right away, ready for a restart."""
     proxy = await async_setup_proxy(hass)
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_open_window(hass, freezer)
     await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
 
@@ -85,8 +81,7 @@ async def _async_close_window_while_away(hass, freezer, proxy: Proxy) -> None:
     await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
     assert proxy.preset == PRESET_AWAY
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_open_window(hass, freezer)
     assert proxy.preset == PRESET_FROST_PROTECTION
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
 
@@ -128,8 +123,7 @@ async def test_temperature_change_during_close_delay_brings_back_away(hass, free
 async def test_temperature_change_during_close_delay_takes_effect(hass, freezer):
     """Someone home: the manual temperature applies right away."""
     proxy = await async_setup_proxy(hass)
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_open_window(hass, freezer)
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
 
     await proxy.call("climate", "set_temperature", proxy.climate, temperature=21.5)
@@ -143,8 +137,7 @@ async def test_boost_during_close_delay_ends_in_the_saved_preset(hass, freezer):
     """After the boost, the room returns to what the window saved, not to frost protection."""
     proxy = await async_setup_proxy(hass, options={"boost_duration": BOOST_DURATION_MIN})
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_open_window(hass, freezer)
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
 
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_BOOST)
@@ -159,8 +152,7 @@ async def test_temperature_while_away_with_an_open_window_waits_for_the_return(h
     proxy = await async_setup_proxy(hass)
     await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_open_window(hass, freezer)
 
     await proxy.call("climate", "set_temperature", proxy.climate, temperature=21.5)
 

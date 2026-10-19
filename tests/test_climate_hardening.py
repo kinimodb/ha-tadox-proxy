@@ -768,22 +768,18 @@ class TestHvacModeChangeRestoresPreset:
 
     Cancelling alone would leave the entity stuck in FROST_PROTECTION with the
     saved pre-frost preset thrown away – if the window closes while HVAC is
-    OFF, nothing ever restores the preset.  The saved state must be read
-    (get_saved) and restored through the window restore before cancelling.
+    OFF, nothing ever restores the preset.  The window automation must end
+    through WindowAutomationController.end (which returns the saved state,
+    tested in test_controllers) and the window restore.
     tests_ha/test_turn_off.py covers the behaviour, including a TRV that
     does not switch off.
     """
 
     def test_set_hvac_mode_ends_the_window(self):
-        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "_end_window_for_heating_off")
+        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "end")
 
-    def test_ending_the_window_reads_saved_state(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_end_window_for_heating_off", "get_saved")
-
-    def test_ending_the_window_restores_the_preset(self):
-        assert _method_calls(
-            _CLIMATE_PRESETS_PY, "_end_window_for_heating_off", "_apply_window_restore"
-        )
+    def test_set_hvac_mode_restores_the_preset(self):
+        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "_apply_window_restore")
         assert _method_assigns_attr(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_preset_mode")
 
 
@@ -1012,12 +1008,6 @@ class TestComfortTargetRoutedThroughHelper:
 
     def test_config_entry_updated_calls_helper(self):
         assert _method_calls(_CLIMATE_PY, "_async_config_entry_updated", "_comfort_target")
-
-    def test_set_hvac_mode_calls_helper(self):
-        """Turning off restores through _apply_window_restore (checked below)."""
-        assert _method_calls(
-            _CLIMATE_PRESETS_PY, "_end_window_for_heating_off", "_apply_window_restore"
-        )
 
     def test_restore_window_state_calls_helper(self):
         assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_comfort_target")

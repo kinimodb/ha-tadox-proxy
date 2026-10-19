@@ -9,16 +9,17 @@ from homeassistant.components.climate import (
     HVACAction,
     HVACMode,
 )
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import STATE_OFF
 from homeassistant.data_entry_flow import FlowResultType
 
 from .helpers import (
     PRESENCE_AWAY_DELAY_S,
     PRESENCE_SENSOR,
     PRESET_FROST_PROTECTION,
-    WINDOW_DELAY_S,
+    WINDOW_CLOSE_DELAY_S,
     WINDOW_SENSOR,
     async_advance,
+    async_open_window,
     async_set_state,
     async_setup_proxy,
 )
@@ -26,19 +27,12 @@ from .helpers import (
 OFF_ACTION = {"window_action": "off"}
 # DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
 CONTROL_INTERVAL_S = 60
-# window_close_delay_s as set in BASE_OPTIONS
-WINDOW_CLOSE_DELAY_S = 120
-
-
-async def _async_open_window(hass, freezer) -> None:
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
 
 
 async def test_open_window_switches_the_trv_off(hass, freezer):
     proxy = await async_setup_proxy(hass, options=OFF_ACTION)
 
-    await _async_open_window(hass, freezer)
+    await async_open_window(hass, freezer)
 
     assert proxy.preset == PRESET_FROST_PROTECTION
     assert proxy.trv_commands("set_hvac_mode")[-1]["hvac_mode"] == HVACMode.OFF
@@ -48,7 +42,7 @@ async def test_open_window_switches_the_trv_off(hass, freezer):
 async def test_trv_stays_off_while_the_window_is_open(hass, freezer):
     """Every setpoint command carries hvac_mode=heat, so none may be sent."""
     proxy = await async_setup_proxy(hass, options=OFF_ACTION)
-    await _async_open_window(hass, freezer)
+    await async_open_window(hass, freezer)
     sent = len(proxy.trv_commands("set_temperature"))
 
     for _ in range(5):
@@ -60,7 +54,7 @@ async def test_trv_stays_off_while_the_window_is_open(hass, freezer):
 
 async def test_closed_window_switches_the_trv_back_on(hass, freezer):
     proxy = await async_setup_proxy(hass, options=OFF_ACTION)
-    await _async_open_window(hass, freezer)
+    await async_open_window(hass, freezer)
 
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)
@@ -73,7 +67,7 @@ async def test_closed_window_switches_the_trv_back_on(hass, freezer):
 async def test_change_during_close_delay_switches_the_trv_back_on(hass, freezer):
     """The change takes effect right away, so the TRV must heat again."""
     proxy = await async_setup_proxy(hass, options=OFF_ACTION)
-    await _async_open_window(hass, freezer)
+    await async_open_window(hass, freezer)
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
 
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
@@ -98,7 +92,7 @@ async def test_change_during_close_delay_while_away_switches_the_trv_back_on(
     proxy = await async_setup_proxy(hass, options=OFF_ACTION)
     await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
-    await _async_open_window(hass, freezer)
+    await async_open_window(hass, freezer)
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
     assert proxy.trv_commands("set_hvac_mode")[-1]["hvac_mode"] == HVACMode.OFF
 
@@ -112,7 +106,7 @@ async def test_change_during_close_delay_while_away_switches_the_trv_back_on(
 async def test_frost_protection_stays_the_default(hass, freezer):
     proxy = await async_setup_proxy(hass)
 
-    await _async_open_window(hass, freezer)
+    await async_open_window(hass, freezer)
 
     assert proxy.trv_commands("set_hvac_mode") == []
     assert proxy.trv_commands("set_temperature")

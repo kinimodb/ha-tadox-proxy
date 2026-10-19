@@ -251,9 +251,11 @@ Both are optional and work independently.
 
 ### My sensor is not in the list
 
-The list only shows sensors that Home Assistant knows as temperature sensors. A
-sensor you made yourself, for example with a template or MQTT, needs its device
-class set to **Temperature**. After that, it shows up in the list.
+The list only shows temperature sensors. Most sensors you buy show up right away.
+
+Did you make the sensor yourself, for example as a helper? Then open the sensor's
+settings and set **Device class** to **Temperature**. After that, it shows up in the
+list.
 
 ### The room stays cold
 

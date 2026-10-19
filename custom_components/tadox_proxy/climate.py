@@ -557,12 +557,14 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     self._last_reason = "hvac_off_failed"
                     self.async_write_ha_state()
                     return
-                # Turning the heating OFF ends an open window's frost protection
-                # so the user's intention is respected – only now that the TRV
-                # is off, so a failed command leaves the window in charge.  Only
-                # for OFF: a HEAT request (e.g. climate.turn_on while already
-                # heating) must not end frost protection with the window open.
-                self._end_window_for_heating_off()
+                # Turning the heating OFF ends the window detection for an open
+                # window so the user's intention is respected – only now that
+                # the TRV is off, so a failed command leaves the window in
+                # charge.  The saved preset comes back; otherwise the entity
+                # would stay in frost protection with no automation left to end
+                # it.  Only for OFF: a HEAT request (e.g. climate.turn_on while
+                # already heating) must not end frost protection.
+                self._apply_window_restore(self._window_ctrl.end())
                 self._last_reason = "sent(hvac_off)"
                 self.async_write_ha_state()
             elif hvac_mode == HVACMode.HEAT and previous_mode == HVACMode.OFF:

@@ -74,8 +74,8 @@ In practice most rooms stay within about half a degree of the temperature you as
 
 ## What it costs you
 
-- **A temperature sensor for each room you want to fix.** Any sensor that shows up
-  in Home Assistant works — Zigbee, Bluetooth, Wi-Fi, whatever you already use.
+- **A temperature sensor for each room you want to fix.** Any temperature sensor that
+  shows up in Home Assistant works — Zigbee, Bluetooth, Wi-Fi, whatever you already use.
   These typically start around 10–15 €.
 - **About ten minutes** of setup per room.
 - **Nothing else.** No cloud service, no account, no subscription. The integration

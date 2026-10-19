@@ -240,18 +240,32 @@ class WindowAutomationController:
         self.trv_off_failed = False
         return saved
 
+    def end(self) -> SavedState:
+        """End the window automation now, e.g. when the heating is turned off.
+
+        Cancels a pending open or close delay and returns the saved
+        preset/temp to restore – empty when frost protection was not active
+        yet.  Discarding it instead would leave frost protection with no
+        window automation left to end it.  ``trv_off`` is kept, so a TRV the
+        window action switched off is switched on again.
+        """
+        if self._open_timer is not None:
+            self._open_timer()
+            self._open_timer = None
+        if self._close_timer is not None:
+            self._close_timer()
+        return self.restore()
+
     def end_close_delay(self) -> SavedState | None:
         """End a running close delay early, e.g. for a user change.
 
         Returns the saved preset/temp to restore now, just as if the delay
-        had expired.  Discarding it instead would leave frost protection with
-        no window automation left to end it.  Returns ``None`` when no close
-        delay is running: an open window keeps its frost protection.
+        had expired.  Returns ``None`` when no close delay is running: an
+        open window keeps its frost protection.
         """
         if self._close_timer is None:
             return None
-        self._close_timer()
-        return self.restore()
+        return self.end()
 
     def update_saved(self, preset: str, temp: float | None) -> None:
         """Update the saved preset/temp without changing active state.
@@ -264,18 +278,10 @@ class WindowAutomationController:
     def cancel_all(self) -> None:
         """Cancel all timers and reset to idle state, discarding the saved state.
 
-        A caller that ends active frost protection this way must restore the
-        saved preset itself (read it with ``get_saved`` first).
+        Only for frost protection that is not active yet, or entity removal;
+        otherwise ``end`` returns the preset to restore.
         """
-        if self._open_timer:
-            self._open_timer()
-            self._open_timer = None
-        if self._close_timer:
-            self._close_timer()
-            self._close_timer = None
-        self.is_active = False
-        self.trv_off_failed = False
-        self._saved = SavedState()
+        self.end()
 
 
 # ---------------------------------------------------------------------------
@@ -872,9 +878,8 @@ def preset_after_window(
     (*presence_home* also covers guest mode); both give way to Comfort.
     Comfort comes back with *comfort_c*, the current comfort target; every
     other preset keeps its saved target.  A restored boost needs a new timer,
-    which is the caller's part – unless the window automation ends because
-    the heating is turned off (*heating_off*): then Comfort comes back
-    instead, as the timer would run out while off.
+    which is the caller's part – unless the heating is off (*heating_off*):
+    then Comfort comes back instead, as the timer would run out while off.
     """
     preset = saved.preset
     if (

@@ -179,10 +179,12 @@ protection. This keeps what you see in Home Assistant honest about what the hard
 is actually doing.
 
 While off, the proxy shows a target of 5 °C. Turning it off while a window is open
-ends the window detection for that window, and the preset from before the window
-opened comes back, with the same rules as when the window closes. Turning it back on
-checks the window again. If the radiator thermostat does not respond when you turn it
-back on, the proxy stays on and tries again with its next temperature command.
+ends the window detection for that window: the preset that would have come back when
+the window closed comes back right away. A boost comes back as Comfort, because it
+would run out while the heating is off; the same applies when a window closes while
+the heating is off. Turning it back on checks the window again. If the radiator
+thermostat does not respond when you turn it back on, the proxy stays on and tries
+again with its next temperature command.
 
 ---
 

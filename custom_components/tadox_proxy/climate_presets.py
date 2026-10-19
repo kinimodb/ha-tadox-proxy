@@ -162,29 +162,16 @@ class PresetMixin:
         )
         return True
 
-    def _end_window_for_heating_off(self) -> None:
-        """Turning the heating off ends an open window's frost protection.
-
-        The preset the window saved comes back; otherwise the entity would
-        stay in frost protection with no automation left to end it (e.g. the
-        window closes while the heating is off).
-        """
-        if not self._window_ctrl.is_active:
-            return
-        saved = self._window_ctrl.get_saved()
-        self._window_ctrl.cancel_all()
-        self._apply_window_restore(saved, heating_off=True)
-
-    def _apply_window_restore(self, saved: SavedState, *, heating_off: bool = False) -> None:
+    def _apply_window_restore(self, saved: SavedState) -> None:
         """Switch back to the preset the ending window automation saved."""
         if saved.preset is None:
-            # Nothing saved: the window automation had already ended.
+            # Nothing saved: frost protection was not active (any more).
             return
         restored = preset_after_window(
             saved,
             presence_home=self._presence_effectively_home(),
             comfort_c=self._comfort_target(),
-            heating_off=heating_off,
+            heating_off=self._hvac_mode == HVACMode.OFF,
         )
         if restored.preset != saved.preset:
             _LOGGER.info(
