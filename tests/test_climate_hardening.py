@@ -453,22 +453,6 @@ def _startup_presence_logic(
     return preset
 
 
-def _window_restore_logic(
-    saved_preset: str,
-    presence_state: str | None,
-) -> str:
-    """Mirror of _restore_window_state with presence check (Fix 3).
-
-    Returns the preset that should be restored after window closes.
-    """
-    preset = saved_preset
-    if preset == "frost_protection":
-        preset = "comfort"
-    if preset == "away" and presence_state not in (None, "off", "unavailable", "unknown"):
-        preset = "comfort"
-    return preset
-
-
 class TestPresenceAwaySaveLogic:
     """Regression tests for Bug 4, Fix 1: AWAY never saved as restore state."""
 
@@ -536,37 +520,8 @@ class TestStartupPresenceLogic:
         assert result == "eco"
 
 
-class TestWindowRestorePresenceCheck:
-    """Regression tests for Bug 4, Fix 3: window restore checks presence."""
-
-    def test_away_overridden_when_presence_home(self):
-        result = _window_restore_logic("away", "on")
-        assert result == "comfort"
-
-    def test_away_kept_when_presence_off(self):
-        result = _window_restore_logic("away", "off")
-        assert result == "away"
-
-    def test_away_kept_when_presence_unavailable(self):
-        result = _window_restore_logic("away", "unavailable")
-        assert result == "away"
-
-    def test_comfort_unchanged_regardless_of_presence(self):
-        result = _window_restore_logic("comfort", "on")
-        assert result == "comfort"
-
-    def test_frost_always_overridden_to_comfort(self):
-        result = _window_restore_logic("frost_protection", "on")
-        assert result == "comfort"
-
-    def test_eco_unchanged_when_presence_home(self):
-        result = _window_restore_logic("eco", "on")
-        assert result == "eco"
-
-    def test_away_kept_when_no_presence_state(self):
-        """No presence sensor → AWAY is kept (can't verify)."""
-        result = _window_restore_logic("away", None)
-        assert result == "away"
+# Bug 4, Fix 3 (window restore checks presence) is tested on the real
+# preset_after_window and presence_counts_as_home in test_controllers.py.
 
 
 # ---------------------------------------------------------------------------
@@ -675,6 +630,24 @@ class TestDecisionLogicRoutedThroughControllers:
 
     def test_restart_uses_preset_after_restart(self):
         assert _method_calls(_CLIMATE_PY, "async_added_to_hass", "preset_after_restart")
+
+    def test_window_restore_uses_preset_after_window(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "preset_after_window")
+
+    def test_presence_check_uses_presence_counts_as_home(self):
+        assert _method_calls(
+            _CLIMATE_PRESETS_PY, "_presence_effectively_home", "presence_counts_as_home"
+        )
+
+    def test_preset_change_is_routed(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "route_change")
+
+    def test_temperature_change_is_routed(self):
+        """Same routing as a preset: presence before the window (#117)."""
+        assert _method_calls(_CLIMATE_PY, "async_set_temperature", "route_change")
+
+    def test_manual_preset_after_boost_is_routed(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_async_boost_expired", "route_change")
 
     def test_window_switches_trv_off_when_due(self):
         assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", "trv_off_due")

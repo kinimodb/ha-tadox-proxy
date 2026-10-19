@@ -38,6 +38,12 @@ is_binary_sensor_transition = _ctrl_mod.is_binary_sensor_transition
 decide_send = _ctrl_mod.decide_send
 preset_target_c = _ctrl_mod.preset_target_c
 preset_after_restart = _ctrl_mod.preset_after_restart
+route_change = _ctrl_mod.route_change
+preset_after_window = _ctrl_mod.preset_after_window
+presence_counts_as_home = _ctrl_mod.presence_counts_as_home
+CHANGE_APPLY = _ctrl_mod.CHANGE_APPLY
+CHANGE_FOR_PRESENCE = _ctrl_mod.CHANGE_FOR_PRESENCE
+CHANGE_FOR_WINDOW = _ctrl_mod.CHANGE_FOR_WINDOW
 PresetConfig = _params_mod.PresetConfig
 
 
@@ -337,7 +343,7 @@ class TestWindowController:
 
     # --- end_close_delay (user change during the close delay) ---
 
-    def _closing(self, preset: str = "comfort", temp: float | None = 20.0):
+    def _closing(self, preset: str, temp: float | None):
         """Active window, closed again: the close delay is running."""
         c = self._ctrl()
         c.activate(preset, temp)
@@ -1318,6 +1324,97 @@ class TestPresetTarget:
         assert preset_target_c(
             "comfort", PresetConfig(), comfort_c=22.0, manual_c=19.0
         ) == 22.0
+
+
+class TestRouteChange:
+    """Where a preset or temperature change goes while an automation holds the room."""
+
+    def test_change_applies_without_automation(self):
+        assert route_change("eco", presence_away=False, window_open=False) == CHANGE_APPLY
+
+    def test_change_while_away_is_saved_for_the_return(self):
+        assert route_change("eco", presence_away=True, window_open=False) == CHANGE_FOR_PRESENCE
+
+    def test_picking_away_while_away_applies(self):
+        assert route_change("away", presence_away=True, window_open=False) == CHANGE_APPLY
+
+    def test_change_while_the_window_is_open_is_saved_for_the_close(self):
+        assert route_change("eco", presence_away=False, window_open=True) == CHANGE_FOR_WINDOW
+
+    def test_picking_frost_protection_while_the_window_is_open_applies(self):
+        assert (
+            route_change("frost_protection", presence_away=False, window_open=True)
+            == CHANGE_APPLY
+        )
+
+    def test_presence_comes_before_the_window(self):
+        """Nobody home and a window open: the window keeps Away to restore."""
+        assert route_change("eco", presence_away=True, window_open=True) == CHANGE_FOR_PRESENCE
+
+    def test_temperature_while_away_with_an_open_window_waits_for_the_return(self):
+        """A temperature is the manual preset ("none")."""
+        assert route_change("none", presence_away=True, window_open=True) == CHANGE_FOR_PRESENCE
+
+    def test_picking_away_while_away_with_an_open_window_waits_for_the_close(self):
+        assert route_change("away", presence_away=True, window_open=True) == CHANGE_FOR_WINDOW
+
+
+class TestPresetAfterWindow:
+    """What an ending window automation brings back (comfort target 21.5 °C)."""
+
+    def _after(self, preset, temp, *, presence_home=False):
+        return preset_after_window(
+            SavedState(preset, temp), presence_home=presence_home, comfort_c=21.5
+        )
+
+    def test_saved_preset_comes_back_with_its_target(self):
+        assert self._after("eco", 17.0) == SavedState("eco", 17.0)
+
+    def test_manual_temperature_comes_back(self):
+        assert self._after("none", 22.5) == SavedState("none", 22.5)
+
+    def test_comfort_comes_back_with_the_current_comfort_target(self):
+        """The comfort target may have changed while the window was open."""
+        assert self._after("comfort", 20.0) == SavedState("comfort", 21.5)
+
+    def test_frost_protection_never_comes_back(self):
+        assert self._after("frost_protection", 7.0) == SavedState("comfort", 21.5)
+
+    def test_nothing_saved_comes_back_as_comfort(self):
+        assert self._after(None, None) == SavedState("comfort", 21.5)
+
+    def test_away_comes_back_while_nobody_is_home(self):
+        assert self._after("away", 20.0) == SavedState("away", 20.0)
+
+    def test_away_gives_way_to_comfort_when_someone_is_home(self):
+        assert self._after("away", 20.0, presence_home=True) == SavedState("comfort", 21.5)
+
+    def test_other_presets_stay_when_someone_is_home(self):
+        assert self._after("eco", 17.0, presence_home=True) == SavedState("eco", 17.0)
+
+    def test_boost_comes_back(self):
+        """Its timer starts again – that is the caller's part."""
+        assert self._after("boost", 20.0) == SavedState("boost", 20.0)
+
+
+class TestPresenceCountsAsHome:
+
+    def test_someone_home(self):
+        assert presence_counts_as_home("on", guest_mode=False) is True
+
+    def test_nobody_home(self):
+        assert presence_counts_as_home("off", guest_mode=False) is False
+
+    def test_unavailable_or_unknown_sensor_is_not_home(self):
+        for state in ("unavailable", "unknown"):
+            assert presence_counts_as_home(state, guest_mode=False) is False
+
+    def test_no_sensor_is_not_home(self):
+        assert presence_counts_as_home(None, guest_mode=False) is False
+
+    def test_guest_mode_counts_as_home(self):
+        assert presence_counts_as_home("off", guest_mode=True) is True
+        assert presence_counts_as_home(None, guest_mode=True) is True
 
 
 class TestPresetAfterRestart:

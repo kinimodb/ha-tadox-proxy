@@ -1,6 +1,7 @@
 """Window action "off": the TRV is switched off while the window is open."""
 from __future__ import annotations
 
+import pytest
 from homeassistant.components.climate import (
     PRESET_AWAY,
     PRESET_COMFORT,
@@ -83,7 +84,16 @@ async def test_change_during_close_delay_switches_the_trv_back_on(hass, freezer)
     assert proxy.state.attributes["hvac_action"] != HVACAction.OFF
 
 
-async def test_change_during_close_delay_while_away_switches_the_trv_back_on(hass, freezer):
+@pytest.mark.parametrize(
+    ("service", "data"),
+    [
+        ("set_preset_mode", {"preset_mode": PRESET_ECO}),
+        ("set_temperature", {"temperature": 21.5}),
+    ],
+)
+async def test_change_during_close_delay_while_away_switches_the_trv_back_on(
+    hass, freezer, service, data
+):
     """Nobody home: Away comes back and the TRV heats again right away."""
     proxy = await async_setup_proxy(hass, options=OFF_ACTION)
     await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
@@ -92,7 +102,7 @@ async def test_change_during_close_delay_while_away_switches_the_trv_back_on(has
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
     assert proxy.trv_commands("set_hvac_mode")[-1]["hvac_mode"] == HVACMode.OFF
 
-    await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
+    await proxy.call("climate", service, proxy.climate, **data)
 
     assert proxy.preset == PRESET_AWAY
     assert proxy.trv_commands("set_hvac_mode")[-1]["hvac_mode"] == HVACMode.HEAT

@@ -14,9 +14,14 @@ from homeassistant.components.climate import (
 from homeassistant.core import callback
 
 from .climate_controllers import (
+    CHANGE_APPLY,
+    CHANGE_FOR_PRESENCE,
     SavedState,
     is_binary_sensor_transition,
+    presence_counts_as_home,
+    preset_after_window,
     preset_target_c,
+    route_change,
 )
 from .const import (
     CONF_COMFORT_TARGET,
@@ -157,30 +162,26 @@ class PresetMixin:
     def _apply_window_restore(self, saved: SavedState) -> None:
         """Switch back to the preset the ending window automation saved."""
         if saved.preset is None:
+            # Nothing saved: the window automation had already ended.
             return
-        preset_to_restore = saved.preset
-        # Safety net: never restore frost protection from window automation
-        if preset_to_restore == PRESET_FROST_PROTECTION:
-            preset_to_restore = PRESET_COMFORT
-        # Safety net: don't restore AWAY when presence sensor shows home
-        # (or guest mode keeps the heating in normal operation)
-        if preset_to_restore == PRESET_AWAY and self._presence_effectively_home():
-            preset_to_restore = PRESET_COMFORT
+        restored = preset_after_window(
+            saved,
+            presence_home=self._presence_effectively_home(),
+            comfort_c=self._comfort_target(),
+        )
+        if restored.preset != saved.preset:
             _LOGGER.info(
-                "Window restore: AWAY overridden to COMFORT "
-                "(presence is home or guest mode active)"
+                "Window restore: %s replaced by %s", saved.preset, restored.preset
             )
-        self._preset_mode = preset_to_restore
-        if preset_to_restore == PRESET_COMFORT:
-            self._target_temp = self._comfort_target()
-        elif saved.temp is not None:
-            self._target_temp = saved.temp
+        self._preset_mode = restored.preset
+        if restored.temp is not None:
+            self._target_temp = restored.temp
 
         # If restoring BOOST, start the expiry timer so it doesn't run
         # indefinitely. Use COMFORT as the post-boost fallback since the
         # original pre-boost context was lost when window automation
         # took over.
-        if preset_to_restore == PRESET_BOOST:
+        if restored.preset == PRESET_BOOST:
             self._boost.save(PRESET_COMFORT, self._comfort_target())
             self._start_boost()
             _LOGGER.info(
@@ -228,13 +229,12 @@ class PresetMixin:
 
         Unavailable/unknown or missing sensors do not count as home.
         """
-        if self._presence_ctrl.guest_mode:
-            return True
         presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
-        if not presence_sensor:
-            return False
-        ps = self.hass.states.get(presence_sensor)
-        return ps is not None and ps.state not in ("off", "unavailable", "unknown")
+        ps = self.hass.states.get(presence_sensor) if presence_sensor else None
+        return presence_counts_as_home(
+            ps.state if ps is not None else None,
+            guest_mode=self._presence_ctrl.guest_mode,
+        )
 
     @property
     def guest_mode(self) -> bool:
@@ -383,34 +383,22 @@ class PresetMixin:
         # A change during the window close delay ends the delay right away.
         # The window's saved preset comes back first and the change applies
         # to it, so frost protection never outlives the window automation.
-        window_closed = self._end_window_close_delay()
+        close_delay_ended = self._end_window_close_delay()
 
-        # If presence automation is active (away due to presence sensor),
-        # update the saved state so the new preset is restored when someone
-        # returns home, but keep away mode active.
-        if self._presence_ctrl.is_active and preset_mode != PRESET_AWAY:
-            self._presence_ctrl.update_saved(preset_mode, self._get_preset_target(preset_mode))
-            _LOGGER.info(
-                "Presence away: preset %s saved for restore, keeping away mode",
+        # While presence away or an open window holds the room, the change is
+        # saved for when that automation ends.
+        route = route_change(
+            preset_mode,
+            presence_away=self._presence_ctrl.is_active,
+            window_open=self._window_ctrl.is_active,
+        )
+        if route != CHANGE_APPLY:
+            await self._async_save_change(
+                route,
                 preset_mode,
+                self._get_preset_target(preset_mode),
+                close_delay_ended=close_delay_ended,
             )
-            self.async_write_ha_state()
-            if window_closed:
-                # Frost protection gave way to the restored preset, e.g. Away.
-                await self._async_regulation_cycle(trigger="window_closed")
-            return
-
-        # If window automation is active (frost protection due to open window),
-        # update the saved state so the new preset is restored when the window
-        # closes, but keep frost protection active.
-        if self._window_ctrl.is_active and preset_mode != PRESET_FROST_PROTECTION:
-            self._window_ctrl.update_saved(preset_mode, self._get_preset_target(preset_mode))
-            _LOGGER.info(
-                "Window open: preset %s saved for restore, keeping frost protection",
-                preset_mode,
-            )
-            # Keep frost protection active – do not change preset_mode
-            self.async_write_ha_state()
             return
 
         old_preset = self._preset_mode
@@ -449,14 +437,15 @@ class PresetMixin:
         # by async_set_preset_mode, so handle it directly.
         if restore_preset == PRESET_NONE:
             # Don't override active window/presence automation – save for later.
-            if self._window_ctrl.is_active:
-                self._window_ctrl.update_saved(PRESET_NONE, saved.temp)
-                _LOGGER.info("Boost expired during window-open: PRESET_NONE saved for restore")
-                self.async_write_ha_state()
-                return
-            if self._presence_ctrl.is_active:
-                self._presence_ctrl.update_saved(PRESET_NONE, saved.temp)
-                _LOGGER.info("Boost expired during presence-away: PRESET_NONE saved for restore")
+            route = route_change(
+                PRESET_NONE,
+                presence_away=self._presence_ctrl.is_active,
+                window_open=self._window_ctrl.is_active,
+            )
+            if route != CHANGE_APPLY:
+                await self._async_save_change(
+                    route, PRESET_NONE, saved.temp, close_delay_ended=False
+                )
                 return
             if saved.temp is not None:
                 self._target_temp = saved.temp
@@ -469,6 +458,28 @@ class PresetMixin:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _async_save_change(
+        self, route: str, preset: str, temp: float | None, *, close_delay_ended: bool
+    ) -> None:
+        """Save a change for when the automation holding the room ends.
+
+        *route* comes from route_change: presence away keeps the room in Away
+        until someone comes home, an open window keeps frost protection until
+        it closes.  If the change ended a window close delay, the room has just
+        left frost protection for the restored preset, so the regulation cycle
+        runs now.
+        """
+        change = f"{temp:.1f}°C" if preset == PRESET_NONE and temp is not None else preset
+        if route == CHANGE_FOR_PRESENCE:
+            self._presence_ctrl.update_saved(preset, temp)
+            _LOGGER.info("Presence away: %s saved for restore, keeping away mode", change)
+        else:
+            self._window_ctrl.update_saved(preset, temp)
+            _LOGGER.info("Window open: %s saved for restore, keeping frost protection", change)
+        self.async_write_ha_state()
+        if close_delay_ended:
+            await self._async_regulation_cycle(trigger="window_closed")
 
     def _comfort_target(self) -> float:
         """Return the configured comfort target, falling back to the default.

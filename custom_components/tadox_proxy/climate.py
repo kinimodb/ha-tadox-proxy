@@ -37,6 +37,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .climate_controllers import (
+    CHANGE_APPLY,
     CONTROL_BACKUP_SENSOR,
     DEFAULT_SENSOR_LOSS_ACTION,
     BoostController,
@@ -46,6 +47,7 @@ from .climate_controllers import (
     SavedState,
     WindowAutomationController,
     preset_after_restart,
+    route_change,
 )
 from .climate_presets import PresetMixin
 from .climate_regulation import RegulationMixin
@@ -629,28 +631,21 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
         # A manual change during the window close delay ends the delay right
         # away (same as a preset change): the window's saved preset comes back
-        # first.  Must run before the is_active check below – the controller
-        # stays active until the delay expires.
-        window_closed = self._end_window_close_delay()
+        # first.  Must run before the routing below – the controller stays
+        # active until the delay expires.
+        close_delay_ended = self._end_window_close_delay()
 
-        # If window or presence automation is active, save the temperature
-        # for later restoration instead of overriding the active automation.
-        if self._window_ctrl.is_active:
-            self._window_ctrl.update_saved(PRESET_NONE, temp_f)
-            _LOGGER.info(
-                "Window open: temperature %.1f°C saved for restore", temp_f
+        # While presence away or an open window holds the room, the
+        # temperature is saved for when that automation ends.
+        route = route_change(
+            PRESET_NONE,
+            presence_away=self._presence_ctrl.is_active,
+            window_open=self._window_ctrl.is_active,
+        )
+        if route != CHANGE_APPLY:
+            await self._async_save_change(
+                route, PRESET_NONE, temp_f, close_delay_ended=close_delay_ended
             )
-            self.async_write_ha_state()
-            return
-        if self._presence_ctrl.is_active:
-            self._presence_ctrl.update_saved(PRESET_NONE, temp_f)
-            _LOGGER.info(
-                "Presence away: temperature %.1f°C saved for restore", temp_f
-            )
-            self.async_write_ha_state()
-            if window_closed:
-                # Frost protection gave way to the restored preset, e.g. Away.
-                await self._async_regulation_cycle(trigger="window_closed")
             return
 
         self._target_temp = temp_f

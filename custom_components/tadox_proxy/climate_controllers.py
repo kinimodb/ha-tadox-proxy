@@ -14,6 +14,9 @@ Architecture
 - ``ControlModeResolver``         – room-sensor grace period & sensor-loss action
 - ``decide_send``                 – send / rate-limit decision (pure function)
 - ``preset_target_c``             – preset → room target mapping (pure function)
+- ``route_change``                – where a preset/temperature change goes (pure function)
+- ``preset_after_window``         – preset an ending window automation restores (pure function)
+- ``presence_counts_as_home``     – presence sensor state → someone home (pure function)
 - ``preset_after_restart``        – preset to start with after a restart (pure function)
 - ``SavedState``                  – lightweight snapshot dataclass
 - ``is_binary_sensor_transition``  – window/presence event filter (pure function)
@@ -436,6 +439,17 @@ class PresenceAutomationController:
             self._home_timer = None
 
 
+def presence_counts_as_home(state: str | None, *, guest_mode: bool) -> bool:
+    """Return True if someone counts as home.
+
+    *state* is the presence sensor's state, None without a sensor.  Guest
+    mode counts as home.  An unavailable or unknown sensor does not.
+    """
+    if guest_mode:
+        return True
+    return state is not None and state not in ("off", "unavailable", "unknown")
+
+
 # ---------------------------------------------------------------------------
 # Boost timer
 # ---------------------------------------------------------------------------
@@ -811,6 +825,59 @@ def preset_target_c(
         PRESET_FROST_PROTECTION: presets.frost_protection_target_c,
     }
     return fixed.get(preset, presets.frost_protection_target_c)
+
+
+# ---------------------------------------------------------------------------
+# Where a user change goes (pure logic)
+# ---------------------------------------------------------------------------
+
+# Outcome of route_change.
+CHANGE_APPLY = "apply"            # takes effect right away
+CHANGE_FOR_PRESENCE = "presence"  # saved for when someone comes home
+CHANGE_FOR_WINDOW = "window"      # saved for when the window closes
+
+
+def route_change(preset: str, *, presence_away: bool, window_open: bool) -> str:
+    """Return where a preset or temperature change goes.
+
+    *preset* is the requested preset; a temperature is the manual preset
+    (``PRESET_NONE``).  While presence detection holds the room in Away, a
+    change is saved for when someone comes home – picking Away itself
+    applies.  Presence comes first, so an open window keeps Away to restore
+    when it closes.  While an open window holds frost protection, a change
+    is saved for when it closes – picking frost protection itself applies.
+    """
+    if presence_away and preset != PRESET_AWAY:
+        return CHANGE_FOR_PRESENCE
+    if window_open and preset != PRESET_FROST_PROTECTION:
+        return CHANGE_FOR_WINDOW
+    return CHANGE_APPLY
+
+
+# ---------------------------------------------------------------------------
+# Preset after the window automation ends (pure logic)
+# ---------------------------------------------------------------------------
+
+def preset_after_window(
+    saved: SavedState, *, presence_home: bool, comfort_c: float
+) -> SavedState:
+    """Return the preset and base target an ending window automation restores.
+
+    *saved* is what the window saved.  Frost protection never comes back –
+    nothing would end it – and Away only while nobody is home
+    (*presence_home* also covers guest mode); both give way to Comfort.
+    Comfort comes back with *comfort_c*, the current comfort target; every
+    other preset keeps its saved target.  A restored boost needs a new timer,
+    which is the caller's part.
+    """
+    preset = saved.preset
+    if preset in (None, PRESET_FROST_PROTECTION) or (
+        preset == PRESET_AWAY and presence_home
+    ):
+        preset = PRESET_COMFORT
+    if preset == PRESET_COMFORT:
+        return SavedState(preset=preset, temp=comfort_c)
+    return SavedState(preset=preset, temp=saved.temp)
 
 
 # ---------------------------------------------------------------------------
