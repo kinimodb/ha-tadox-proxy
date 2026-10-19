@@ -104,7 +104,9 @@ Point it at a window contact (`binary_sensor.*`).
   pick another preset or temperature in the meantime, that is what comes back when
   the window closes — not the one from before the window opened.
 - A preset or temperature change during the close delay ends the wait and takes
-  effect right away.
+  effect right away. If nobody is home (presence detection has the room in Away),
+  the room goes back to Away instead, and your change comes back when someone
+  returns.
 
 ### Presence detection
 

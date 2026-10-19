@@ -77,7 +77,8 @@ class WindowAutomationController:
                 ▲                                      │
                 │        (close)                       │
                 └───────── close_pending ◄─────────────┘
-                                │ (delay expires)
+                                │ (delay expires, or a user
+                                │  change ends it early)
                                 ▼
                               idle
     """
@@ -236,6 +237,19 @@ class WindowAutomationController:
         self.trv_off_failed = False
         return saved
 
+    def end_close_delay(self) -> SavedState | None:
+        """End a running close delay early, e.g. for a user change.
+
+        Returns the saved preset/temp to restore now, just as if the delay
+        had expired.  Discarding it instead would leave frost protection with
+        no window automation left to end it.  Returns ``None`` when no close
+        delay is running: an open window keeps its frost protection.
+        """
+        if self._close_timer is None:
+            return None
+        self._close_timer()
+        return self.restore()
+
     def update_saved(self, preset: str, temp: float | None) -> None:
         """Update the saved preset/temp without changing active state.
 
@@ -245,7 +259,11 @@ class WindowAutomationController:
         self._saved = SavedState(preset=preset, temp=temp)
 
     def cancel_all(self) -> None:
-        """Cancel all timers and reset to idle state (e.g. user override)."""
+        """Cancel all timers and reset to idle state, discarding the saved state.
+
+        A caller that ends active frost protection this way must restore the
+        saved preset itself (read it with ``get_saved`` first).
+        """
         if self._open_timer:
             self._open_timer()
             self._open_timer = None

@@ -636,7 +636,7 @@ class TestBoostRestoreStartsTimer:
     """
 
     def test_window_restore_starts_boost(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_window_state", "_start_boost")
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_start_boost")
 
     def test_presence_restore_starts_boost(self):
         assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_presence_state", "_start_boost")
@@ -818,6 +818,39 @@ class TestHvacModeChangeRestoresPreset:
 
     def test_set_hvac_mode_restores_preset_mode(self):
         assert _method_assigns_attr(_CLIMATE_PY, "async_set_hvac_mode", "_preset_mode")
+
+
+# ---------------------------------------------------------------------------
+# A change during the window close delay restores first (AST-based guard)
+# ---------------------------------------------------------------------------
+
+class TestCloseDelayEndedByUserChange:
+    """Regression: a preset or temperature change during the window close
+    delay cancelled the window automation and dropped its saved preset.  With
+    presence away active, the change was then saved for the return and the
+    room stayed in frost protection with no window automation left to end it.
+
+    Both entry points must end the delay through the window restore
+    (WindowAutomationController.end_close_delay, tested in test_controllers)
+    instead of discarding it with cancel_all.
+    """
+
+    def test_set_preset_mode_ends_the_close_delay(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "_end_window_close_delay")
+        assert not _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "cancel_all")
+
+    def test_set_temperature_ends_the_close_delay(self):
+        assert _method_calls(_CLIMATE_PY, "async_set_temperature", "_end_window_close_delay")
+        assert not _method_calls(_CLIMATE_PY, "async_set_temperature", "cancel_all")
+
+    def test_ended_close_delay_restores_the_saved_preset(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_end_window_close_delay", "end_close_delay")
+        assert _method_calls(
+            _CLIMATE_PRESETS_PY, "_end_window_close_delay", "_apply_window_restore"
+        )
+
+    def test_expired_close_delay_uses_the_same_restore(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_window_state", "_apply_window_restore")
 
 
 # ---------------------------------------------------------------------------
@@ -1017,7 +1050,7 @@ class TestComfortTargetRoutedThroughHelper:
         assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "_comfort_target")
 
     def test_restore_window_state_calls_helper(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_window_state", "_comfort_target")
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_comfort_target")
 
     def test_restore_presence_state_calls_helper(self):
         assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_presence_state", "_comfort_target")

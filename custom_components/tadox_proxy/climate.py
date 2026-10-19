@@ -627,11 +627,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # Clamp to safe range
         temp_f = max(self._config.min_target_c, min(self._config.max_target_c, temp_f))
 
-        # A manual change during the window close delay ends the automation
-        # right away (same as a preset change).  Must run before the is_active
-        # check below – the controller stays active until the delay expires.
-        if self._window_ctrl.close_delay_active:
-            self._window_ctrl.cancel_all()
+        # A manual change during the window close delay ends the delay right
+        # away (same as a preset change): the window's saved preset comes back
+        # first.  Must run before the is_active check below – the controller
+        # stays active until the delay expires.
+        window_closed = self._end_window_close_delay()
 
         # If window or presence automation is active, save the temperature
         # for later restoration instead of overriding the active automation.
@@ -648,6 +648,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 "Presence away: temperature %.1f°C saved for restore", temp_f
             )
             self.async_write_ha_state()
+            if window_closed:
+                # Frost protection gave way to the restored preset, e.g. Away.
+                await self._async_regulation_cycle(trigger="window_closed")
             return
 
         self._target_temp = temp_f

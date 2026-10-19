@@ -335,6 +335,67 @@ class TestWindowController:
         c.cancel_all()  # must not raise
         assert not c.is_active
 
+    # --- end_close_delay (user change during the close delay) ---
+
+    def _closing(self, preset: str = "comfort", temp: float | None = 20.0):
+        """Active window, closed again: the close delay is running."""
+        c = self._ctrl()
+        c.activate(preset, temp)
+        fake = FakeCallLater()
+        c.handle_window_closed(None, 120, lambda now: None, call_later=fake)
+        return c, fake
+
+    def test_end_close_delay_returns_the_saved_state(self):
+        """What the close delay would have restored comes back now."""
+        c, fake = self._closing("away", 20.0)
+        saved = c.end_close_delay()
+        assert saved.preset == "away"
+        assert saved.temp == 20.0
+        assert fake.calls[0]["cancelled"]
+        assert not c.is_active
+        assert not c.close_delay_active
+        assert c.get_saved().preset is None
+
+    def test_end_close_delay_returns_the_preset_saved_while_open(self):
+        """E.g. Away, saved by presence detection while the window was open."""
+        c, _ = self._closing("comfort", 20.0)
+        c.update_saved("away", 17.0)
+        saved = c.end_close_delay()
+        assert saved.preset == "away"
+        assert saved.temp == 17.0
+
+    def test_end_close_delay_keeps_an_open_window(self):
+        """No close delay: frost protection stays with its saved preset."""
+        c = self._ctrl()
+        c.activate("eco", 17.0)
+        assert c.end_close_delay() is None
+        assert c.is_active
+        assert c.get_saved().preset == "eco"
+
+    def test_end_close_delay_while_idle_returns_none(self):
+        assert self._ctrl().end_close_delay() is None
+
+    def test_end_close_delay_keeps_a_pending_open_delay(self):
+        """A window that opened again later is not cut short."""
+        c = self._ctrl()
+        fake = FakeCallLater()
+        c.handle_window_opened(None, 30, lambda now: None, call_later=fake)
+        assert c.end_close_delay() is None
+        assert not fake.calls[0]["cancelled"]
+
+    def test_end_close_delay_needs_the_trv_switched_on(self):
+        """Window action "off": the TRV must heat again right away."""
+        c, _ = self._closing("away", 20.0)
+        c.mark_trv_off()
+        c.end_close_delay()
+        assert c.trv_on_due() is True
+
+    def test_close_timer_after_end_close_delay_restores_nothing(self):
+        """A stale timer callback finds nothing left to restore."""
+        c, _ = self._closing("eco", 17.0)
+        c.end_close_delay()
+        assert c.restore().preset is None
+
     # --- update_saved ---
 
     def test_update_saved_changes_saved_state(self):
