@@ -37,10 +37,12 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .climate_controllers import (
+    CONTROL_BACKUP_SENSOR,
+    DEFAULT_SENSOR_LOSS_ACTION,
     BoostController,
+    ControlModeResolver,
     FollowPhysicalController,
     PresenceAutomationController,
-    RoomTempBridge,
     WindowAutomationController,
 )
 from .climate_presets import PresetMixin
@@ -69,6 +71,7 @@ from .const import (
     CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_SENSOR_GRACE_S,
+    CONF_SENSOR_LOSS_ACTION,
     CONF_URGENT_DECREASE_THRESHOLD_C,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
@@ -160,9 +163,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._last_command_sent_ts = 0.0
         self._last_sent_setpoint: float | None = None
 
-        # Sensor resilience: last-valid room temp for grace-period bridging
-        self._room_temp_bridge = RoomTempBridge(
-            config_entry.options.get(CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S)
+        # Sensor resilience: bridges short room-sensor gaps and applies the
+        # sensor-loss action once the grace period has expired
+        self._control = ControlModeResolver(
+            config_entry.options.get(CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S),
+            self._sensor_loss_action(config_entry),
         )
 
         # Overlay refresh: optional periodic resend for cloud-API integrations
@@ -243,6 +248,18 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             urgent_decrease_threshold_c=opts.get(
                 CONF_URGENT_DECREASE_THRESHOLD_C, defaults.urgent_decrease_threshold_c
             ),
+        )
+
+    @staticmethod
+    def _sensor_loss_action(entry: ConfigEntry) -> str:
+        """Return the configured sensor-loss action (options > data > default).
+
+        New entries store it in data at setup; older entries have none and
+        keep holding the last command.
+        """
+        return entry.options.get(
+            CONF_SENSOR_LOSS_ACTION,
+            entry.data.get(CONF_SENSOR_LOSS_ACTION, DEFAULT_SENSOR_LOSS_ACTION),
         )
 
     @property
@@ -406,9 +423,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self.__dict__.pop("max_temp", None)
         self._behaviour = self._build_behaviour(entry)
         self._regulator.cfg = self._config
-        self._room_temp_bridge.grace_s = entry.options.get(
+        self._control.grace_s = entry.options.get(
             CONF_SENSOR_GRACE_S, DEFAULT_SENSOR_GRACE_S
         )
+        self._control.loss_action = self._sensor_loss_action(entry)
         self._overlay_refresh_s = entry.options.get(
             CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S
         )
@@ -621,7 +639,14 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
     @property
     def current_temperature(self) -> float | None:
-        """Return the room temperature from the external sensor."""
+        """Return the room temperature the proxy regulates on.
+
+        That is the backup sensor while it stands in for the external one.
+        Under direct TRV control nothing is shown: the TRV's own reading is
+        not a room temperature.
+        """
+        if self._control.mode == CONTROL_BACKUP_SENSOR:
+            return self.coordinator.data.get("backup_room_temp")
         return self.coordinator.data.get("room_temp")
 
     @property
@@ -681,7 +706,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             "window_close_delay_active": self._window_ctrl.close_delay_active,
             "presence_away_active": self._presence_ctrl.is_active,
             ATTR_GUEST_MODE: self._presence_ctrl.guest_mode,
-            "sensor_degraded": self._room_temp_bridge.degraded,
+            "sensor_degraded": self._control.degraded,
+            "active_control_mode": self._control.mode,
             "overlay_refresh_s": self._overlay_refresh_s,
         }
         # Persisted so a restart restores the manual temperature instead of
@@ -690,11 +716,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             attrs[ATTR_MANUAL_TARGET] = self._target_temp
 
         # Sensor resilience diagnostics
-        bridge = self._room_temp_bridge
-        if bridge.last_valid is not None:
-            attrs["room_temp_last_valid_c"] = bridge.last_valid
-            if bridge.last_valid_ts > 0:
-                age = int(time.time() - bridge.last_valid_ts)
+        control = self._control
+        if control.last_valid is not None:
+            attrs["room_temp_last_valid_c"] = control.last_valid
+            if control.last_valid_ts > 0:
+                age = int(time.time() - control.last_valid_ts)
                 attrs["room_temp_last_valid_age_s"] = age
 
         if self._last_result:
