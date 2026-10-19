@@ -859,7 +859,11 @@ def route_change(preset: str, *, presence_away: bool, window_open: bool) -> str:
 # ---------------------------------------------------------------------------
 
 def preset_after_window(
-    saved: SavedState, *, presence_home: bool, comfort_c: float
+    saved: SavedState,
+    *,
+    presence_home: bool,
+    comfort_c: float,
+    heating_off: bool = False,
 ) -> SavedState:
     """Return the preset and base target an ending window automation restores.
 
@@ -868,11 +872,15 @@ def preset_after_window(
     (*presence_home* also covers guest mode); both give way to Comfort.
     Comfort comes back with *comfort_c*, the current comfort target; every
     other preset keeps its saved target.  A restored boost needs a new timer,
-    which is the caller's part.
+    which is the caller's part – unless the window automation ends because
+    the heating is turned off (*heating_off*): then Comfort comes back
+    instead, as the timer would run out while off.
     """
     preset = saved.preset
-    if preset in (None, PRESET_FROST_PROTECTION) or (
-        preset == PRESET_AWAY and presence_home
+    if (
+        preset in (None, PRESET_FROST_PROTECTION)
+        or (preset == PRESET_AWAY and presence_home)
+        or (preset == PRESET_BOOST and heating_off)
     ):
         preset = PRESET_COMFORT
     if preset == PRESET_COMFORT:

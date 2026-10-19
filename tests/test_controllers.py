@@ -1396,6 +1396,23 @@ class TestPresetAfterWindow:
         """Its timer starts again – that is the caller's part."""
         assert self._after("boost", 20.0) == SavedState("boost", 20.0)
 
+    def test_heating_turned_off_brings_back_comfort_for_a_boost(self):
+        """The boost timer would run out while the heating is off."""
+        restored = preset_after_window(
+            SavedState("boost", 20.0), presence_home=False, comfort_c=21.5, heating_off=True
+        )
+        assert restored == SavedState("comfort", 21.5)
+
+    def test_heating_turned_off_uses_the_same_rules_otherwise(self):
+        restored = preset_after_window(
+            SavedState("away", 20.0), presence_home=True, comfort_c=21.5, heating_off=True
+        )
+        assert restored == SavedState("comfort", 21.5)
+        restored = preset_after_window(
+            SavedState("eco", 17.0), presence_home=True, comfort_c=21.5, heating_off=True
+        )
+        assert restored == SavedState("eco", 17.0)
+
 
 class TestPresenceCountsAsHome:
 

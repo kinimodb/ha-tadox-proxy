@@ -1,13 +1,17 @@
 """Setup and time helpers shared by the Home Assistant integration tests."""
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import EVENT_CALL_SERVICE
-from homeassistant.core import Event, HomeAssistant, State
+from homeassistant.core import Event, HomeAssistant, ServiceRegistry, State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -164,3 +168,25 @@ async def async_advance(hass: HomeAssistant, freezer: FrozenDateTimeFactory, sec
     freezer.tick(timedelta(seconds=seconds))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
+
+
+@contextmanager
+def trv_rejects(rejected_service: str) -> Iterator[None]:
+    """Make the TRV reject ``climate.<rejected_service>``, as when it is unreachable.
+
+    Only calls to the TRV fail.  The climate services stay in place, since
+    the proxy entity needs them too.
+    """
+    original = ServiceRegistry.async_call
+
+    async def async_call(self, domain, service, service_data=None, *args, **kwargs):
+        if (
+            domain == "climate"
+            and service == rejected_service
+            and (service_data or {}).get("entity_id") == TRV
+        ):
+            raise HomeAssistantError(f"{TRV} did not respond")
+        return await original(self, domain, service, service_data, *args, **kwargs)
+
+    with patch.object(ServiceRegistry, "async_call", async_call):
+        yield

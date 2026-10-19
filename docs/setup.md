@@ -29,7 +29,7 @@ You need three things:
      [Tado X by exabird](https://github.com/exabird/ha-tado-x). It shows one
      thermostat for each Tado room, not one for each radiator.
 2. **A temperature sensor in the room.** Any brand, any protocol, as long as it
-   shows up in Home Assistant and reports a temperature.
+   shows up in Home Assistant as a temperature sensor.
 3. **HACS installed** in Home Assistant. See [hacs.xyz](https://hacs.xyz).
 
 ---
@@ -100,7 +100,7 @@ From now on you control the room through Home Assistant, not through the Tado ap
 | Field | What to pick |
 |---|---|
 | **Tado X radiator thermostat (TRV)** | **Matter:** the real Tado X on the radiator — the valve head, not a wall thermostat. **Tado cloud:** the thermostat of the Tado room. It starts with `climate.` |
-| **External Temperature Sensor** | The room sensor from Step 1. It starts with `sensor.` |
+| **External Temperature Sensor** | The room sensor from Step 1. It starts with `sensor.` Not in the list? See [below](#my-sensor-is-not-in-the-list). |
 | **Name** | A name for this radiator or room, for example "Living Room Proxy" |
 
 5. Click **Submit**.
@@ -248,6 +248,12 @@ Both are optional and work independently.
 ---
 
 ## When something is wrong
+
+### My sensor is not in the list
+
+The list only shows sensors that Home Assistant knows as temperature sensors. A
+sensor you made yourself, for example with a template or MQTT, needs its device
+class set to **Temperature**. After that, it shows up in the list.
 
 ### The room stays cold
 
