@@ -127,8 +127,12 @@ after you change the settings:
 
 - **Window still open:** frost protection (or the switched-off TRV) simply goes on,
   without a new open delay. Closing the window brings back the saved preset.
-- **Window closed in the meantime:** the saved preset comes back right away. This
-  also covers a restart during the close delay.
+- **Window sensor not back yet:** many Zigbee sensors report a little later than the
+  integration starts. Until the sensor reports, frost protection goes on, just as when
+  a sensor drops out while the window is open.
+- **Window closed in the meantime:** the saved preset comes back right away, and a TRV
+  the window had switched off is switched on again. This also covers a restart during
+  the close delay.
 - **Window opened while Home Assistant was down:** the normal open delay starts.
 
 The attributes `window_restore_preset` and `window_restore_target_c` on the climate

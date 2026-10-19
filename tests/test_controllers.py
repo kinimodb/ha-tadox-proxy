@@ -138,21 +138,6 @@ class TestWindowController:
 
     # --- window action "off" ---
 
-    def test_restore_ends_trv_off(self):
-        c = self._ctrl()
-        c.activate("eco", 19.0)
-        c.trv_off = True
-        c.restore()
-        assert c.trv_off is False
-
-    def test_cancel_all_ends_trv_off(self):
-        """E.g. the heating is turned off while the window is open."""
-        c = self._ctrl()
-        c.activate("eco", 19.0)
-        c.trv_off = True
-        c.cancel_all()
-        assert c.trv_off is False
-
     def test_trv_off_due_while_active_with_off_action(self):
         c = self._ctrl()
         c.activate("eco", 19.0)
@@ -169,18 +154,65 @@ class TestWindowController:
     def test_trv_off_not_due_once_off(self):
         c = self._ctrl()
         c.activate("eco", 19.0)
-        c.trv_off = True
+        c.mark_trv_off()
         assert c.trv_off_due("off") is False
+
+    def test_trv_on_not_due_while_the_window_is_open(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        assert c.trv_on_due() is False
+
+    def test_trv_on_due_once_the_window_closed(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.restore()
+        assert c.trv_on_due() is True
+
+    def test_trv_on_due_after_cancel(self):
+        """E.g. a preset change during the close delay: the TRV must heat again."""
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.cancel_all()
+        assert c.trv_on_due() is True
+
+    def test_mark_trv_on_ends_trv_on_due(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.restore()
+        c.mark_trv_on()
+        assert c.trv_on_due() is False
+
+    def test_failed_trv_off_falls_back_to_frost_protection(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.fail_trv_off()
+        assert c.trv_off is False
+        assert c.trv_off_due("off") is False
+        assert c.trv_on_due() is False
 
     def test_failed_trv_off_is_not_retried_until_the_next_opening(self):
         """Frost protection takes over instead of an off command every cycle."""
         c = self._ctrl()
         c.activate("eco", 19.0)
-        c.trv_off_failed = True
-        assert c.trv_off_due("off") is False
+        c.mark_trv_off()
+        c.fail_trv_off()
         c.restore()
         c.activate("eco", 19.0)
         assert c.trv_off_due("off") is True
+
+    def test_failed_trv_off_after_the_window_closed_needs_no_trv_on(self):
+        """The window closed while the off command was in flight, and it failed."""
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.restore()
+        c.fail_trv_off()
+        assert c.trv_on_due() is False
 
     # --- close handling ---
 
@@ -1274,3 +1306,22 @@ class TestPresetAfterRestart:
     def test_named_preset_is_kept_without_a_manual_temperature(self):
         r = preset_after_restart("eco", 21.5, self.NO_WINDOW, window_open=True)
         assert (r.preset, r.manual_c, r.resume_window) == ("eco", None, False)
+
+    def test_window_sensor_not_reported_yet_keeps_frost_protection(self):
+        """Like a sensor that drops out while open: no news is not "closed"."""
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=None
+        )
+        assert (r.preset, r.resume_window) == ("eco", True)
+
+    def test_trv_switched_off_by_a_closed_window_is_switched_on(self):
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=False, trv_off=True
+        )
+        assert r.switch_trv_on is True
+
+    def test_trv_under_a_still_open_window_stays_off(self):
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=True, trv_off=True
+        )
+        assert (r.resume_window, r.switch_trv_on) == (True, False)

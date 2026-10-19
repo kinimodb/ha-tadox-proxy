@@ -676,17 +676,23 @@ class TestDecisionLogicRoutedThroughControllers:
     def test_restart_uses_preset_after_restart(self):
         assert _method_calls(_CLIMATE_PY, "async_added_to_hass", "preset_after_restart")
 
-    def test_window_off_uses_trv_off_due(self):
-        assert _method_calls(
-            _CLIMATE_REGULATION_PY, "_async_switch_trv_off_for_window", "trv_off_due"
-        )
+    def test_window_switches_trv_off_when_due(self):
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", "trv_off_due")
 
-    def test_regulation_cycle_switches_trv_off_for_window(self):
+    def test_window_switches_trv_on_when_due(self):
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", "trv_on_due")
+
+    def test_regulation_cycle_switches_trv_for_window(self):
         assert _method_calls(
             _CLIMATE_REGULATION_PY,
             "_async_regulation_cycle_locked",
-            "_async_switch_trv_off_for_window",
+            "_async_switch_trv_for_window",
         )
+
+    def test_heat_commands_mark_the_trv_on(self):
+        """Otherwise a TRV the window switched off is switched on every cycle."""
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_hvac_mode_to_tado", "mark_trv_on")
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_to_tado", "mark_trv_on")
 
 
 class TestRoomSensorTimestamp:

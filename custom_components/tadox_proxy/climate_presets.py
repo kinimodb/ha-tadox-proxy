@@ -121,17 +121,8 @@ class PresetMixin:
         """Restore previous preset after window-close delay expired."""
         self._restore_window_state()
 
-    def _end_window_close_delay(self) -> None:
-        """End the close delay early: a user change takes effect right away."""
-        trv_off = self._window_ctrl.trv_off
-        self._window_ctrl.cancel_all()
-        if trv_off:
-            # The window had switched the TRV off – switch it on again.
-            self.hass.async_create_task(self._async_window_closed_cycle(True))
-
     def _restore_window_state(self) -> None:
         """Restore preset after window is closed."""
-        trv_off = self._window_ctrl.trv_off
         saved = self._window_ctrl.restore()
         if saved.preset is not None:
             preset_to_restore = saved.preset
@@ -164,7 +155,9 @@ class PresetMixin:
                     self._config.presets.boost_duration_min,
                 )
         _LOGGER.info("Window closed: restoring previous preset")
-        self.hass.async_create_task(self._async_window_closed_cycle(trv_off))
+        self.hass.async_create_task(
+            self._async_regulation_cycle(trigger="window_closed")
+        )
         self.async_write_ha_state()
 
     # ------------------------------------------------------------------
@@ -361,7 +354,7 @@ class PresetMixin:
 
         # Cancel window close delay if user manually changes preset
         if self._window_ctrl.close_delay_active:
-            self._end_window_close_delay()
+            self._window_ctrl.cancel_all()
             _LOGGER.info("Window close delay cancelled – user changed preset to %s", preset_mode)
 
         # If presence automation is active (away due to presence sensor),

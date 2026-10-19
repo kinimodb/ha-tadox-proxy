@@ -54,6 +54,7 @@ from .const import (
     ATTR_MANUAL_TARGET,
     ATTR_WINDOW_RESTORE_PRESET,
     ATTR_WINDOW_RESTORE_TARGET,
+    ATTR_WINDOW_TRV_OFF,
     CONF_AWAY_TARGET,
     CONF_BOOST_DURATION,
     CONF_BOOST_TARGET,
@@ -275,9 +276,16 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         """Run when entity about to be added to HA."""
         await super().async_added_to_hass()
 
+        # Window sensor state now: None while it has not reported yet (e.g. a
+        # Zigbee/MQTT sensor that comes up after this integration).
         window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
         window_state = self.hass.states.get(window_sensor) if window_sensor else None
-        window_open = window_state is not None and window_state.state == "on"
+        window_open: bool | None = False
+        if window_sensor:
+            if window_state is None or window_state.state in ("unavailable", "unknown"):
+                window_open = None
+            else:
+                window_open = window_state.state == "on"
         resume_window = False
 
         # Restore previous state
@@ -304,11 +312,15 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     safe_float(attrs.get(ATTR_WINDOW_RESTORE_TARGET)),
                 ),
                 window_open=window_open,
+                trv_off=attrs.get(ATTR_WINDOW_TRV_OFF) is True,
             )
             self._preset_mode = restart.preset
             if restart.manual_c is not None:
                 self._target_temp = restart.manual_c
             resume_window = restart.resume_window
+            if restart.switch_trv_on:
+                # Still off from the window: the first cycle switches it on.
+                self._window_ctrl.mark_trv_off()
             if attrs.get(ATTR_GUEST_MODE) is True:
                 self._presence_ctrl.set_guest_mode(True)
 
@@ -619,7 +631,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # right away (same as a preset change).  Must run before the is_active
         # check below – the controller stays active until the delay expires.
         if self._window_ctrl.close_delay_active:
-            self._end_window_close_delay()
+            self._window_ctrl.cancel_all()
 
         # If window or presence automation is active, save the temperature
         # for later restoration instead of overriding the active automation.
@@ -735,6 +747,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             saved = self._window_ctrl.get_saved()
             attrs[ATTR_WINDOW_RESTORE_PRESET] = saved.preset
             attrs[ATTR_WINDOW_RESTORE_TARGET] = saved.temp
+        if self._window_ctrl.trv_off:
+            attrs[ATTR_WINDOW_TRV_OFF] = True
 
         # Sensor resilience diagnostics
         control = self._control
