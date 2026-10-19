@@ -91,6 +91,11 @@ Point it at a window contact (`binary_sensor.*`).
 
 - **Window opens:** after a delay (default 30 s), the room switches to Frost
   Protection.
+- **Action while the window is open** (default **Frost protection**): with Frost
+  protection the TRV keeps the room at the frost protection temperature. With
+  **Switch the TRV off**, the TRV is switched off completely instead. The room still
+  shows Frost Protection, and its action shows Off. If the TRV cannot be switched
+  off, frost protection takes over until the window opens again.
 - **Window closes:** after a delay (default 120 s), the previous preset comes back.
   This delay is intentional — it stops the radiator from firing hard the instant you
   shut the window, while the room air is still cold from the draught.
@@ -117,11 +122,25 @@ running delay, and it does not overwrite the preset that will be restored.
 
 ### After a Home Assistant restart
 
-The integration does not remember which preset was active before a window opened or
-everybody left. If Home Assistant restarts during such a phase, closing the window or
-coming home brings back **Comfort**. If the window is still open after the restart,
-the open delay simply starts again. A running boost does not survive a restart
-either; the room goes back to Comfort.
+The preset that was active before a window opened survives a restart, and a reload
+after you change the settings:
+
+- **Window still open:** frost protection (or the switched-off TRV) simply goes on,
+  without a new open delay. Closing the window brings back the saved preset.
+- **Window sensor not back yet:** many Zigbee sensors report a little later than the
+  integration starts. Until the sensor reports, frost protection goes on, just as when
+  a sensor drops out while the window is open.
+- **Window closed in the meantime:** the saved preset comes back right away, and a TRV
+  the window had switched off is switched on again. This also covers a restart during
+  the close delay.
+- **Window opened while Home Assistant was down:** the normal open delay starts.
+
+The attributes `window_restore_preset` and `window_restore_target_c` on the climate
+entity show what comes back when the window closes.
+
+Presence detection does not remember the preset from before everybody left. If Home
+Assistant restarts while the room is in Away, coming home brings back **Comfort**. A
+running boost does not survive a restart either; the room goes back to Comfort.
 
 ---
 

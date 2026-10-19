@@ -40,3 +40,16 @@ async def test_turn_on_keeps_window_frost_protection(hass, freezer):
 
     assert proxy.preset == PRESET_FROST_PROTECTION
     assert proxy.state.attributes["window_open_active"] is True
+
+
+async def test_presence_away_under_open_window_updates_restore_preset(hass, freezer):
+    """The state shows Away as the preset to restore right away, ready for a restart."""
+    proxy = await async_setup_proxy(hass)
+    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
+    await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
+
+    assert proxy.preset == PRESET_FROST_PROTECTION
+    assert proxy.state.attributes["presence_away_active"] is True
+    assert proxy.state.attributes["window_restore_preset"] == PRESET_AWAY

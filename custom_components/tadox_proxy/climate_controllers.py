@@ -14,6 +14,7 @@ Architecture
 - ``ControlModeResolver``         – room-sensor grace period & sensor-loss action
 - ``decide_send``                 – send / rate-limit decision (pure function)
 - ``preset_target_c``             – preset → room target mapping (pure function)
+- ``preset_after_restart``        – preset to start with after a restart (pure function)
 - ``SavedState``                  – lightweight snapshot dataclass
 - ``is_binary_sensor_transition``  – window/presence event filter (pure function)
 """
@@ -46,6 +47,14 @@ PRESET_BOOST = "boost"
 PRESET_AWAY = "away"
 PRESET_FROST_PROTECTION = "frost_protection"
 
+# What an open window does to the TRV (option ``window_action``).  Both keep
+# the proxy in frost protection; "off" switches the TRV off instead of
+# sending the frost protection target.
+WINDOW_ACTION_FROST = "frost_protection"
+WINDOW_ACTION_OFF = "off"
+WINDOW_ACTIONS = (WINDOW_ACTION_FROST, WINDOW_ACTION_OFF)
+DEFAULT_WINDOW_ACTION = WINDOW_ACTION_FROST
+
 
 @dataclass
 class SavedState:
@@ -75,6 +84,13 @@ class WindowAutomationController:
 
     def __init__(self) -> None:
         self.is_active: bool = False
+        # The window action switched the TRV off (instead of sending the
+        # frost target) and it has not been switched on since.  Outlives the
+        # window automation: once the window closes, switching on is due.
+        self.trv_off: bool = False
+        # Switching off failed: frost protection takes over until the window
+        # opens again, instead of an off command every cycle.
+        self.trv_off_failed: bool = False
         self._open_timer: _CancelFn | None = None
         self._close_timer: _CancelFn | None = None
         self._saved: SavedState = SavedState()
@@ -91,6 +107,38 @@ class WindowAutomationController:
     def get_saved(self) -> SavedState:
         """Return a copy of the currently saved preset/temperature."""
         return SavedState(preset=self._saved.preset, temp=self._saved.temp)
+
+    def trv_off_due(self, action: str) -> bool:
+        """True when the window action *action* should switch the TRV off now."""
+        return (
+            self.is_active
+            and action == WINDOW_ACTION_OFF
+            and not self.trv_off
+            and not self.trv_off_failed
+        )
+
+    def trv_on_due(self) -> bool:
+        """True when the window has closed but the TRV is still off."""
+        return self.trv_off and not self.is_active
+
+    # ------------------------------------------------------------------
+    # TRV switched off by the window action
+    # ------------------------------------------------------------------
+
+    def mark_trv_off(self) -> None:
+        """Record the TRV as off – before the command is sent, so a window
+        that closes meanwhile still gets the TRV switched on again."""
+        self.trv_off = True
+
+    def fail_trv_off(self) -> None:
+        """Switching off failed: frost protection takes over until the window
+        opens again (no off command every cycle)."""
+        self.trv_off = False
+        self.trv_off_failed = self.is_active
+
+    def mark_trv_on(self) -> None:
+        """Record that the TRV heats again."""
+        self.trv_off = False
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -185,6 +233,7 @@ class WindowAutomationController:
         self._close_timer = None
         self._saved = SavedState()
         self.is_active = False
+        self.trv_off_failed = False
         return saved
 
     def update_saved(self, preset: str, temp: float | None) -> None:
@@ -204,6 +253,7 @@ class WindowAutomationController:
             self._close_timer()
             self._close_timer = None
         self.is_active = False
+        self.trv_off_failed = False
         self._saved = SavedState()
 
 
@@ -743,6 +793,57 @@ def preset_target_c(
         PRESET_FROST_PROTECTION: presets.frost_protection_target_c,
     }
     return fixed.get(preset, presets.frost_protection_target_c)
+
+
+# ---------------------------------------------------------------------------
+# Preset after a restart (pure logic)
+# ---------------------------------------------------------------------------
+
+class RestartState(NamedTuple):
+    """Preset the climate entity starts with after a restart or reload."""
+
+    preset: str
+    # Temperature of the Manual preset (PRESET_NONE); None for other presets.
+    manual_c: float | None
+    # The window was open before the restart and still is: frost protection
+    # resumes at once, with *preset* saved for when the window closes.
+    resume_window: bool
+    # The window action had switched the TRV off and the window has closed
+    # since: the TRV must be switched on again.
+    switch_trv_on: bool
+
+
+def preset_after_restart(
+    preset: str | None,
+    manual_c: float | None,
+    window_saved: SavedState,
+    *,
+    window_open: bool | None,
+    trv_off: bool = False,
+) -> RestartState:
+    """Return the preset to start with after a restart.
+
+    *preset* and *manual_c* are the restored preset and manual temperature,
+    *window_saved* the preset an open window had saved for later (empty when
+    no window was open) and *trv_off* whether the window action had switched
+    the TRV off.  *window_open* is the window sensor's state now – None while
+    it has not reported yet, which keeps frost protection like a sensor that
+    drops out while the window is open.
+    """
+    resume_window = False
+    if preset == PRESET_FROST_PROTECTION and window_saved.preset is not None:
+        preset, manual_c = window_saved.preset, window_saved.temp
+        resume_window = window_open is not False
+    # Boost has lost its timer; frost protection without a saved preset (or
+    # saved by mistake) has no window to end it.
+    if preset not in (PRESET_COMFORT, PRESET_ECO, PRESET_AWAY, PRESET_NONE):
+        preset = PRESET_COMFORT
+    return RestartState(
+        preset,
+        manual_c if preset == PRESET_NONE else None,
+        resume_window,
+        trv_off and not resume_window,
+    )
 
 
 # ---------------------------------------------------------------------------

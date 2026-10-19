@@ -37,6 +37,7 @@ SavedState = _ctrl_mod.SavedState
 is_binary_sensor_transition = _ctrl_mod.is_binary_sensor_transition
 decide_send = _ctrl_mod.decide_send
 preset_target_c = _ctrl_mod.preset_target_c
+preset_after_restart = _ctrl_mod.preset_after_restart
 PresetConfig = _params_mod.PresetConfig
 
 
@@ -134,6 +135,84 @@ class TestWindowController:
         saved = c.restore()
         assert saved.preset is None
         assert saved.temp is None
+
+    # --- window action "off" ---
+
+    def test_trv_off_due_while_active_with_off_action(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        assert c.trv_off_due("off") is True
+
+    def test_trv_off_not_due_with_frost_action(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        assert c.trv_off_due("frost_protection") is False
+
+    def test_trv_off_not_due_while_idle(self):
+        assert self._ctrl().trv_off_due("off") is False
+
+    def test_trv_off_not_due_once_off(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        assert c.trv_off_due("off") is False
+
+    def test_trv_on_not_due_while_the_window_is_open(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        assert c.trv_on_due() is False
+
+    def test_trv_on_due_once_the_window_closed(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.restore()
+        assert c.trv_on_due() is True
+
+    def test_trv_on_due_after_cancel(self):
+        """E.g. a preset change during the close delay: the TRV must heat again."""
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.cancel_all()
+        assert c.trv_on_due() is True
+
+    def test_mark_trv_on_ends_trv_on_due(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.restore()
+        c.mark_trv_on()
+        assert c.trv_on_due() is False
+
+    def test_failed_trv_off_falls_back_to_frost_protection(self):
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.fail_trv_off()
+        assert c.trv_off is False
+        assert c.trv_off_due("off") is False
+        assert c.trv_on_due() is False
+
+    def test_failed_trv_off_is_not_retried_until_the_next_opening(self):
+        """Frost protection takes over instead of an off command every cycle."""
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.fail_trv_off()
+        c.restore()
+        c.activate("eco", 19.0)
+        assert c.trv_off_due("off") is True
+
+    def test_failed_trv_off_after_the_window_closed_needs_no_trv_on(self):
+        """The window closed while the off command was in flight, and it failed."""
+        c = self._ctrl()
+        c.activate("eco", 19.0)
+        c.mark_trv_off()
+        c.restore()
+        c.fail_trv_off()
+        assert c.trv_on_due() is False
 
     # --- close handling ---
 
@@ -1178,3 +1257,71 @@ class TestPresetTarget:
         assert preset_target_c(
             "comfort", PresetConfig(), comfort_c=22.0, manual_c=19.0
         ) == 22.0
+
+
+class TestPresetAfterRestart:
+    """Which preset a restart (or reload) starts with."""
+
+    NO_WINDOW = SavedState()
+
+    def test_window_frost_gives_way_to_the_saved_preset(self):
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=False
+        )
+        assert r.preset == "eco"
+        assert r.resume_window is False
+
+    def test_window_still_open_resumes_frost_protection(self):
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=True
+        )
+        assert r.preset == "eco"
+        assert r.resume_window is True
+
+    def test_window_saved_manual_preset_keeps_its_temperature(self):
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("none", 21.5), window_open=False
+        )
+        assert (r.preset, r.manual_c) == ("none", 21.5)
+
+    def test_boost_comes_back_as_comfort(self):
+        """The boost timer does not survive a restart."""
+        r = preset_after_restart("boost", None, self.NO_WINDOW, window_open=False)
+        assert r.preset == "comfort"
+
+    def test_frost_without_saved_preset_comes_back_as_comfort(self):
+        """E.g. a state written before the saved preset was kept."""
+        r = preset_after_restart("frost_protection", None, self.NO_WINDOW, window_open=True)
+        assert (r.preset, r.resume_window) == ("comfort", False)
+
+    def test_missing_or_unknown_preset_comes_back_as_comfort(self):
+        for preset in (None, "sleep"):
+            r = preset_after_restart(preset, 19.0, self.NO_WINDOW, window_open=False)
+            assert (r.preset, r.manual_c) == ("comfort", None)
+
+    def test_manual_preset_keeps_its_temperature(self):
+        r = preset_after_restart("none", 21.5, self.NO_WINDOW, window_open=False)
+        assert (r.preset, r.manual_c) == ("none", 21.5)
+
+    def test_named_preset_is_kept_without_a_manual_temperature(self):
+        r = preset_after_restart("eco", 21.5, self.NO_WINDOW, window_open=True)
+        assert (r.preset, r.manual_c, r.resume_window) == ("eco", None, False)
+
+    def test_window_sensor_not_reported_yet_keeps_frost_protection(self):
+        """Like a sensor that drops out while open: no news is not "closed"."""
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=None
+        )
+        assert (r.preset, r.resume_window) == ("eco", True)
+
+    def test_trv_switched_off_by_a_closed_window_is_switched_on(self):
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=False, trv_off=True
+        )
+        assert r.switch_trv_on is True
+
+    def test_trv_under_a_still_open_window_stays_off(self):
+        r = preset_after_restart(
+            "frost_protection", None, SavedState("eco", 20.0), window_open=True, trv_off=True
+        )
+        assert (r.resume_window, r.switch_trv_on) == (True, False)

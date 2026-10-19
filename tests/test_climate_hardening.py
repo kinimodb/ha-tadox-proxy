@@ -411,60 +411,6 @@ class TestPresetValueValidation:
 
 
 # ---------------------------------------------------------------------------
-# Bug 3: if/elif in state restore – regression guard
-# ---------------------------------------------------------------------------
-
-class TestPresetRestoreGuard:
-    """Guard that BOOST and FROST_PROTECTION are never kept after a restart.
-
-    We test the pure logic (the elif fix) without HA by mirroring the two-step
-    preset normalisation applied in async_added_to_hass.
-    """
-
-    @staticmethod
-    def _normalize_restored_preset(preset: str) -> str:
-        """Mirror of the fixed normalisation block (elif, not double-if)."""
-        PRESET_BOOST = "boost"
-        PRESET_FROST_PROTECTION = "frost_protection"
-        PRESET_COMFORT = "comfort"
-
-        if preset == PRESET_BOOST:
-            preset = PRESET_COMFORT
-        elif preset == PRESET_FROST_PROTECTION:
-            preset = PRESET_COMFORT
-        return preset
-
-    def test_boost_converts_to_comfort(self):
-        assert self._normalize_restored_preset("boost") == "comfort"
-
-    def test_frost_converts_to_comfort(self):
-        assert self._normalize_restored_preset("frost_protection") == "comfort"
-
-    def test_comfort_unchanged(self):
-        assert self._normalize_restored_preset("comfort") == "comfort"
-
-    def test_eco_unchanged(self):
-        assert self._normalize_restored_preset("eco") == "eco"
-
-    def test_away_unchanged(self):
-        assert self._normalize_restored_preset("away") == "away"
-
-    def test_boost_does_not_also_trigger_frost_check(self):
-        """The elif ensures BOOST→COMFORT does not re-check FROST_PROTECTION.
-
-        With the old double-if code, after BOOST→COMFORT the second `if`
-        would check PRESET_FROST_PROTECTION against the now-COMFORT value,
-        which is harmless but shows the fragility.  With elif this is explicit.
-        """
-        # After BOOST→COMFORT, the result is "comfort", NOT "frost_protection"
-        # so the elif branch is skipped.  Verify this is stable.
-        result = self._normalize_restored_preset("boost")
-        assert result == "comfort"
-        # Applying normalization again (idempotent check)
-        assert self._normalize_restored_preset(result) == "comfort"
-
-
-# ---------------------------------------------------------------------------
 # Bug 4: AWAY preset stuck after HA restart – regression guards
 # ---------------------------------------------------------------------------
 
@@ -726,6 +672,27 @@ class TestDecisionLogicRoutedThroughControllers:
 
     def test_get_preset_target_uses_preset_mapping(self):
         assert _method_calls(_CLIMATE_PRESETS_PY, "_get_preset_target", "preset_target_c")
+
+    def test_restart_uses_preset_after_restart(self):
+        assert _method_calls(_CLIMATE_PY, "async_added_to_hass", "preset_after_restart")
+
+    def test_window_switches_trv_off_when_due(self):
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", "trv_off_due")
+
+    def test_window_switches_trv_on_when_due(self):
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", "trv_on_due")
+
+    def test_regulation_cycle_switches_trv_for_window(self):
+        assert _method_calls(
+            _CLIMATE_REGULATION_PY,
+            "_async_regulation_cycle_locked",
+            "_async_switch_trv_for_window",
+        )
+
+    def test_heat_commands_mark_the_trv_on(self):
+        """Otherwise a TRV the window switched off is switched on every cycle."""
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_hvac_mode_to_tado", "mark_trv_on")
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_to_tado", "mark_trv_on")
 
 
 class TestRoomSensorTimestamp:

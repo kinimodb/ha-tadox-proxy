@@ -33,6 +33,9 @@ CONF_FOLLOW_TADO_INPUT = "follow_tado_input"
 CONF_WINDOW_SENSOR_ID = "window_sensor_id"
 CONF_WINDOW_DELAY_S = "window_delay_s"
 CONF_WINDOW_CLOSE_DELAY_S = "window_close_delay_s"
+# What an open window does to the TRV – one of the WINDOW_ACTIONS in
+# climate_controllers (frost_protection / off).
+CONF_WINDOW_ACTION = "window_action"
 
 # Presence sensor (binary_sensor) – optional external trigger
 CONF_PRESENCE_SENSOR_ID = "presence_sensor_id"
@@ -87,6 +90,11 @@ LIVE_OPTION_KEYS = frozenset({
 # Climate state attributes that are also read back on restart (RestoreEntity)
 ATTR_GUEST_MODE = "guest_mode"
 ATTR_MANUAL_TARGET = "manual_target_c"
+# Preset (and base target) an open window restores when it closes
+ATTR_WINDOW_RESTORE_PRESET = "window_restore_preset"
+ATTR_WINDOW_RESTORE_TARGET = "window_restore_target_c"
+# The window action switched the TRV off and it has not been switched on since
+ATTR_WINDOW_TRV_OFF = "window_trv_off"
 
 
 # ---------------------------------------------------------------------------

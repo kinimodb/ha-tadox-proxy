@@ -268,6 +268,7 @@ class PresetMixin:
             # Update window saved state to AWAY so frost->close restores AWAY
             self._window_ctrl.update_saved(PRESET_AWAY, self._config.presets.away_target_c)
             _LOGGER.info("Presence away during window-open: saved AWAY for later")
+            self.async_write_ha_state()
             return
 
         # If boost is active, cancel it and use the pre-boost preset as saved state
@@ -314,6 +315,7 @@ class PresetMixin:
                 "Presence home during window-open: saved %s for window-close restore",
                 saved.preset,
             )
+            self.async_write_ha_state()
             return
 
         self._preset_mode = saved.preset
@@ -419,6 +421,7 @@ class PresetMixin:
             if self._window_ctrl.is_active:
                 self._window_ctrl.update_saved(PRESET_NONE, saved.temp)
                 _LOGGER.info("Boost expired during window-open: PRESET_NONE saved for restore")
+                self.async_write_ha_state()
                 return
             if self._presence_ctrl.is_active:
                 self._presence_ctrl.update_saved(PRESET_NONE, saved.temp)
