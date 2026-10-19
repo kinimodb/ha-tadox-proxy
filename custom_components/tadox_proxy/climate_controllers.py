@@ -580,8 +580,8 @@ class ControlModeResolver:
         trv_command_known: bool,
     ) -> tuple[str, float | None]:
         if not self._expired:
-            # Without a reading (startup) or the TRV's own reading the cycle
-            # waits, as before.
+            if room_temp is None and (frost_protection or self.mode == CONTROL_TRV):
+                return CONTROL_TRV, None
             if room_temp is None or tado_internal_c is None:
                 return CONTROL_ROOM_SENSOR, None
             return CONTROL_ROOM_SENSOR, room_temp

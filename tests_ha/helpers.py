@@ -111,11 +111,12 @@ async def async_setup_proxy(
     options: dict[str, Any] | None = None,
     presence: str = "on",
     window: str = "off",
+    room_state: str = "20.0",
 ) -> Proxy:
     """Create the source TRV and sensors, then set up one proxy entry."""
     hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
     hass.states.async_set(
-        ROOM_SENSOR, "20.0", {"device_class": "temperature", "unit_of_measurement": "°C"}
+        ROOM_SENSOR, room_state, {"device_class": "temperature", "unit_of_measurement": "°C"}
     )
     hass.states.async_set(PRESENCE_SENSOR, presence)
     hass.states.async_set(WINDOW_SENSOR, window)
