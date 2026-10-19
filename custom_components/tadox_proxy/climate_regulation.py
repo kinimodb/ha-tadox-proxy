@@ -9,8 +9,8 @@ import time
 from homeassistant.components.climate import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
-from .climate_controllers import CONTROL_TRV, decide_send
-from .const import PRESET_FROST_PROTECTION
+from .climate_controllers import CONTROL_TRV, DEFAULT_WINDOW_ACTION, decide_send
+from .const import CONF_WINDOW_ACTION, PRESET_FROST_PROTECTION
 from .regulation import RegulationState
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +66,13 @@ class RegulationMixin:
         # no regulation needed.
         if self._hvac_mode == HVACMode.OFF:
             self._skip_regulation_cycle("hvac_off")
+            return
+
+        # Window action "off": switch the TRV off instead of regulating to
+        # frost protection.  No setpoint may follow while the window is open –
+        # every setpoint command switches the TRV back to heat.
+        if await self._async_switch_trv_off_for_window():
+            self._skip_regulation_cycle("window_off")
             return
 
         # Guard: skip when coordinator data is stale (update method raised an exception).
@@ -157,6 +164,48 @@ class RegulationMixin:
             self._last_reason = reason
 
         self._write_state_with_linked_entities()
+
+    async def _async_switch_trv_off_for_window(self) -> bool:
+        """Switch the TRV off for an open window when due; True while it is off.
+
+        If switching off fails, frost protection takes over for the rest of
+        this window opening.
+        """
+        window = self._window_ctrl
+        action = self._config_entry.options.get(CONF_WINDOW_ACTION, DEFAULT_WINDOW_ACTION)
+        if window.trv_off_due(action):
+            # Set before the command: a window that closes meanwhile then
+            # switches the TRV on again (_async_window_closed_cycle).
+            window.trv_off = True
+            try:
+                await self._async_send_hvac_mode_to_tado(HVACMode.OFF)
+            except (TimeoutError, HomeAssistantError):
+                _LOGGER.warning(
+                    "Window open: switching the TRV off failed, using frost protection instead"
+                )
+                if window.is_active:
+                    window.trv_off = False
+                    window.trv_off_failed = True
+            else:
+                _LOGGER.info("Window open: TRV switched off")
+        return window.trv_off
+
+    async def _async_window_closed_cycle(self, trv_off: bool) -> None:
+        """Regulate after the window closed.
+
+        If the window had switched the TRV off, switch it on again first.  If
+        that fails, the cycle still runs: every setpoint command carries
+        hvac_mode=heat and retries it.
+        """
+        async with self._regulation_lock:
+            if trv_off and self._hvac_mode == HVACMode.HEAT:
+                try:
+                    await self._async_send_hvac_mode_to_tado(HVACMode.HEAT)
+                except (TimeoutError, HomeAssistantError):
+                    _LOGGER.warning(
+                        "Window closed: switching the TRV on failed, retrying via setpoint command"
+                    )
+            await self._async_regulation_cycle_locked(trigger="window_closed")
 
     async def _async_send_hvac_mode_to_tado(self, mode: HVACMode) -> None:
         """Forward an HVAC mode change to the source Tado entity."""

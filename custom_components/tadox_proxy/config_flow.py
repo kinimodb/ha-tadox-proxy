@@ -10,8 +10,10 @@ from homeassistant.helpers import selector
 from .climate_controllers import (
     CONTROL_BACKUP_SENSOR,
     DEFAULT_SENSOR_LOSS_ACTION,
+    DEFAULT_WINDOW_ACTION,
     NEW_ENTRY_SENSOR_LOSS_ACTION,
     SENSOR_LOSS_ACTIONS,
+    WINDOW_ACTIONS,
 )
 from .const import (
     CONF_BACKUP_TEMPERATURE_ENTITY_ID,
@@ -38,6 +40,7 @@ from .const import (
     CONF_SENSOR_LOSS_ACTION,
     CONF_SOURCE_ENTITY_ID,
     CONF_URGENT_DECREASE_THRESHOLD_C,
+    CONF_WINDOW_ACTION,
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
@@ -173,6 +176,15 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
         window_schema_dict: dict = {
             vol.Optional(CONF_WINDOW_SENSOR_ID): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor")
+            ),
+            vol.Required(
+                CONF_WINDOW_ACTION,
+                default=opts.get(CONF_WINDOW_ACTION, DEFAULT_WINDOW_ACTION),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(WINDOW_ACTIONS),
+                    translation_key=CONF_WINDOW_ACTION,
+                )
             ),
             vol.Required(
                 CONF_WINDOW_DELAY_S,

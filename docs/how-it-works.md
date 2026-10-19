@@ -293,6 +293,15 @@ mean the heating stops working whenever Home Assistant does.
 control is for what remains — and the less you leave to it, the more stable the whole
 system is.
 
+**Why does the "off" window action still show Frost Protection?** The window
+automation keeps one model: while a window is open, the room is in frost protection
+and the preset to restore is saved (and written to the state, so it survives a
+restart). The action only changes what reaches the TRV — the frost target, or an off
+command. Switching the proxy itself to off would mix the window up with a person
+turning the heating off, which has to survive a restart and must not be undone when
+the window closes. While the TRV is off, no setpoint is sent at all: every setpoint
+command carries `hvac_mode: heat` and would switch the TRV back on.
+
 ---
 
 ## Reading the code

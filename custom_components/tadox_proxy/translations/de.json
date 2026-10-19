@@ -49,11 +49,13 @@
             "name": "Fenstersensor",
             "data": {
               "window_sensor_id": "Fenstersensor",
+              "window_action": "Aktion bei offenem Fenster",
               "window_delay_s": "Verzögerung Fenster öffnen",
               "window_close_delay_s": "Verzögerung Fenster schließen"
             },
             "data_description": {
               "window_sensor_id": "Binärsensor zur Fenstererkennung. Bei Auslösung wechselt das Thermostat in den Frostschutz.",
+              "window_action": "Frostschutz hält den Raum auf der Frostschutz-Temperatur. TRV ausschalten schaltet das Thermostat komplett ab. In beiden Fällen kommt das vorherige Preset zurück, wenn das Fenster geschlossen wird.",
               "window_delay_s": "Verzögerung bevor der Frostschutz aktiviert wird, nachdem das Fenster geöffnet wurde.",
               "window_close_delay_s": "Verzögerung bevor das vorherige Preset wiederhergestellt wird, nachdem das Fenster geschlossen wurde."
             }
@@ -149,6 +151,12 @@
         "hold": "Letzten TRV-Befehl halten",
         "backup_sensor": "Mit Ersatz-Raumsensor regeln",
         "trv": "TRV selbst regeln lassen"
+      }
+    },
+    "window_action": {
+      "options": {
+        "frost_protection": "Frostschutz",
+        "off": "TRV ausschalten"
       }
     }
   },

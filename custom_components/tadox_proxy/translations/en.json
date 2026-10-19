@@ -49,11 +49,13 @@
             "name": "Window sensor",
             "data": {
               "window_sensor_id": "Window sensor",
+              "window_action": "Action while the window is open",
               "window_delay_s": "Window open delay",
               "window_close_delay_s": "Window close delay"
             },
             "data_description": {
               "window_sensor_id": "Binary sensor that detects an open window. When triggered, the thermostat switches to frost protection.",
+              "window_action": "Frost protection keeps the room at the frost protection temperature. Switch the TRV off turns it off completely. Either way the previous preset comes back when the window closes.",
               "window_delay_s": "Delay before frost protection is activated after the window opens.",
               "window_close_delay_s": "Delay before the previous preset is restored after the window closes."
             }
@@ -149,6 +151,12 @@
         "hold": "Keep the last TRV command",
         "backup_sensor": "Regulate with a backup room sensor",
         "trv": "Let the TRV regulate on its own"
+      }
+    },
+    "window_action": {
+      "options": {
+        "frost_protection": "Frost protection",
+        "off": "Switch the TRV off"
       }
     }
   },

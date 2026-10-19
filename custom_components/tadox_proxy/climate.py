@@ -43,13 +43,17 @@ from .climate_controllers import (
     ControlModeResolver,
     FollowPhysicalController,
     PresenceAutomationController,
+    SavedState,
     WindowAutomationController,
+    preset_after_restart,
 )
 from .climate_presets import PresetMixin
 from .climate_regulation import RegulationMixin
 from .const import (
     ATTR_GUEST_MODE,
     ATTR_MANUAL_TARGET,
+    ATTR_WINDOW_RESTORE_PRESET,
+    ATTR_WINDOW_RESTORE_TARGET,
     CONF_AWAY_TARGET,
     CONF_BOOST_DURATION,
     CONF_BOOST_TARGET,
@@ -271,34 +275,41 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         """Run when entity about to be added to HA."""
         await super().async_added_to_hass()
 
+        window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
+        window_state = self.hass.states.get(window_sensor) if window_sensor else None
+        window_open = window_state is not None and window_state.state == "on"
+        resume_window = False
+
         # Restore previous state
         last_state = await self.async_get_last_state()
         if last_state:
+            attrs = last_state.attributes
             if last_state.state in (HVACMode.HEAT, HVACMode.OFF):
                 self._hvac_mode = HVACMode(last_state.state)
-            # Restore preset (default to comfort if missing or invalid)
-            restored_preset = last_state.attributes.get("preset_mode")
-            if restored_preset in PRESET_LIST or restored_preset == PRESET_NONE:
-                self._preset_mode = restored_preset
-                # Don't restore boost – it's time-limited and the timer is gone
-                if self._preset_mode == PRESET_BOOST:
-                    self._preset_mode = PRESET_COMFORT
-                # Don't restore frost protection – it's window-driven and the
-                # controller state is not persisted across restarts
-                elif self._preset_mode == PRESET_FROST_PROTECTION:
-                    self._preset_mode = PRESET_COMFORT
             # Only the Manual preset carries its own temperature.  The
             # ATTR_TEMPERATURE attribute is the *effective* setpoint (5°C when
             # OFF, the eco/boost/frost target otherwise) and must not become
             # the base target – it is only a fallback for states written
             # before manual_target_c existed, and only while heating.
-            if self._preset_mode == PRESET_NONE:
-                manual = safe_float(last_state.attributes.get(ATTR_MANUAL_TARGET))
-                if manual is None and last_state.state == HVACMode.HEAT:
-                    manual = safe_float(last_state.attributes.get(ATTR_TEMPERATURE))
-                if manual is not None:
-                    self._target_temp = manual
-            if last_state.attributes.get(ATTR_GUEST_MODE) is True:
+            manual = safe_float(attrs.get(ATTR_MANUAL_TARGET))
+            if manual is None and last_state.state == HVACMode.HEAT:
+                manual = safe_float(attrs.get(ATTR_TEMPERATURE))
+            # Boost and frost protection are not restored as such; an open
+            # window's frost protection gives way to the preset it saved.
+            restart = preset_after_restart(
+                attrs.get("preset_mode"),
+                manual,
+                SavedState(
+                    attrs.get(ATTR_WINDOW_RESTORE_PRESET),
+                    safe_float(attrs.get(ATTR_WINDOW_RESTORE_TARGET)),
+                ),
+                window_open=window_open,
+            )
+            self._preset_mode = restart.preset
+            if restart.manual_c is not None:
+                self._target_temp = restart.manual_c
+            resume_window = restart.resume_window
+            if attrs.get(ATTR_GUEST_MODE) is True:
                 self._presence_ctrl.set_guest_mode(True)
 
         # For every named preset the comfort target from options is the
@@ -329,28 +340,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 )
             )
 
-        # Window sensor listener
-        window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
-        if window_sensor:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass,
-                    [window_sensor],
-                    self._async_window_changed,
-                )
-            )
-            # Evaluate current state after restart
-            window_state = self.hass.states.get(window_sensor)
-            if window_state and window_state.state == "on":
-                delay = self._config_entry.options.get(
-                    CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
-                )
-                self._window_ctrl.handle_window_opened(
-                    self.hass, delay, self._async_window_action
-                )
-                _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
-
-        # Presence sensor listener
+        # Presence sensor listener.  Evaluated before the window: it works on
+        # the preset an open window will restore.
         presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
         if presence_sensor:
             self.async_on_remove(
@@ -392,6 +383,31 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     "Startup: presence is home but preset was AWAY, "
                     "switching to COMFORT"
                 )
+
+        # Window sensor listener
+        if window_sensor:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [window_sensor],
+                    self._async_window_changed,
+                )
+            )
+            # Evaluate current state after restart
+            if resume_window:
+                # Open before the restart and still open: frost protection
+                # goes on without a new open delay.
+                self._window_ctrl.activate(self._preset_mode, self._target_temp)
+                self._preset_mode = PRESET_FROST_PROTECTION
+                _LOGGER.info("Startup: window still open, frost protection resumed")
+            elif window_open:
+                delay = self._config_entry.options.get(
+                    CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
+                )
+                self._window_ctrl.handle_window_opened(
+                    self.hass, delay, self._async_window_action
+                )
+                _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
 
         # Start periodic regulation
         self.async_on_remove(
@@ -603,7 +619,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # right away (same as a preset change).  Must run before the is_active
         # check below – the controller stays active until the delay expires.
         if self._window_ctrl.close_delay_active:
-            self._window_ctrl.cancel_all()
+            self._end_window_close_delay()
 
         # If window or presence automation is active, save the temperature
         # for later restoration instead of overriding the active automation.
@@ -662,7 +678,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
     @property
     def hvac_action(self) -> HVACAction:
         """Infer heating/idle from the Tado entity state."""
-        if self._hvac_mode == HVACMode.OFF:
+        if self._hvac_mode == HVACMode.OFF or self._window_ctrl.trv_off:
             return HVACAction.OFF
 
         tado_internal = self.coordinator.data.get("tado_internal_temp")
@@ -714,6 +730,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # the effective setpoint (which is 5°C while HVAC is OFF).
         if self._preset_mode == PRESET_NONE:
             attrs[ATTR_MANUAL_TARGET] = self._target_temp
+        # Persisted so a restart brings back what the open window saved.
+        if self._window_ctrl.is_active:
+            saved = self._window_ctrl.get_saved()
+            attrs[ATTR_WINDOW_RESTORE_PRESET] = saved.preset
+            attrs[ATTR_WINDOW_RESTORE_TARGET] = saved.temp
 
         # Sensor resilience diagnostics
         control = self._control
