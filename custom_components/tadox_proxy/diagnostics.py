@@ -8,7 +8,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, CONF_SOURCE_ENTITY_ID
+from .const import (
+    CONF_BACKUP_TEMPERATURE_ENTITY_ID,
+    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    CONF_SOURCE_ENTITY_ID,
+)
 
 TO_REDACT: list[str] = []
 
@@ -38,9 +42,10 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     source_entity_id = config_entry.data.get(CONF_SOURCE_ENTITY_ID)
     ext_temp_id = _effective_entity_id(config_entry, CONF_EXTERNAL_TEMPERATURE_ENTITY_ID)
+    backup_temp_id = config_entry.options.get(CONF_BACKUP_TEMPERATURE_ENTITY_ID)
 
     selected_entities: list[str] = [
-        eid for eid in [source_entity_id, ext_temp_id] if eid
+        eid for eid in [source_entity_id, ext_temp_id, backup_temp_id] if eid
     ]
 
     # Proxy entities created by this config entry
@@ -67,6 +72,7 @@ async def async_get_config_entry_diagnostics(
         "effective_selection": {
             "source_entity_id": source_entity_id,
             "external_temperature_entity_id": ext_temp_id,
+            "backup_temperature_entity_id": backup_temp_id,
         },
         "proxy_entities": proxy_entities,
         "states": {eid: _state_snapshot(hass, eid) for eid in selected_entities},

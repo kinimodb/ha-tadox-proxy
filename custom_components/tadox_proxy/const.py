@@ -49,6 +49,10 @@ CONF_URGENT_DECREASE_THRESHOLD_C = "urgent_decrease_threshold_c"
 
 # Sensor resilience
 CONF_SENSOR_GRACE_S = "sensor_grace_s"
+# What happens once the room sensor's grace period has expired – one of the
+# CONTROL_* modes in climate_controllers (hold / backup_sensor / trv).
+CONF_SENSOR_LOSS_ACTION = "sensor_loss_action"
+CONF_BACKUP_TEMPERATURE_ENTITY_ID = "backup_temperature_entity_id"
 
 # Overlay refresh (for cloud-API integrations with timer-based overlays)
 CONF_OVERLAY_REFRESH_S = "overlay_refresh_s"

@@ -32,7 +32,7 @@ prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`
 
 - `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning, BehaviourConfig, Fenster-/Präsenz-/Overlay-Zeiten)
 - `regulation.py` – Feedforward + PI Engine (HA-unabhängig)
-- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Window/Presence/Boost-Zustandsmaschinen, Follow-Tado, Sensor-Grace (`RoomTempBridge`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`)
+- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Window/Presence/Boost-Zustandsmaschinen, Follow-Tado, Sensor-Grace + Sensorausfall-Aktion (`ControlModeResolver`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`)
 - `climate.py` – HA ClimateEntity: Properties, Lifecycle, Config, Follow-Tado
 - `climate_regulation.py` – RegulationMixin: Regelzyklus, TRV-Kommandos
 - `climate_presets.py` – PresetMixin: Preset-Wechsel, Boost-Timer, Window/Presence-Aktionen

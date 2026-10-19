@@ -9,7 +9,9 @@ import time
 from homeassistant.components.climate import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
-from .climate_controllers import decide_send
+from .climate_controllers import CONTROL_TRV, decide_send
+from .const import PRESET_FROST_PROTECTION
+from .regulation import RegulationState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,36 +74,51 @@ class RegulationMixin:
             self._skip_regulation_cycle("coordinator_unavailable")
             return
 
-        # 1. Gather sensor data from coordinator; short room-sensor gaps are
-        # bridged with the last valid value
-        room_temp = self._room_temp_bridge.resolve(
-            self.coordinator.data.get("room_temp"),
-            self.coordinator.data.get("room_temp_ts"),
-            now,
-        )
+        # 1. Decide how to control the TRV from the coordinator data: short
+        # room-sensor gaps are bridged with the last valid value, after the
+        # grace period the configured sensor-loss action applies
         tado_internal = self.coordinator.data.get("tado_internal_temp")
+        decision = self._control.resolve(
+            room_temp=self.coordinator.data.get("room_temp"),
+            room_temp_ts=self.coordinator.data.get("room_temp_ts"),
+            backup_temp=self.coordinator.data.get("backup_room_temp"),
+            tado_internal_c=tado_internal,
+            frost_protection=self._preset_mode == PRESET_FROST_PROTECTION,
+            trv_command_known=self._last_sent_setpoint is not None,
+            now=now,
+        )
+        if decision.mode_changed:
+            # The PI state belongs to another sensor or to regulation before
+            # a pause; dt=0 on the first regulated cycle avoids a spike.
+            self._reg_state = RegulationState()
+            self._last_regulation_ts = 0.0
 
-        if room_temp is None or tado_internal is None:
-            self._skip_regulation_cycle("waiting_for_sensors")
-            return
-
-        # 2. Time delta
-        dt = (now - self._last_regulation_ts) if self._last_regulation_ts > 0 else 0.0
-        self._last_regulation_ts = now
-
-        # 3. Effective setpoint (considers HVAC mode + preset)
+        # 2. Effective setpoint (considers HVAC mode + preset)
         setpoint = self._effective_setpoint()
 
-        # 4. Compute regulation
-        result = self._regulator.compute(
-            setpoint_c=setpoint,
-            room_temp_c=room_temp,
-            tado_internal_c=tado_internal,
-            time_delta_s=dt,
-            state=self._reg_state,
-        )
-        self._reg_state = result.new_state
-        self._last_result = result
+        if decision.mode == CONTROL_TRV:
+            # The TRV regulates on its own sensor: send the room target as is.
+            self._last_result = None
+            target_c = max(self._config.min_target_c, min(self._config.max_target_c, setpoint))
+        elif decision.room_temp_c is None:
+            self._skip_regulation_cycle("waiting_for_sensors")
+            return
+        else:
+            # 3. Time delta
+            dt = (now - self._last_regulation_ts) if self._last_regulation_ts > 0 else 0.0
+            self._last_regulation_ts = now
+
+            # 4. Compute regulation
+            result = self._regulator.compute(
+                setpoint_c=setpoint,
+                room_temp_c=decision.room_temp_c,
+                tado_internal_c=tado_internal,
+                time_delta_s=dt,
+                state=self._reg_state,
+            )
+            self._reg_state = result.new_state
+            self._last_result = result
+            target_c = result.target_for_tado_c
 
         # 5. Rate limiting & send decision
         # Prefer our own last-sent value (always fresh) over coordinator data
@@ -114,7 +131,7 @@ class RegulationMixin:
             else self.coordinator.data.get("tado_setpoint")
         )
         should_send, reason = decide_send(
-            target_c=result.target_for_tado_c,
+            target_c=target_c,
             baseline_c=baseline,
             last_command_ts=self._last_command_sent_ts,
             now=now,
@@ -132,7 +149,7 @@ class RegulationMixin:
             # the proxy's own command is mistaken for a manual change.  A
             # failed send keeps the timestamp so retries honour the rate limit.
             self._last_command_sent_ts = now
-            if await self._async_send_to_tado(result.target_for_tado_c):
+            if await self._async_send_to_tado(target_c):
                 self._last_reason = f"sent({reason})"
             else:
                 self._last_reason = f"send_failed({reason})"

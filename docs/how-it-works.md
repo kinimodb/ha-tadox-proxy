@@ -252,9 +252,25 @@ The response is graded rather than all-or-nothing:
   A room does not change much in five minutes, so this is a reasonable bet, and it
   beats abandoning control for a hiccup. `binary_sensor.*_sensor_degraded` turns on
   so the state is visible rather than silent.
-- **Longer gap:** stop correcting. Continuing to control on a reading that may now be
-  an hour old would be worse than doing nothing. Tado keeps running on the last target
-  it was given, which is a safe place to land.
+- **Longer gap:** stop trusting the old reading. Continuing to control on a reading
+  that may now be an hour old would be worse than doing nothing. A configurable
+  *sensor-loss action* decides what replaces it:
+  - **TRV regulates on its own** (default for new entries): the effective setpoint is
+    sent unchanged, without feedforward or PI. The TRV closes the loop on its own
+    sensor; because that sensor sits in the radiator's warm zone, the room settles
+    somewhat below target — a deliberate trade for following presets and Away.
+  - **Backup room sensor:** feedforward + PI continue on a second room sensor. If it
+    or the TRV's own reading is missing, control falls back to the TRV.
+  - **Hold:** send nothing; the TRV keeps the last regulated command. A held command
+    is only kept while it *is* a regulated command — frost protection for an open
+    window, or an OFF → HEAT cycle, hand control to the TRV until the room sensor
+    returns, so the TRV is never parked on a frost target or an unknown setpoint.
+
+  The active choice is exposed as `active_control_mode`. Each switch between room
+  sensor, backup sensor and TRV resets the PI state: an integral learned against one
+  sensor is wrong for another. Bridging a short gap is not a switch, so a Zigbee
+  hiccup never wipes the integral. Switches go through the normal rate limiter;
+  a large drop bypasses it as an urgent decrease, a rise waits for the next slot.
 
 Pending window and presence actions are re-validated immediately before they fire, so
 a single spurious reading during a timer cannot flip a room into Away.
@@ -288,7 +304,7 @@ Assistant dependencies so it can be read and tested on its own:
 |---|---|
 | `custom_components/tadox_proxy/regulation.py` | The entire control loop, ~200 lines |
 | `custom_components/tadox_proxy/parameters.py` | Every default value, with rationale |
-| `custom_components/tadox_proxy/climate_controllers.py` | Window, presence, boost and follow state machines; sensor grace period; when a command is sent (rate limiting); preset targets |
+| `custom_components/tadox_proxy/climate_controllers.py` | Window, presence, boost and follow state machines; sensor grace period and sensor-loss action; when a command is sent (rate limiting); preset targets |
 | `tests/` | Test suite, runnable without Home Assistant |
 | `tests_ha/` | Integration tests against a real Home Assistant core (Linux/macOS) |
 

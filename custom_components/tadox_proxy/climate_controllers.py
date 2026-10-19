@@ -11,7 +11,7 @@ Architecture
 - ``PresenceAutomationController`` – presence-away delay, guest mode & state
 - ``BoostController``             – boost timer & pre-boost state
 - ``FollowPhysicalController``    – pure-logic helper (no state, static method)
-- ``RoomTempBridge``              – room-sensor grace period (last-valid bridging)
+- ``ControlModeResolver``         – room-sensor grace period & sensor-loss action
 - ``decide_send``                 – send / rate-limit decision (pure function)
 - ``preset_target_c``             – preset → room target mapping (pure function)
 - ``SavedState``                  – lightweight snapshot dataclass
@@ -482,39 +482,148 @@ class FollowPhysicalController:
 
 
 # ---------------------------------------------------------------------------
-# Room sensor grace period
+# Control mode: room sensor grace period and sensor-loss action
 # ---------------------------------------------------------------------------
 
-class RoomTempBridge:
-    """Bridges short room-sensor outages with the last valid reading.
+# How the proxy drives the TRV in a regulation cycle.  The sensor-loss action
+# (option ``sensor_loss_action``) names the mode used once the room sensor's
+# grace period has expired.
+CONTROL_ROOM_SENSOR = "room_sensor"      # regulate on the room sensor
+CONTROL_BACKUP_SENSOR = "backup_sensor"  # regulate on the backup room sensor
+CONTROL_TRV = "trv"                      # send the room target, the TRV regulates
+CONTROL_HOLD = "hold"                    # send nothing, the TRV keeps its command
 
-    A valid reading is stored with the sensor's own timestamp (the
+SENSOR_LOSS_ACTIONS = (CONTROL_HOLD, CONTROL_BACKUP_SENSOR, CONTROL_TRV)
+# Entries created before the option existed keep holding the last command;
+# the config flow stores NEW_ENTRY_SENSOR_LOSS_ACTION for new entries.
+DEFAULT_SENSOR_LOSS_ACTION = CONTROL_HOLD
+NEW_ENTRY_SENSOR_LOSS_ACTION = CONTROL_TRV
+
+
+class ControlDecision(NamedTuple):
+    """Outcome of the control-mode decision for one regulation cycle."""
+
+    mode: str
+    # Temperature the PI regulator runs on; None means do not regulate.
+    room_temp_c: float | None
+    # The mode differs from the previous cycle: the PI state no longer fits
+    # (other sensor, or regulation resumes after a pause) and is reset.
+    mode_changed: bool
+
+
+class ControlModeResolver:
+    """Decides each cycle how the proxy controls the TRV.
+
+    Short room-sensor outages are bridged with the last valid reading.  A
+    valid reading is stored with the sensor's own timestamp (the
     coordinator's ``room_temp_ts``, i.e. ``last_reported``), so the grace
     period counts from when the sensor last reported, not from when the
-    proxy polled it.  Without a sensor timestamp the poll time is used.
+    proxy polled it.  Without a sensor timestamp the poll time is used.  A
+    sensor that has not reported since startup gets the same grace period,
+    counted from the first cycle.
+
+    Once the grace period has expired, ``loss_action`` picks the mode:
+    regulate on the backup sensor, let the TRV regulate on its own, or hold
+    the last command.  Whenever that is not possible the TRV regulates.
 
     ``degraded`` is True while a bridged value is in use and after the grace
-    period has expired; it stays False if no valid reading was ever seen.
+    period has expired.
     """
 
-    def __init__(self, grace_s: float) -> None:
+    def __init__(
+        self, grace_s: float, loss_action: str = DEFAULT_SENSOR_LOSS_ACTION
+    ) -> None:
         self.grace_s = grace_s
+        self.loss_action = loss_action
+        self.mode: str | None = None
         self.last_valid: float | None = None
         self.last_valid_ts: float = 0.0
         self.degraded: bool = False
+        self._missing_since: float | None = None
+        self._expired: bool = False
 
     def resolve(
+        self,
+        *,
+        room_temp: float | None,
+        room_temp_ts: float | None,
+        backup_temp: float | None,
+        tado_internal_c: float | None,
+        frost_protection: bool,
+        trv_command_known: bool,
+        now: float,
+    ) -> ControlDecision:
+        """Return the control mode and room temperature for this cycle.
+
+        *trv_command_known* is False while the proxy does not know which
+        setpoint the TRV holds (after HVAC OFF).
+        """
+        mode, temp = self._select(
+            self._bridge(room_temp, room_temp_ts, now),
+            backup_temp,
+            tado_internal_c,
+            frost_protection,
+            trv_command_known,
+        )
+        changed = mode != self.mode
+        if changed:
+            _LOGGER.info("Control mode: %s → %s", self.mode, mode)
+        self.mode = mode
+        return ControlDecision(mode, temp, changed)
+
+    def _select(
+        self,
+        room_temp: float | None,
+        backup_temp: float | None,
+        tado_internal_c: float | None,
+        frost_protection: bool,
+        trv_command_known: bool,
+    ) -> tuple[str, float | None]:
+        if not self._expired:
+            # Without a reading (startup) or the TRV's own reading the cycle
+            # waits, as before.
+            if room_temp is None or tado_internal_c is None:
+                return CONTROL_ROOM_SENSOR, None
+            return CONTROL_ROOM_SENSOR, room_temp
+        if self.loss_action == CONTROL_BACKUP_SENSOR:
+            # Feedforward needs the TRV's own reading as well.
+            if backup_temp is not None and tado_internal_c is not None:
+                return CONTROL_BACKUP_SENSOR, backup_temp
+            return CONTROL_TRV, None
+        if self.loss_action == CONTROL_HOLD and (
+            # Hold only a regulated command: not with an open window, not
+            # when the TRV's command is unknown (HVAC was OFF) and not once
+            # the TRV got a direct command (e.g. the frost target).
+            not frost_protection and trv_command_known and self.mode != CONTROL_TRV
+        ):
+            return CONTROL_HOLD, None
+        return CONTROL_TRV, None
+
+    def _bridge(
         self, room_temp: float | None, room_temp_ts: float | None, now: float
     ) -> float | None:
-        """Return the room temperature to regulate on, or None if unusable."""
+        """Return the room temperature to regulate on, or None if unusable.
+
+        Updates ``degraded`` and whether the grace period has expired.
+        """
         if room_temp is not None:
             self.last_valid = room_temp
             self.last_valid_ts = room_temp_ts or now
             self.degraded = False
+            self._missing_since = None
+            self._expired = False
             return room_temp
 
         if self.last_valid is None:
-            self.degraded = False
+            if self._missing_since is None:
+                self._missing_since = now
+            if now - self._missing_since > self.grace_s:
+                if not self._expired:
+                    _LOGGER.warning(
+                        "Room sensor has not reported since startup (%ds, grace: %ds)",
+                        int(now - self._missing_since), self.grace_s,
+                    )
+                self._expired = self.degraded = True
             return None
 
         self.degraded = True
@@ -525,13 +634,15 @@ class RoomTempBridge:
             )
             return self.last_valid
 
-        _LOGGER.warning(
-            "Room sensor unavailable and grace period expired "
-            "(last valid: %.1f°C, %ds ago, grace: %ds)",
-            self.last_valid,
-            int(now - self.last_valid_ts),
-            self.grace_s,
-        )
+        if not self._expired:
+            _LOGGER.warning(
+                "Room sensor unavailable and grace period expired "
+                "(last valid: %.1f°C, %ds ago, grace: %ds)",
+                self.last_valid,
+                int(now - self.last_valid_ts),
+                self.grace_s,
+            )
+        self._expired = True
         return None
 
 
