@@ -34,10 +34,14 @@
         "description": "Verhalten des Proxy-Thermostats konfigurieren.",
         "data": {
           "external_temperature_entity_id": "Externer Temperatursensor",
+          "sensor_loss_action": "Wenn der Raumsensor ausfällt",
+          "backup_temperature_entity_id": "Ersatz-Raumsensor",
           "boost_duration": "Boost-Dauer"
         },
         "data_description": {
           "external_temperature_entity_id": "Ein Temperatursensor im Raum, mit Abstand zum Heizkörper. Für alle Einträge desselben Raums denselben Sensor verwenden.",
+          "sensor_loss_action": "Was passiert, wenn die Karenzzeit für einen fehlenden Raumsensor abgelaufen ist: den letzten Befehl am TRV halten, mit einem Ersatz-Raumsensor regeln oder das TRV selbst regeln lassen. Ein offenes Fenster (Frostschutz) und das Ausschalten der Heizung haben immer Vorrang.",
+          "backup_temperature_entity_id": "Wird nur mit der Aktion Ersatz-Raumsensor verwendet. Einen anderen Sensor als den externen Temperatursensor wählen.",
           "boost_duration": "Wie lange der Boost-Modus aktiv bleibt, bevor zum vorherigen Preset zurückgekehrt wird."
         },
         "sections": {
@@ -133,8 +137,19 @@
       }
     },
     "error": {
+      "backup_sensor_required": "Für diese Aktion einen Ersatz-Raumsensor auswählen.",
+      "backup_sensor_same": "Der Ersatz-Raumsensor muss sich vom externen Temperatursensor unterscheiden.",
       "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
       "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
+    }
+  },
+  "selector": {
+    "sensor_loss_action": {
+      "options": {
+        "hold": "Letzten TRV-Befehl halten",
+        "backup_sensor": "Mit Ersatz-Raumsensor regeln",
+        "trv": "TRV selbst regeln lassen"
+      }
     }
   },
   "entity": {
@@ -156,6 +171,15 @@
               "boost": "Boost",
               "away": "Abwesend",
               "frost_protection": "Frostschutz"
+            }
+          },
+          "active_control_mode": {
+            "name": "Steuermodus",
+            "state": {
+              "room_sensor": "Raumsensor",
+              "backup_sensor": "Ersatz-Raumsensor",
+              "trv": "TRV regelt selbst",
+              "hold": "Letzter Befehl gehalten"
             }
           }
         }
@@ -185,7 +209,18 @@
     },
     "binary_sensor": {
       "sensor_degraded": {
-        "name": "Sensor beeinträchtigt"
+        "name": "Sensor beeinträchtigt",
+        "state_attributes": {
+          "active_control_mode": {
+            "name": "Steuermodus",
+            "state": {
+              "room_sensor": "Raumsensor",
+              "backup_sensor": "Ersatz-Raumsensor",
+              "trv": "TRV regelt selbst",
+              "hold": "Letzter Befehl gehalten"
+            }
+          }
+        }
       }
     },
     "switch": {

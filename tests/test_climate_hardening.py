@@ -631,6 +631,7 @@ _CLIMATE_PRESETS_PY = os.path.join(_COMP_DIR, "climate_presets.py")
 _CLIMATE_REGULATION_PY = os.path.join(_COMP_DIR, "climate_regulation.py")
 _CONFIG_FLOW_PY = os.path.join(_COMP_DIR, "config_flow.py")
 _CONST_PY = os.path.join(_COMP_DIR, "const.py")
+_INIT_PY = os.path.join(_COMP_DIR, "__init__.py")
 
 
 def _method_assigns_attr(file_path: str, method_name: str, attr_name: str) -> bool:
@@ -715,7 +716,7 @@ class TestDecisionLogicRoutedThroughControllers:
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "decide_send"
         )
 
-    def test_regulation_cycle_uses_room_temp_bridge(self):
+    def test_regulation_cycle_uses_control_mode_resolver(self):
         assert _method_calls(
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "resolve"
         )
@@ -725,6 +726,30 @@ class TestDecisionLogicRoutedThroughControllers:
 
     def test_get_preset_target_uses_preset_mapping(self):
         assert _method_calls(_CLIMATE_PRESETS_PY, "_get_preset_target", "preset_target_c")
+
+
+class TestRoomSensorTimestamp:
+    """The grace period counts from the sensor's ``last_reported``.
+
+    ``last_updated`` does not advance when a sensor re-sends an unchanged
+    value, so a stable reading would look stale (see #107).
+    """
+
+    @staticmethod
+    def _attributes_read(method_name: str) -> set[str]:
+        with open(_INIT_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="__init__.py")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == method_name:
+                return {
+                    sub.attr for sub in ast.walk(node) if isinstance(sub, ast.Attribute)
+                }
+        raise AssertionError(f"{method_name} not found in __init__.py")
+
+    def test_room_reading_uses_last_reported(self):
+        attrs = self._attributes_read("_read_room_temperature")
+        assert "last_reported" in attrs
+        assert "last_updated" not in attrs
 
 
 def _literal_option_defaults(file_path: str, keys: set[str]) -> list[tuple[int, str]]:

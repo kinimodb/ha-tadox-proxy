@@ -300,7 +300,10 @@ default: 5 minutes). During this time:
 - The attribute `sensor_degraded` shows `true`.
 - `room_temp_last_valid_age_s` shows the age of the last reading in seconds.
 
-If the sensor is down longer than the grace period, the control loop pauses automatically.
+If the sensor is down longer than the grace period, the configured sensor-loss action
+takes over (TRV regulates on its own, backup room sensor, or hold the last command) –
+see [When the sensor drops out](docs/settings.md#when-the-sensor-drops-out). The
+attribute `active_control_mode` shows which one is active.
 
 ### Integration Not Responding
 

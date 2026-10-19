@@ -67,7 +67,8 @@ Each entry creates:
 The `sensor_degraded` entity is worth putting on a dashboard or wiring to a
 notification — a dead room sensor is the one failure that quietly ruins the
 temperature in a room. It carries extra attributes: `last_valid_reading`,
-`last_valid_age_s` and `grace_period_s`.
+`last_valid_age_s`, `grace_period_s` and `active_control_mode` (see
+[when the sensor drops out](#when-the-sensor-drops-out)).
 
 ---
 
@@ -175,8 +176,37 @@ period (default 5 minutes). During that time:
 - `binary_sensor.<name>_sensor_degraded` turns **on**.
 - The attribute `room_temp_last_valid_age_s` tells you how stale the reading is.
 
-If the sensor stays gone past the grace period, the correction pauses rather than
-acting on data it cannot trust.
+If the sensor stays gone past the grace period, the integration stops trusting the
+old reading. What happens then is up to you — pick it under **Configure → When the
+room sensor stays unavailable**:
+
+| Choice | What happens |
+|---|---|
+| **Let the TRV regulate on its own** | The TRV gets your target temperature as it is and controls the room with its own built-in sensor. Presets, Eco and Away keep working. The room usually ends up a little cooler than set, because the TRV measures right next to the warm radiator. Default for new entries |
+| **Regulate with a backup room sensor** | A second room sensor takes over, and the integration keeps correcting as usual. Pick it under **Backup room sensor**; it must be a different sensor. If the backup is missing too, the TRV regulates on its own |
+| **Keep the last TRV command** | The TRV keeps the last temperature the integration sent, and nothing new is sent until the sensor is back. Preset changes have no effect meanwhile. Entries set up before this choice existed keep this behaviour until you change it |
+
+The attribute `active_control_mode` on the climate entity and on the
+`sensor_degraded` entity shows what is in charge right now: `room_sensor`,
+`backup_sensor`, `trv` or `hold`.
+
+Two things always win, whatever you picked:
+
+- **An open window** still lowers the TRV to the frost protection temperature. With
+  **Keep the last TRV command**, the TRV then regulates on its own until the room
+  sensor is back, so it does not stay at the frost temperature after the window
+  closes.
+- **Turning the thermostat off** still turns the TRV off. Turned back on, the TRV
+  regulates on its own until the room sensor is back — the integration no longer
+  knows which temperature the TRV holds.
+
+A sensor that has not reported at all since Home Assistant started gets the same
+grace period, counted from the start. Whenever the integration switches between the
+room sensor, the backup sensor and the TRV, it starts its long-term correction from
+zero: a correction learned for one sensor does not fit another.
+
+The choice only reacts to a sensor that Home Assistant marks as `unavailable` or
+`unknown`. A sensor that silently keeps showing an old number still looks fine.
 
 Pending window and presence actions are re-checked just before they fire, so a single
 glitchy reading cannot flip your room into Away.
@@ -264,6 +294,7 @@ something is wrong or when you are curious what the integration is thinking.
 | `guest_mode` | Guest mode is on, presence detection will not switch to Away |
 | `manual_target_c` | The temperature of the Manual preset. Only shown while Manual is active |
 | `sensor_degraded` | Room sensor missing, running on the last reading |
+| `active_control_mode` | What controls the TRV right now: `room_sensor`, `backup_sensor`, `trv` or `hold`. See [when the sensor drops out](#when-the-sensor-drops-out) |
 | `overlay_refresh_s` | The configured overlay refresh interval. 0 means off |
 | `is_saturated` | The correction has hit its limit and cannot push harder |
 
@@ -273,7 +304,8 @@ While the sensor is missing, `room_temp_last_valid_c` and
 The regulation values — `feedforward_offset_c`, `p_correction_c`, `i_correction_c`,
 `error_c`, `target_for_tado_c` and `is_saturated` — only appear while the integration
 is actually regulating. They disappear while the proxy is off, and when the room
-sensor has been gone for longer than the grace period.
+sensor has been gone for longer than the grace period — unless a backup room sensor
+has taken over.
 
 ### What "heating" means
 

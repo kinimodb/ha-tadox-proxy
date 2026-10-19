@@ -10,7 +10,12 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import CONF_EXTERNAL_TEMPERATURE_ENTITY_ID, DOMAIN, LIVE_OPTION_KEYS
+from .const import (
+    CONF_BACKUP_TEMPERATURE_ENTITY_ID,
+    CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
+    DOMAIN,
+    LIVE_OPTION_KEYS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,33 +42,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data = {
             "room_temp": None,
             "room_temp_ts": None,
+            "backup_room_temp": None,
             "tado_internal_temp": None,
             "tado_setpoint": None,
         }
 
         # Get Room Temp from External Sensor
-        if external_sensor_id:
-            state = hass.states.get(external_sensor_id)
-            if state and state.state not in ("unknown", "unavailable"):
-                try:
-                    value = float(state.state)
-                    if math.isfinite(value):
-                        data["room_temp"] = value
-                        # last_reported also advances when the sensor re-sends
-                        # an unchanged value; last_updated does not, which made
-                        # a stable reading look stale and skipped the grace
-                        # bridging on the next outage.
-                        data["room_temp_ts"] = state.last_reported.timestamp()
-                    else:
-                        _LOGGER.warning(
-                            "Room temperature from %s is not finite: %s",
-                            external_sensor_id, value,
-                        )
-                except (ValueError, TypeError):
-                    _LOGGER.warning(
-                        "Cannot parse room temperature from sensor %s: %r",
-                        external_sensor_id, state.state,
-                    )
+        room = _read_room_temperature(hass, external_sensor_id)
+        if room is not None:
+            data["room_temp"], data["room_temp_ts"] = room
+
+        # Backup room sensor, used once the external sensor's grace period
+        # has expired (sensor-loss action "backup_sensor")
+        backup = _read_room_temperature(
+            hass, entry.options.get(CONF_BACKUP_TEMPERATURE_ENTITY_ID)
+        )
+        if backup is not None:
+            data["backup_room_temp"] = backup[0]
 
         # Get Tado Internal Temp & Setpoint from Source Entity
         if source_entity_id:
@@ -140,6 +135,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
+
+
+def _read_room_temperature(
+    hass: HomeAssistant, entity_id: str | None
+) -> tuple[float, float] | None:
+    """Return a temperature sensor's finite reading and report time.
+
+    The report time is ``last_reported``: it also advances when the sensor
+    re-sends an unchanged value; ``last_updated`` does not, which made a
+    stable reading look stale and skipped the grace bridging on the next
+    outage.  Returns None when the sensor has no usable reading.
+    """
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if state is None or state.state in ("unknown", "unavailable"):
+        return None
+    try:
+        value = float(state.state)
+    except (ValueError, TypeError):
+        _LOGGER.warning(
+            "Cannot parse room temperature from sensor %s: %r", entity_id, state.state
+        )
+        return None
+    if not math.isfinite(value):
+        _LOGGER.warning("Room temperature from %s is not finite: %s", entity_id, value)
+        return None
+    return value, state.last_reported.timestamp()
 
 
 def _reload_relevant_options(options) -> dict:

@@ -7,7 +7,14 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 
+from .climate_controllers import (
+    CONTROL_BACKUP_SENSOR,
+    DEFAULT_SENSOR_LOSS_ACTION,
+    NEW_ENTRY_SENSOR_LOSS_ACTION,
+    SENSOR_LOSS_ACTIONS,
+)
 from .const import (
+    CONF_BACKUP_TEMPERATURE_ENTITY_ID,
     CONF_BOOST_DURATION,
     CONF_CORRECTION_KI,
     CONF_CORRECTION_KP,
@@ -28,6 +35,7 @@ from .const import (
     CONF_PRESENCE_HOME_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_SENSOR_GRACE_S,
+    CONF_SENSOR_LOSS_ACTION,
     CONF_SOURCE_ENTITY_ID,
     CONF_URGENT_DECREASE_THRESHOLD_C,
     CONF_WINDOW_CLOSE_DELAY_S,
@@ -72,6 +80,7 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_SOURCE_ENTITY_ID: source_entity_id,
                     CONF_NAME: name,
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID: ext_temp_entity_id,
+                    CONF_SENSOR_LOSS_ACTION: NEW_ENTRY_SENSOR_LOSS_ACTION,
                 },
             )
 
@@ -95,6 +104,18 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return TadoxProxyOptionsFlow()
 
 
+def _validate_sensor_loss(options: dict) -> dict[str, str]:
+    """Return form errors for the backup room sensor."""
+    if options.get(CONF_SENSOR_LOSS_ACTION) != CONTROL_BACKUP_SENSOR:
+        return {}
+    backup = options.get(CONF_BACKUP_TEMPERATURE_ENTITY_ID)
+    if not backup:
+        return {CONF_BACKUP_TEMPERATURE_ENTITY_ID: "backup_sensor_required"}
+    if backup == options.get(CONF_EXTERNAL_TEMPERATURE_ENTITY_ID):
+        return {CONF_BACKUP_TEMPERATURE_ENTITY_ID: "backup_sensor_same"}
+    return {}
+
+
 class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
     """Per-entry options (gear icon) for tuning, presets & sensor selection."""
 
@@ -115,16 +136,30 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             # temperatures set via Number entities, follow_tado_input flag).
             merged = dict(self.config_entry.options)
             # Remove optional sensor keys that were cleared by the user
-            for key in (CONF_WINDOW_SENSOR_ID, CONF_PRESENCE_SENSOR_ID):
+            for key in (
+                CONF_WINDOW_SENSOR_ID,
+                CONF_PRESENCE_SENSOR_ID,
+                CONF_BACKUP_TEMPERATURE_ENTITY_ID,
+            ):
                 if key not in cleaned:
                     merged.pop(key, None)
             merged.update(cleaned)
-            # Reload is triggered by the update_listener in __init__.py
-            # AFTER HA has persisted the new options, avoiding stale data.
-            return self.async_create_entry(title="", data=merged)
+            errors = _validate_sensor_loss(merged)
+            if not errors:
+                # Reload is triggered by the update_listener in __init__.py
+                # AFTER HA has persisted the new options, avoiding stale data.
+                return self.async_create_entry(title="", data=merged)
+            # Show the form again with the values just entered.
+            return self.async_show_form(
+                step_id="init", data_schema=self._options_schema(merged), errors=errors
+            )
 
-        # Load current values (options > data > defaults)
-        opts = self.config_entry.options
+        return self.async_show_form(
+            step_id="init", data_schema=self._options_schema(self.config_entry.options)
+        )
+
+    def _options_schema(self, opts) -> vol.Schema:
+        """Build the options form, prefilled from *opts* (over data and defaults)."""
         data = self.config_entry.data
         defaults = RegulationConfig()
         beh_defaults = BehaviourConfig()
@@ -211,6 +246,21 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
                     default=current_ext_temp,
                 ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+                ),
+                vol.Required(
+                    CONF_SENSOR_LOSS_ACTION,
+                    default=opts.get(
+                        CONF_SENSOR_LOSS_ACTION,
+                        data.get(CONF_SENSOR_LOSS_ACTION, DEFAULT_SENSOR_LOSS_ACTION),
+                    ),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(SENSOR_LOSS_ACTIONS),
+                        translation_key=CONF_SENSOR_LOSS_ACTION,
+                    )
+                ),
+                vol.Optional(CONF_BACKUP_TEMPERATURE_ENTITY_ID): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
                 ),
                 vol.Required(
@@ -414,7 +464,9 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             }
         )
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=options_schema,
-        )
+        backup_sensor = opts.get(CONF_BACKUP_TEMPERATURE_ENTITY_ID)
+        if backup_sensor:
+            options_schema = self.add_suggested_values_to_schema(
+                options_schema, {CONF_BACKUP_TEMPERATURE_ENTITY_ID: backup_sensor}
+            )
+        return options_schema

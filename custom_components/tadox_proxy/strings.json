@@ -34,10 +34,14 @@
         "description": "Configure the proxy thermostat behavior.",
         "data": {
           "external_temperature_entity_id": "External temperature sensor",
+          "sensor_loss_action": "When the room sensor stays unavailable",
+          "backup_temperature_entity_id": "Backup room sensor",
           "boost_duration": "Boost duration"
         },
         "data_description": {
           "external_temperature_entity_id": "A temperature sensor placed in the room, away from the radiator. Use the same sensor for every entry belonging to that room.",
+          "sensor_loss_action": "What happens once the grace period for a missing room sensor has expired: keep the last command on the TRV, regulate with a backup room sensor, or let the TRV regulate on its own. An open window (frost protection) and turning the heating off always take priority.",
+          "backup_temperature_entity_id": "Only used with the backup room sensor action. Pick a different sensor than the external temperature sensor.",
           "boost_duration": "How long boost mode stays active before returning to the previous preset."
         },
         "sections": {
@@ -133,8 +137,19 @@
       }
     },
     "error": {
+      "backup_sensor_required": "Choose a backup room sensor for this action.",
+      "backup_sensor_same": "The backup room sensor must differ from the external temperature sensor.",
       "temp_entity_not_found": "External temperature sensor not found.",
       "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
+    }
+  },
+  "selector": {
+    "sensor_loss_action": {
+      "options": {
+        "hold": "Keep the last TRV command",
+        "backup_sensor": "Regulate with a backup room sensor",
+        "trv": "Let the TRV regulate on its own"
+      }
     }
   },
   "entity": {
@@ -156,6 +171,15 @@
               "boost": "Boost",
               "away": "Away",
               "frost_protection": "Frost protection"
+            }
+          },
+          "active_control_mode": {
+            "name": "Control mode",
+            "state": {
+              "room_sensor": "Room sensor",
+              "backup_sensor": "Backup room sensor",
+              "trv": "TRV regulates on its own",
+              "hold": "Holding last command"
             }
           }
         }
@@ -185,7 +209,18 @@
     },
     "binary_sensor": {
       "sensor_degraded": {
-        "name": "Sensor degraded"
+        "name": "Sensor degraded",
+        "state_attributes": {
+          "active_control_mode": {
+            "name": "Control mode",
+            "state": {
+              "room_sensor": "Room sensor",
+              "backup_sensor": "Backup room sensor",
+              "trv": "TRV regulates on its own",
+              "hold": "Holding last command"
+            }
+          }
+        }
       }
     },
     "switch": {
