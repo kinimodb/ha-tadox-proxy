@@ -80,6 +80,7 @@ from .const import (
     PRESET_LIST,
     safe_float,
 )
+from .device import proxy_device_info
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
     DEFAULT_OVERLAY_REFRESH_S,
@@ -264,12 +265,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information for the proxy."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._config_entry.entry_id)},
-            name=self._config_entry.title,
-            manufacturer="Tado X Proxy",
-            model="Feedforward + PI Regulator",
-        )
+        return proxy_device_info(self._config_entry)
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to HA."""
