@@ -111,8 +111,12 @@ async def async_setup_proxy(
     options: dict[str, Any] | None = None,
     presence: str = "on",
     window: str = "off",
+    entry_id: str | None = None,
 ) -> Proxy:
-    """Create the source TRV and sensors, then set up one proxy entry."""
+    """Create the source TRV and sensors, then set up one proxy entry.
+
+    Pass ``entry_id`` to prepare registry entries for the entry before setup.
+    """
     hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
     hass.states.async_set(
         ROOM_SENSOR, "20.0", {"device_class": "temperature", "unit_of_measurement": "°C"}
@@ -131,6 +135,7 @@ async def async_setup_proxy(
         data={"source_entity_id": TRV, "external_temperature_entity_id": ROOM_SENSOR, "name": "Living"},
         options={**BASE_OPTIONS, **(options or {})},
         unique_id=TRV,
+        entry_id=entry_id,
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
