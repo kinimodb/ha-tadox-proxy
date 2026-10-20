@@ -1,13 +1,17 @@
 """Setup and time helpers shared by the Home Assistant integration tests."""
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.const import EVENT_CALL_SERVICE
-from homeassistant.core import Event, HomeAssistant, State
+from homeassistant.const import EVENT_CALL_SERVICE, STATE_ON
+from homeassistant.core import Event, HomeAssistant, ServiceRegistry, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -33,6 +37,7 @@ PRESET_FROST_PROTECTION = "frost_protection"
 PRESENCE_AWAY_DELAY_S = 60
 PRESENCE_HOME_DELAY_S = 30
 WINDOW_DELAY_S = 30
+WINDOW_CLOSE_DELAY_S = 120
 
 BASE_OPTIONS: dict[str, Any] = {
     "presence_sensor_id": PRESENCE_SENSOR,
@@ -40,7 +45,7 @@ BASE_OPTIONS: dict[str, Any] = {
     "presence_home_delay_s": PRESENCE_HOME_DELAY_S,
     "window_sensor_id": WINDOW_SENSOR,
     "window_delay_s": WINDOW_DELAY_S,
-    "window_close_delay_s": 120,
+    "window_close_delay_s": WINDOW_CLOSE_DELAY_S,
 }
 
 
@@ -92,9 +97,9 @@ class Proxy:
         return [
             event.data["service_data"]
             for event in self.service_calls
-            if event.data["domain"] == "climate"
-            and event.data["service"] == service
-            and event.data["service_data"].get("entity_id") == TRV
+            if _is_trv_command(
+                event.data["domain"], event.data["service"], event.data["service_data"], service
+            )
         ]
 
     async def call(self, domain: str, service: str, entity_id: str, **data: Any) -> None:
@@ -164,3 +169,53 @@ async def async_advance(hass: HomeAssistant, freezer: FrozenDateTimeFactory, sec
     freezer.tick(timedelta(seconds=seconds))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
+
+
+@contextmanager
+def trv_rejects(rejected_service: str) -> Iterator[None]:
+    """Make the TRV reject ``climate.<rejected_service>``, as when it is unreachable.
+
+    Only calls to the TRV fail.  The climate services stay in place, since
+    the proxy entity needs them too.
+    """
+    original = ServiceRegistry.async_call
+
+    async def async_call(self, domain, service, service_data=None, *args, **kwargs):
+        if _is_trv_command(domain, service, service_data, rejected_service):
+            raise HomeAssistantError(f"{TRV} did not respond")
+        return await original(self, domain, service, service_data, *args, **kwargs)
+
+    with patch.object(ServiceRegistry, "async_call", async_call):
+        yield
+
+
+def on_trv_command(hass: HomeAssistant, service: str, action: Callable[[], None]) -> None:
+    """Run *action* whenever ``climate.<service>`` goes to the TRV, before the TRV gets it.
+
+    Shows what the proxy's state says while its command is on the way.
+    """
+
+    @callback
+    def _listener(event: Event) -> None:
+        data = event.data
+        if _is_trv_command(data["domain"], data["service"], data["service_data"], service):
+            action()
+
+    hass.bus.async_listen(EVENT_CALL_SERVICE, _listener)
+
+
+async def async_open_window(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    """Open the window and wait out the open delay: frost protection is on."""
+    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+
+
+def _is_trv_command(
+    domain: str, service: str, service_data: dict[str, Any] | None, wanted: str
+) -> bool:
+    """True for a ``climate.<wanted>`` call addressed to the TRV."""
+    return (
+        domain == "climate"
+        and service == wanted
+        and (service_data or {}).get("entity_id") == TRV
+    )

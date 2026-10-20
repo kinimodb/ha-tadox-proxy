@@ -174,13 +174,17 @@ Switching the proxy to **OFF** passes the off command straight through to the re
 Tado X radiator thermostat.
 
 If that command fails — the radiator thermostat is unreachable, for instance — the
-proxy goes back to the mode it was in. This keeps what you see in Home Assistant
-honest about what the hardware is actually doing.
+proxy goes back to the mode it was in, and an open window keeps its frost
+protection. This keeps what you see in Home Assistant honest about what the hardware
+is actually doing.
 
 While off, the proxy shows a target of 5 °C. Turning it off while a window is open
-ends the window detection for that window; turning it back on checks the window
-again. If the radiator thermostat does not respond when you turn it back on, the
-proxy stays on and tries again with its next temperature command.
+ends the window detection for that window: the preset that would have come back when
+the window closed comes back right away. A boost comes back as Comfort, because it
+would run out while the heating is off; the same applies when a window closes while
+the heating is off. Turning it back on checks the window again. If the radiator
+thermostat does not respond when you turn it back on, the proxy stays on and tries
+again with its next temperature command.
 
 ---
 

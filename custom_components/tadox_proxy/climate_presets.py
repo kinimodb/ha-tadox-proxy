@@ -97,6 +97,9 @@ class PresetMixin:
             )
             if should_restore:
                 self._restore_window_state()
+                return
+        # A close delay that started or ended shows right away.
+        self.async_write_ha_state()
 
     async def _async_window_action(self, _now) -> None:
         """Switch to frost protection preset after window-open delay."""
@@ -162,12 +165,13 @@ class PresetMixin:
     def _apply_window_restore(self, saved: SavedState) -> None:
         """Switch back to the preset the ending window automation saved."""
         if saved.preset is None:
-            # Nothing saved: the window automation had already ended.
+            # Nothing saved: frost protection was not active (any more).
             return
         restored = preset_after_window(
             saved,
             presence_home=self._presence_effectively_home(),
             comfort_c=self._comfort_target(),
+            heating_off=self._hvac_mode == HVACMode.OFF,
         )
         if restored.preset != saved.preset:
             _LOGGER.info(
@@ -316,7 +320,8 @@ class PresetMixin:
 
     async def _async_presence_home_action(self, _now) -> None:
         """Restore previous preset after presence-home delay."""
-        # Revalidate: only proceed if presence sensor is still "on"
+        # Revalidate: skip if the sensor reports nobody home again (or is
+        # gone).  A sensor that is briefly unavailable does not undo the return.
         presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
         if presence_sensor:
             current = self.hass.states.get(presence_sensor)

@@ -396,6 +396,36 @@ class TestWindowController:
         c.end_close_delay()
         assert c.trv_on_due() is True
 
+    # --- end (e.g. the heating is turned off) ---
+
+    def test_end_returns_the_saved_state_of_an_open_window(self):
+        c = self._ctrl()
+        c.activate("eco", 17.0)
+        assert c.end() == SavedState("eco", 17.0)
+        assert not c.is_active
+        assert c.get_saved().preset is None
+
+    def test_end_cancels_a_running_close_delay(self):
+        c, fake = self._closing("away", 20.0)
+        assert c.end() == SavedState("away", 20.0)
+        assert fake.calls[0]["cancelled"]
+        assert not c.close_delay_active
+
+    def test_end_cancels_a_pending_open_delay(self):
+        """The window detection ends for that window; nothing to restore yet."""
+        c = self._ctrl()
+        fake = FakeCallLater()
+        c.handle_window_opened(None, 30, lambda now: None, call_later=fake)
+        assert c.end() == SavedState()
+        assert fake.calls[0]["cancelled"]
+
+    def test_end_needs_the_trv_switched_on(self):
+        c = self._ctrl()
+        c.activate("eco", 17.0)
+        c.mark_trv_off()
+        c.end()
+        assert c.trv_on_due() is True
+
     def test_close_timer_after_end_close_delay_restores_nothing(self):
         """A stale timer callback finds nothing left to restore."""
         c, _ = self._closing("eco", 17.0)
@@ -1362,9 +1392,12 @@ class TestRouteChange:
 class TestPresetAfterWindow:
     """What an ending window automation brings back (comfort target 21.5 °C)."""
 
-    def _after(self, preset, temp, *, presence_home=False):
+    def _after(self, preset, temp, *, presence_home=False, heating_off=False):
         return preset_after_window(
-            SavedState(preset, temp), presence_home=presence_home, comfort_c=21.5
+            SavedState(preset, temp),
+            presence_home=presence_home,
+            comfort_c=21.5,
+            heating_off=heating_off,
         )
 
     def test_saved_preset_comes_back_with_its_target(self):
@@ -1395,6 +1428,16 @@ class TestPresetAfterWindow:
     def test_boost_comes_back(self):
         """Its timer starts again – that is the caller's part."""
         assert self._after("boost", 20.0) == SavedState("boost", 20.0)
+
+    def test_heating_off_brings_back_comfort_for_a_boost(self):
+        """The boost timer would run out while the heating is off."""
+        assert self._after("boost", 20.0, heating_off=True) == SavedState("comfort", 21.5)
+
+    def test_heating_off_uses_the_same_rules_otherwise(self):
+        assert self._after(
+            "away", 20.0, presence_home=True, heating_off=True
+        ) == SavedState("comfort", 21.5)
+        assert self._after("eco", 17.0, heating_off=True) == SavedState("eco", 17.0)
 
 
 class TestPresenceCountsAsHome:

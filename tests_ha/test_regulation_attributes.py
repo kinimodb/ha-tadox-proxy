@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from homeassistant.components.climate import HVACMode
 
-from .helpers import ROOM_SENSOR, async_advance, async_set_state, async_setup_proxy
+from .helpers import (
+    ROOM_SENSOR,
+    async_advance,
+    async_set_state,
+    async_setup_proxy,
+    on_trv_command,
+    trv_rejects,
+)
 
 # DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
 CONTROL_INTERVAL_S = 60
@@ -35,6 +42,32 @@ async def test_regulation_values_disappear_when_turned_off(hass, freezer):
     # Later cycles while OFF must not bring the old values back.
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     assert _regulation_attrs(proxy) == set()
+
+
+async def test_regulation_values_are_gone_while_the_trv_is_switched_off(hass, freezer):
+    """The state that shows OFF has none, also while the TRV command is on its way."""
+    proxy = await async_setup_proxy(hass)
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    assert _regulation_attrs(proxy) == set(REGULATION_ATTRS)
+    shown_during_trv_command: list[set[str]] = []
+    on_trv_command(
+        hass, "set_hvac_mode", lambda: shown_during_trv_command.append(_regulation_attrs(proxy))
+    )
+
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+
+    assert shown_during_trv_command == [set()]
+
+
+async def test_regulation_values_stay_when_the_trv_does_not_switch_off(hass, freezer):
+    proxy = await async_setup_proxy(hass)
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+
+    with trv_rejects("set_hvac_mode"):
+        await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+
+    assert proxy.state.state == HVACMode.HEAT
+    assert _regulation_attrs(proxy) == set(REGULATION_ATTRS)
 
 
 async def test_regulation_values_return_after_turning_back_on(hass, freezer):

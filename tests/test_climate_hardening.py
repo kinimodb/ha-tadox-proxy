@@ -764,33 +764,23 @@ class TestPresetNamesMatchConst:
 # ---------------------------------------------------------------------------
 
 class TestHvacModeChangeRestoresPreset:
-    """Regression: async_set_hvac_mode cancels active window automation.
+    """Regression: turning the heating off cancels active window automation.
 
     Cancelling alone would leave the entity stuck in FROST_PROTECTION with the
     saved pre-frost preset thrown away – if the window closes while HVAC is
-    OFF, nothing ever restores the preset.  The method must read the saved
-    state (get_saved) and write it back to _preset_mode before cancelling.
+    OFF, nothing ever restores the preset.  The window automation must end
+    through WindowAutomationController.end (which returns the saved state,
+    tested in test_controllers) and the window restore.
+    tests_ha/test_turn_off.py covers the behaviour, including a TRV that
+    does not switch off.
     """
 
-    def test_set_hvac_mode_reads_saved_state(self):
-        with open(_CLIMATE_PY, encoding="utf-8") as fh:
-            tree = ast.parse(fh.read(), filename="climate.py")
-        for node in ast.walk(tree):
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_set_hvac_mode":
-                calls = {
-                    sub.func.attr
-                    for sub in ast.walk(node)
-                    if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
-                }
-                assert "get_saved" in calls, (
-                    "async_set_hvac_mode must read the window controller's "
-                    "saved state before cancel_all()"
-                )
-                return
-        raise AssertionError("async_set_hvac_mode not found in climate.py")
+    def test_set_hvac_mode_ends_the_window(self):
+        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "end")
 
-    def test_set_hvac_mode_restores_preset_mode(self):
-        assert _method_assigns_attr(_CLIMATE_PY, "async_set_hvac_mode", "_preset_mode")
+    def test_set_hvac_mode_restores_the_preset(self):
+        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "_apply_window_restore")
+        assert _method_assigns_attr(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_preset_mode")
 
 
 # ---------------------------------------------------------------------------
@@ -1018,9 +1008,6 @@ class TestComfortTargetRoutedThroughHelper:
 
     def test_config_entry_updated_calls_helper(self):
         assert _method_calls(_CLIMATE_PY, "_async_config_entry_updated", "_comfort_target")
-
-    def test_set_hvac_mode_calls_helper(self):
-        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "_comfort_target")
 
     def test_restore_window_state_calls_helper(self):
         assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_comfort_target")
