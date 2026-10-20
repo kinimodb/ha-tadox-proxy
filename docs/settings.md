@@ -102,9 +102,12 @@ Point it at a window contact (`binary_sensor.*`).
 - If the window shuts again before the first delay is up, nothing happens at all.
 - **Changes while the window is open:** the room stays in Frost Protection. If you
   pick another preset or temperature in the meantime, that is what comes back when
-  the window closes — not the one from before the window opened.
+  the window closes — not the one from before the window opened. If nobody is home,
+  Away comes back instead (see [Presence detection](#presence-detection)).
 - A preset or temperature change during the close delay ends the wait and takes
-  effect right away.
+  effect right away. If nobody is home (presence detection has the room in Away),
+  the room goes back to Away instead, and your change comes back when someone
+  returns.
 
 ### Presence detection
 
@@ -112,6 +115,9 @@ Point it at a presence sensor or person tracker (`binary_sensor.*`).
 
 - **Nobody home:** after a delay (default 10 minutes), the room switches to Away.
 - **Someone returns:** after a delay (default 30 s), the previous preset comes back.
+- **Changes while nobody is home:** the room stays in Away. If you pick another preset
+  or temperature in the meantime, that is what comes back when someone returns. This
+  also holds while a window is open: once it closes, the room goes back to Away.
 
 ### What counts as a change
 
