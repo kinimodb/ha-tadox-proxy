@@ -716,7 +716,7 @@ class TestPresenceController:
         assert actions == ["restored"]
 
     def test_repeated_home_keeps_pending_timer(self):
-        """on → unavailable → on during the home delay must not restart it."""
+        """Repeated on events keep the pending home delay."""
         c = self._ctrl()
         c.activate("comfort", 21.0)
         fake = FakeCallLater()
@@ -729,6 +729,42 @@ class TestPresenceController:
         assert result is False
         assert fake.scheduled_count == 1
         assert not fake.calls[0]["cancelled"]
+
+    def test_sensor_loss_cancels_only_home_timer(self):
+        """A missing sensor must not discard the saved preset or an away delay."""
+        controller = self._ctrl()
+        controller.activate("comfort", 21.0)
+        home_fake = FakeCallLater()
+        controller.handle_presence_home(
+            None, 30, lambda now: None, call_later=home_fake
+        )
+
+        controller.cancel_home_timer()
+
+        assert home_fake.calls[0]["cancelled"]
+        assert controller.is_active
+        assert controller.restore() == SavedState(preset="comfort", temp=21.0)
+
+        away_fake = FakeCallLater()
+        controller.handle_presence_away(None, 600, lambda now: None, call_later=away_fake)
+        controller.cancel_home_timer()
+        assert away_fake.active_count == 1
+
+    def test_home_event_after_sensor_loss_starts_new_delay(self):
+        controller = self._ctrl()
+        controller.activate("comfort", 21.0)
+        fake = FakeCallLater()
+        controller.handle_presence_home(None, 30, lambda now: None, call_later=fake)
+        controller.cancel_home_timer()
+
+        result = controller.handle_presence_home(
+            None, 30, lambda now: None, call_later=fake
+        )
+
+        assert result is False
+        assert fake.scheduled_count == 2
+        assert fake.calls[0]["cancelled"]
+        assert not fake.calls[1]["cancelled"]
 
     def test_restore_cancels_home_timer(self):
         """Calling restore() defensively cancels any pending home timer."""
