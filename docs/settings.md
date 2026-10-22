@@ -123,8 +123,10 @@ Point it at a presence sensor or person tracker (`binary_sensor.*`).
 
 Only a real switch between on and off counts. Many Zigbee sensors re-send their
 battery level or signal strength every few minutes; those updates do not restart the
-delays. A sensor that briefly drops out (`unavailable`) and comes back does not restart a
-running delay, and it does not overwrite the preset that will be restored.
+delays. A sensor that briefly drops out (`unavailable` or `unknown`) and comes back
+does not restart a window or presence-away delay, and it does not overwrite the preset
+that will be restored. A presence-home delay is cancelled if the sensor drops out;
+Away stays active until the sensor reports `on` again and a new home delay finishes.
 
 ### After a Home Assistant restart
 

@@ -202,9 +202,12 @@ class PresetMixin:
         """Handle presence sensor state changes."""
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
+        if new_state is None or new_state.state in ("unavailable", "unknown"):
+            self._presence_ctrl.cancel_home_timer()
+            return
         if not is_binary_sensor_transition(
             old_state.state if old_state else None,
-            new_state.state if new_state else None,
+            new_state.state,
         ):
             return
 
@@ -320,16 +323,16 @@ class PresetMixin:
 
     async def _async_presence_home_action(self, _now) -> None:
         """Restore previous preset after presence-home delay."""
-        # Revalidate: skip if the sensor reports nobody home again (or is
-        # gone).  A sensor that is briefly unavailable does not undo the return.
+        # Revalidate in case the sensor changed before its event was handled.
         presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
         if presence_sensor:
             current = self.hass.states.get(presence_sensor)
-            if current is None or current.state == "off":
+            if current is None or current.state != "on":
                 _LOGGER.info(
                     "Presence home action skipped: sensor is now %s",
                     current.state if current else "unavailable",
                 )
+                self._presence_ctrl.cancel_home_timer()
                 return
         self._restore_presence_state()
 

@@ -352,8 +352,7 @@ class PresenceAutomationController:
 
         # Cancel any pending home-delay timer (flicker protection)
         if self._home_timer is not None:
-            self._home_timer()
-            self._home_timer = None
+            self.cancel_home_timer()
             _LOGGER.debug("Presence away during home delay – cancelled restore, staying away")
 
         # Already in away mode: nothing more to do.  Starting a new away
@@ -398,8 +397,8 @@ class PresenceAutomationController:
             return False
 
         if delay_s > 0 and on_home_action is not None:
-            # Keep a pending home delay: a repeated "on" (e.g. after a brief
-            # unavailable) must not push the restore further out.
+            # Keep a pending home delay: repeated "on" events must not push
+            # the restore further out.
             if self._home_timer is not None:
                 _LOGGER.debug("Presence home event ignored – home delay already running")
                 return False
@@ -419,9 +418,7 @@ class PresenceAutomationController:
 
     def restore(self) -> SavedState:
         """Clear active state and return the saved preset/temp for restoration."""
-        if self._home_timer is not None:
-            self._home_timer()
-            self._home_timer = None
+        self.cancel_home_timer()
         saved = SavedState(preset=self._saved.preset, temp=self._saved.temp)
         self._saved = SavedState()
         self.is_active = False
@@ -436,10 +433,14 @@ class PresenceAutomationController:
         self._saved = SavedState(preset=preset, temp=temp)
 
     def cancel_timer(self) -> None:
-        """Cancel the pending away timer without changing the active flag."""
+        """Cancel pending presence timers without changing the active flag."""
         if self._away_timer is not None:
             self._away_timer()
             self._away_timer = None
+        self.cancel_home_timer()
+
+    def cancel_home_timer(self) -> None:
+        """Cancel a pending return home without changing the presence state."""
         if self._home_timer is not None:
             self._home_timer()
             self._home_timer = None

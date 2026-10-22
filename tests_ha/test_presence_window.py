@@ -1,13 +1,15 @@
 """Presence and window automations driven by real binary_sensor state changes."""
 from __future__ import annotations
 
+import pytest
 from homeassistant.components.climate import (
     PRESET_AWAY,
     PRESET_BOOST,
+    PRESET_COMFORT,
     PRESET_ECO,
     PRESET_NONE,
 )
-from homeassistant.const import STATE_OFF, STATE_ON
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from .helpers import (
     PRESENCE_AWAY_DELAY_S,
@@ -38,6 +40,49 @@ async def test_attribute_only_presence_updates_keep_away_timer(hass, freezer):
         await async_advance(hass, freezer, step_s)
 
     assert proxy.preset == PRESET_AWAY
+
+
+@pytest.mark.parametrize("missing_state", [STATE_UNAVAILABLE, STATE_UNKNOWN, None])
+async def test_presence_loss_during_home_delay_keeps_away(hass, freezer, missing_state):
+    proxy = await async_setup_proxy(hass)
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
+    await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
+    assert proxy.preset == PRESET_AWAY
+
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, PRESENCE_HOME_DELAY_S - 1)
+    if missing_state is None:
+        hass.states.async_remove(PRESENCE_SENSOR)
+        await hass.async_block_till_done()
+    else:
+        await async_set_state(hass, PRESENCE_SENSOR, missing_state)
+    await async_advance(hass, freezer, PRESENCE_HOME_DELAY_S + 1)
+
+    assert proxy.preset == PRESET_AWAY
+    assert proxy.state.attributes["presence_away_active"] is True
+
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, PRESENCE_HOME_DELAY_S - 1)
+    assert proxy.preset == PRESET_AWAY
+    await async_advance(hass, freezer, 2)
+    assert proxy.preset == PRESET_COMFORT
+
+
+async def test_brief_presence_loss_restarts_home_delay(hass, freezer):
+    proxy = await async_setup_proxy(hass)
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
+    await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
+
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, 10)
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_UNAVAILABLE)
+    await async_advance(hass, freezer, 1)
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, PRESENCE_HOME_DELAY_S - 1)
+
+    assert proxy.preset == PRESET_AWAY
+    await async_advance(hass, freezer, 2)
+    assert proxy.preset == PRESET_COMFORT
 
 
 async def test_turn_on_keeps_window_frost_protection(hass, freezer):
