@@ -42,6 +42,7 @@ from .climate_controllers import (
     DEFAULT_SENSOR_LOSS_ACTION,
     ControlModeResolver,
     FollowPhysicalController,
+    safe_float,
 )
 from .climate_presets import PresetMixin
 from .climate_regulation import RegulationMixin
@@ -73,7 +74,6 @@ from .const import (
     DOMAIN,
     PRESET_FROST_PROTECTION,
     PRESET_LIST,
-    safe_float,
 )
 from .device import proxy_device_info
 from .parameters import (
@@ -85,18 +85,7 @@ from .parameters import (
     PresetConfig,
     RegulationConfig,
 )
-from .preset_layers import (
-    ATTR_GUEST_MODE,
-    ATTR_MANUAL_TARGET,
-    ATTR_PRESENCE_AWAY_ACTIVE,
-    ATTR_USER_PRESET,
-    ATTR_V14_WINDOW_RESTORE_PRESET,
-    ATTR_V14_WINDOW_RESTORE_TARGET,
-    ATTR_WINDOW_OPEN_ACTIVE,
-    ATTR_WINDOW_TRV_OFF,
-    PresetLayers,
-    StartSnapshot,
-)
+from .preset_layers import PresetLayers, StartSnapshot
 from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,7 +172,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # Which preset the room runs: the user choice plus the window,
         # nobody-home and boost layers.  Its timers run here, by id.
         self._layers = PresetLayers(self._layers_config())
-        self._layer_timers: dict[str, tuple[object, Callable[[], None]]] = {}
+        self._layer_timers: dict[str, Callable[[], None]] = {}
 
         # Diagnostics
         self._last_result = None
@@ -283,12 +272,13 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         last_state = await self.async_get_last_state()
         if last_state and last_state.state in (HVACMode.HEAT, HVACMode.OFF):
             self._hvac_mode = HVACMode(last_state.state)
-        self._apply_layer_effects(
-            self._layers.start(
-                self._start_snapshot(last_state, window_sensor, presence_sensor),
-                time.time(),
-            )
+        snapshot = StartSnapshot.from_state(
+            last_state.state if last_state else None,
+            last_state.attributes if last_state else {},
+            window_state=self._sensor_state(window_sensor),
+            presence_state=self._sensor_state(presence_sensor),
         )
+        self._apply_layer_effects(self._layers.start(snapshot, time.time()))
 
         # Initialize baseline for follow-tado from current tado setpoint so
         # the feature works immediately without waiting for the first regulation.
@@ -343,34 +333,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # this restore ran – refresh them with the restored state.
         self._write_linked_entities()
 
-    def _start_snapshot(
-        self, last_state, window_sensor: str | None, presence_sensor: str | None
-    ) -> StartSnapshot:
-        """Read what PresetLayers starts from: the state written before the
-        restart (None without one) and the sensors now (None while missing)."""
-        window = self.hass.states.get(window_sensor) if window_sensor else None
-        presence = self.hass.states.get(presence_sensor) if presence_sensor else None
-        sensors = {
-            "window_state": window.state if window else None,
-            "presence_state": presence.state if presence else None,
-        }
-        if last_state is None:
-            return StartSnapshot(**sensors)
-        attrs = last_state.attributes
-        return StartSnapshot(
-            heating_on=last_state.state != HVACMode.OFF,
-            preset_mode=attrs.get("preset_mode"),
-            user_preset=attrs.get(ATTR_USER_PRESET),
-            manual_c=safe_float(attrs.get(ATTR_MANUAL_TARGET)),
-            window_held=attrs.get(ATTR_WINDOW_OPEN_ACTIVE) is True,
-            nobody_home_held=attrs.get(ATTR_PRESENCE_AWAY_ACTIVE) is True,
-            valve_off=attrs.get(ATTR_WINDOW_TRV_OFF) is True,
-            guest_mode=attrs.get(ATTR_GUEST_MODE) is True,
-            window_kept_preset=attrs.get(ATTR_V14_WINDOW_RESTORE_PRESET),
-            window_kept_c=safe_float(attrs.get(ATTR_V14_WINDOW_RESTORE_TARGET)),
-            target_c=safe_float(attrs.get(ATTR_TEMPERATURE)),
-            **sensors,
-        )
+    def _sensor_state(self, entity_id: str | None) -> str | None:
+        """Raw state of a sensor now; None without one or while it is missing."""
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return state.state if state else None
 
     async def async_will_remove_from_hass(self) -> None:
         """Cancel all timers when the entity is being removed."""
@@ -441,7 +407,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # Counts like setting the temperature in the app – also while a layer
         # holds the room, then it comes back once the layer lets go.
         self._handle_layer_effects(
-            self._layers.valve_changed(self._clamp_target(tado_setpoint), time.time())
+            self._layers.valve_changed(tado_setpoint, time.time())
         )
 
     # ------------------------------------------------------------------
@@ -510,11 +476,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 await self._async_regulation_cycle_locked(trigger="hvac_mode_change")
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set new target temperature; enters manual (PRESET_NONE) mode.
+        """Set a temperature: Manual with it becomes the user choice.
 
-        Moving the slider is treated as a temporary manual override. It does
-        NOT change the stored comfort target – use the Comfort number entity
-        or the options flow for that.
+        While a layer holds the room it applies once the layer lets go.  It
+        does NOT change the stored comfort target – use the Comfort number
+        entity or the options flow for that.
         """
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
@@ -527,12 +493,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             _LOGGER.warning("Ignoring non-finite temperature: %s", temp)
             return
         await self._async_handle_layer_effects(
-            self._layers.set_temperature(self._clamp_target(temp_f), time.time())
+            self._layers.set_temperature(temp_f, time.time())
         )
-
-    def _clamp_target(self, temp_c: float) -> float:
-        """Clamp a requested temperature to the safe range."""
-        return max(self._config.min_target_c, min(self._config.max_target_c, temp_c))
 
     # ------------------------------------------------------------------
     # Properties for HA UI

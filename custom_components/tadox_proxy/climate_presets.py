@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
 
 from homeassistant.components.climate import HVACMode
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_call_later
 
-from .climate_controllers import DEFAULT_WINDOW_ACTION
+from .climate_controllers import DEFAULT_WINDOW_ACTION, safe_float
 from .const import (
     CONF_COMFORT_TARGET,
     CONF_PRESENCE_AWAY_DELAY_S,
@@ -25,8 +24,6 @@ from .const import (
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
-    PRESET_LIST,
-    safe_float,
 )
 from .parameters import (
     DEFAULT_PRESENCE_AWAY_DELAY_S,
@@ -76,24 +73,23 @@ class PresetMixin:
 
     def _start_layer_timer(self, timer_id: str, delay_s: float) -> None:
         """Report *timer_id* to PresetLayers as elapsed after *delay_s*."""
-        token = object()
 
         async def _async_elapsed(_now) -> None:
             # Cancelled or started anew meanwhile: no news.
-            if self._layer_timers.get(timer_id, (None, None))[0] is not token:
+            if self._layer_timers.get(timer_id) is not cancel:
                 return
             del self._layer_timers[timer_id]
             await self._async_handle_layer_effects(
                 self._layers.timer_elapsed(timer_id, time.time())
             )
 
-        cancel: Callable[[], None] = async_call_later(self.hass, delay_s, _async_elapsed)
-        self._layer_timers[timer_id] = (token, cancel)
+        cancel = async_call_later(self.hass, delay_s, _async_elapsed)
+        self._layer_timers[timer_id] = cancel
 
     def _cancel_layer_timer(self, timer_id: str) -> None:
-        entry = self._layer_timers.pop(timer_id, None)
-        if entry is not None:
-            entry[1]()
+        cancel = self._layer_timers.pop(timer_id, None)
+        if cancel is not None:
+            cancel()
 
     def _cancel_layer_timers(self) -> None:
         for timer_id in list(self._layer_timers):
@@ -105,6 +101,8 @@ class PresetMixin:
         return LayersConfig(
             presets=self._config.presets,
             comfort_c=self._comfort_target(),
+            min_target_c=self._config.min_target_c,
+            max_target_c=self._config.max_target_c,
             window_delay_s=opts.get(CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S),
             window_close_delay_s=opts.get(
                 CONF_WINDOW_CLOSE_DELAY_S, DEFAULT_WINDOW_CLOSE_DELAY_S
@@ -112,8 +110,8 @@ class PresetMixin:
             away_delay_s=opts.get(CONF_PRESENCE_AWAY_DELAY_S, DEFAULT_PRESENCE_AWAY_DELAY_S),
             home_delay_s=opts.get(CONF_PRESENCE_HOME_DELAY_S, DEFAULT_PRESENCE_HOME_DELAY_S),
             window_action=opts.get(CONF_WINDOW_ACTION, DEFAULT_WINDOW_ACTION),
-            window_sensor=bool(opts.get(CONF_WINDOW_SENSOR_ID)),
-            presence_sensor=bool(opts.get(CONF_PRESENCE_SENSOR_ID)),
+            has_window_sensor=bool(opts.get(CONF_WINDOW_SENSOR_ID)),
+            has_presence_sensor=bool(opts.get(CONF_PRESENCE_SENSOR_ID)),
         )
 
     # ------------------------------------------------------------------
@@ -163,10 +161,7 @@ class PresetMixin:
         return self._layers.boost_remaining_min(time.time())
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set new preset mode."""
-        if preset_mode not in PRESET_LIST:
-            _LOGGER.warning("Unknown preset mode: %s", preset_mode)
-            return
+        """Pick a preset (Home Assistant has checked it against the list)."""
         _LOGGER.debug("Preset picked: %s", preset_mode)
         await self._async_handle_layer_effects(
             self._layers.pick_preset(preset_mode, time.time())

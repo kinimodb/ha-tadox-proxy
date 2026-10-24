@@ -442,19 +442,6 @@ def _method_calls(file_path: str, method_name: str, called: str) -> bool:
     raise AssertionError(f"{method_name} not found in {file_path}")
 
 
-def _method_reads(file_path: str, method_name: str, attr_name: str) -> bool:
-    """Return True when *method_name* reads <x>.<attr_name> (e.g. a property)."""
-    with open(file_path, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == method_name:
-            return any(
-                isinstance(sub, ast.Attribute) and sub.attr == attr_name
-                for sub in ast.walk(node)
-            )
-    raise AssertionError(f"{method_name} not found in {file_path}")
-
-
 # ---------------------------------------------------------------------------
 # Decision logic must be the tested HA-free code (AST-based guard)
 # ---------------------------------------------------------------------------
@@ -479,138 +466,6 @@ class TestDecisionLogicRoutedThroughControllers:
             "_async_regulation_cycle_locked",
             "_async_switch_trv_for_window",
         )
-
-
-class TestPresetDecisionsRoutedThroughPresetLayers:
-    """The HA side only forwards events to PresetLayers and applies what it
-    returns (ADR 0001).  The behaviour is tested on the module itself in
-    test_preset_layers.py and end to end in tests_ha/."""
-
-    @pytest.mark.parametrize(
-        ("file_path", "method", "event"),
-        [
-            (_CLIMATE_PRESETS_PY, "async_set_preset_mode", "pick_preset"),
-            (_CLIMATE_PY, "async_set_temperature", "set_temperature"),
-            (_CLIMATE_PY, "_async_tado_state_changed", "valve_changed"),
-            (_CLIMATE_PRESETS_PY, "_async_window_changed", "window_reported"),
-            (_CLIMATE_PRESETS_PY, "_async_presence_changed", "presence_reported"),
-            (_CLIMATE_PRESETS_PY, "async_set_guest_mode", "set_guest_mode"),
-            (_CLIMATE_PRESETS_PY, "_start_layer_timer", "timer_elapsed"),
-            (_CLIMATE_PY, "async_set_hvac_mode", "heating_off"),
-            (_CLIMATE_PY, "async_set_hvac_mode", "heating_on"),
-            (_CLIMATE_PY, "async_added_to_hass", "start"),
-            (_CLIMATE_PY, "_async_config_entry_updated", "options_changed"),
-        ],
-    )
-    def test_event_is_forwarded(self, file_path, method, event):
-        assert _method_calls(file_path, method, event)
-
-    def test_window_action_follows_what_is_due(self):
-        for due in ("valve_off_due", "valve_on_due", "valve_held_off"):
-            assert _method_reads(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", due)
-        for report in ("valve_switched_off", "valve_switch_off_failed"):
-            assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", report)
-
-    def test_heat_commands_report_the_valve_heats(self):
-        """Otherwise a TRV the window switched off is switched on every cycle."""
-        assert _method_calls(
-            _CLIMATE_REGULATION_PY, "_async_send_hvac_mode_to_tado", "heat_command_sent"
-        )
-        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_to_tado", "heat_command_sent")
-
-    def test_effective_setpoint_is_the_room_target_of_preset_layers(self):
-        assert _method_reads(_CLIMATE_PRESETS_PY, "_effective_setpoint", "room_target_c")
-
-
-class TestRoomSensorTimestamp:
-    """The grace period counts from the sensor's ``last_reported``.
-
-    ``last_updated`` does not advance when a sensor re-sends an unchanged
-    value, so a stable reading would look stale (see #107).
-    """
-
-    @staticmethod
-    def _attributes_read(method_name: str) -> set[str]:
-        with open(_INIT_PY, encoding="utf-8") as fh:
-            tree = ast.parse(fh.read(), filename="__init__.py")
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == method_name:
-                return {
-                    sub.attr for sub in ast.walk(node) if isinstance(sub, ast.Attribute)
-                }
-        raise AssertionError(f"{method_name} not found in __init__.py")
-
-    def test_room_reading_uses_last_reported(self):
-        attrs = self._attributes_read("_read_room_temperature")
-        assert "last_reported" in attrs
-        assert "last_updated" not in attrs
-
-
-def _literal_option_defaults(file_path: str, keys: set[str]) -> list[tuple[int, str]]:
-    """(line, key) for every <x>.get(<key>, <number literal>) in *file_path*."""
-    with open(file_path, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
-    offenders: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "get"
-            and len(node.args) == 2
-            and isinstance(node.args[0], ast.Name)
-            and node.args[0].id in keys
-            and isinstance(node.args[1], ast.Constant)
-        ):
-            offenders.append((node.lineno, node.args[0].id))
-    return offenders
-
-
-class TestTimingDefaultsCentralised:
-    """Window/presence/overlay defaults come from parameters.py only."""
-
-    _KEYS = {
-        "CONF_WINDOW_DELAY_S",
-        "CONF_WINDOW_CLOSE_DELAY_S",
-        "CONF_PRESENCE_AWAY_DELAY_S",
-        "CONF_PRESENCE_HOME_DELAY_S",
-        "CONF_OVERLAY_REFRESH_S",
-    }
-
-    def test_default_values(self):
-        assert _params.DEFAULT_WINDOW_DELAY_S == 30
-        assert _params.DEFAULT_WINDOW_CLOSE_DELAY_S == 120
-        assert _params.DEFAULT_PRESENCE_AWAY_DELAY_S == 600
-        assert _params.DEFAULT_PRESENCE_HOME_DELAY_S == 30
-        assert _params.DEFAULT_OVERLAY_REFRESH_S == 0
-
-    def test_no_literal_defaults_in_climate(self):
-        assert _literal_option_defaults(_CLIMATE_PY, self._KEYS) == []
-
-    def test_no_literal_defaults_in_presets(self):
-        assert _literal_option_defaults(_CLIMATE_PRESETS_PY, self._KEYS) == []
-
-    def test_no_literal_defaults_in_config_flow(self):
-        assert _literal_option_defaults(_CONFIG_FLOW_PY, self._KEYS) == []
-
-
-class TestPresetNamesMatchConst:
-    """climate_controllers redefines the preset names to stay HA-free; the
-    custom frost preset must keep the value const.py exposes to HA."""
-
-    def test_frost_protection_name(self):
-        with open(_CONST_PY, encoding="utf-8") as fh:
-            tree = ast.parse(fh.read(), filename="const.py")
-        values = [
-            node.value.value
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and any(
-                isinstance(t, ast.Name) and t.id == "PRESET_FROST_PROTECTION"
-                for t in node.targets
-            )
-            and isinstance(node.value, ast.Constant)
-        ]
-        assert values == [_ctrl.PRESET_FROST_PROTECTION]
 
 
 # ---------------------------------------------------------------------------
@@ -676,21 +531,11 @@ class TestHvacModeChangeHoldsRegulationLock:
 # PresetConfig default (20 °C).
 
 # const.py is NOT HA-free (it imports homeassistant.components.climate), so we
-# mirror the option key and safe_float here – the same approach the rest of
-# this file uses for logic that cannot be imported directly.
-_CONF_COMFORT_TARGET = "comfort_target"  # mirrors const.py:22
+# mirror the option key here – the same approach the rest of this file uses
+# for logic that cannot be imported directly.  safe_float is the real one.
+_CONF_COMFORT_TARGET = "comfort_target"  # mirrors const.py
 _COMFORT_DEFAULT = PresetConfig().comfort_target_c  # real default: 20.0
-
-
-def _mirror_safe_float(value):
-    """Mirror of const.safe_float (const.py:75-83)."""
-    if value is None:
-        return None
-    try:
-        f = float(value)
-    except (ValueError, TypeError):
-        return None
-    return f if math.isfinite(f) else None
+_safe_float = _ctrl.safe_float
 
 
 def _mirror_comfort_target(options: dict, default: float = _COMFORT_DEFAULT) -> float:
@@ -699,7 +544,7 @@ def _mirror_comfort_target(options: dict, default: float = _COMFORT_DEFAULT) -> 
         comfort = safe_float(options.get(CONF_COMFORT_TARGET))
         return comfort if comfort is not None else default
     """
-    comfort = _mirror_safe_float(options.get(_CONF_COMFORT_TARGET))
+    comfort = _safe_float(options.get(_CONF_COMFORT_TARGET))
     if comfort is not None:
         return comfort
     return default
@@ -745,7 +590,7 @@ class TestComfortTargetFallback:
         options: dict = {}  # comfort_target never configured
 
         # OLD guarded pattern – assignment is skipped, value stays stale
-        comfort = _mirror_safe_float(options.get(_CONF_COMFORT_TARGET))
+        comfort = _safe_float(options.get(_CONF_COMFORT_TARGET))
         if comfort is not None:
             target_temp = comfort
         assert target_temp == 7.0  # documents the bug

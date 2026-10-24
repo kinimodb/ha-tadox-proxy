@@ -149,7 +149,7 @@ async def test_boost_during_close_delay_ends_in_the_user_choice(hass, freezer):
 
 
 async def test_temperature_while_away_with_an_open_window_waits_for_the_return(hass, freezer):
-    """Nobody home: the window keeps Away to restore, the temperature waits for the return."""
+    """Nobody home: Away comes back after the window, the temperature once someone returns."""
     proxy = await async_setup_proxy(hass)
     await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)

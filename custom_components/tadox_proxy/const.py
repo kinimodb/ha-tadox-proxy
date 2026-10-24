@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import math
-from typing import Any
-
 from homeassistant.components.climate import (
     PRESET_AWAY,
     PRESET_BOOST,
@@ -89,21 +86,6 @@ LIVE_OPTION_KEYS = frozenset({
 
 # The climate state attributes read back on restart are defined in
 # preset_layers, which owns that state.
-
-
-# ---------------------------------------------------------------------------
-# Shared utilities (used by climate.py, climate_presets.py, climate_regulation.py)
-# ---------------------------------------------------------------------------
-
-def safe_float(value: Any) -> float | None:
-    """Convert value to float, returning None for non-finite or unparseable values."""
-    if value is None:
-        return None
-    try:
-        f = float(value)
-    except (ValueError, TypeError):
-        return None
-    return f if math.isfinite(f) else None
 
 
 # Ordered list of presets shown in the UI.

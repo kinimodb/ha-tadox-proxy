@@ -7,12 +7,14 @@ rest of the climate entity's decisions:
 - ``ControlModeResolver``         – room-sensor grace period & sensor-loss action
 - ``decide_send``                 – send / rate-limit decision (pure function)
 - ``preset_target_c``             – preset → room target mapping (pure function)
+- ``safe_float``                  – tolerant number parsing for HA state values
 """
 from __future__ import annotations
 
 import logging
+import math
 import time
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from .parameters import PresetConfig
@@ -36,6 +38,17 @@ WINDOW_ACTION_FROST = "frost_protection"
 WINDOW_ACTION_OFF = "off"
 WINDOW_ACTIONS = (WINDOW_ACTION_FROST, WINDOW_ACTION_OFF)
 DEFAULT_WINDOW_ACTION = WINDOW_ACTION_FROST
+
+
+def safe_float(value: Any) -> float | None:
+    """Convert value to float, returning None for non-finite or unparseable values."""
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (ValueError, TypeError):
+        return None
+    return f if math.isfinite(f) else None
 
 
 # ---------------------------------------------------------------------------

@@ -69,13 +69,15 @@ def _config(**changes) -> LayersConfig:
             frost_protection_target_c=7.0,
         ),
         "comfort_c": 20.0,
+        "min_target_c": 5.0,
+        "max_target_c": 30.0,
         "window_delay_s": 30,
         "window_close_delay_s": 120,
         "away_delay_s": 600,
         "home_delay_s": 30,
         "window_action": "frost_protection",
-        "window_sensor": True,
-        "presence_sensor": True,
+        "has_window_sensor": True,
+        "has_presence_sensor": True,
     }
     values.update(changes)
     return LayersConfig(**values)
@@ -138,6 +140,15 @@ class TestUserChoice:
         assert room.active_preset == MANUAL
         assert room.room_target_c == 21.5
         assert effects.cycle == "set_temperature"
+
+    def test_temperature_beyond_the_limits_is_clamped(self):
+        room = _room()
+
+        room.set_temperature(35.0, T0)
+        assert room.room_target_c == 30.0
+
+        room.set_temperature(2.0, T0 + 10)
+        assert room.room_target_c == 5.0
 
     def test_unknown_preset_changes_nothing(self):
         room = _room()
@@ -866,6 +877,13 @@ class TestValveChange:
         assert room.room_target_c == 22.0
         assert effects.cycle == "follow_tado"
 
+    def test_dial_change_beyond_the_limits_is_clamped(self):
+        room = _room()
+
+        room.valve_changed(31.0, T0)
+
+        assert room.room_target_c == 30.0
+
     def test_dial_change_while_the_window_is_open_is_kept_for_when_it_closes(self):
         room = _room()
         _open_window(room, T0)
@@ -1244,15 +1262,15 @@ class TestRestart:
         """Nothing would end it."""
         room, _ = _restarted(
             StartSnapshot(user_preset=ECO, window_held=True, nobody_home_held=True),
-            window_sensor=False,
-            presence_sensor=False,
+            has_window_sensor=False,
+            has_presence_sensor=False,
         )
 
         assert room.active_preset == ECO
 
     def test_valve_the_window_had_switched_off_is_switched_on_if_the_window_closed_meanwhile(self):
         room, _ = _restarted(
-            StartSnapshot(user_preset=ECO, window_held=True, valve_off=True, window_state=OFF),
+            StartSnapshot(user_preset=ECO, window_held=True, valve_off_by_window=True, window_state=OFF),
             window_action="off",
         )
 
@@ -1262,7 +1280,7 @@ class TestRestart:
     def test_valve_under_a_still_open_window_is_switched_off_once_more(self):
         """Its state is unknown after the restart."""
         room, _ = _restarted(
-            StartSnapshot(user_preset=ECO, window_held=True, valve_off=True, window_state=ON),
+            StartSnapshot(user_preset=ECO, window_held=True, valve_off_by_window=True, window_state=ON),
             window_action="off",
         )
 
@@ -1295,12 +1313,13 @@ class TestUpgradeFromV14:
         assert room.active_preset == MANUAL
         assert room.room_target_c == 21.5
 
-    def test_away_the_window_had_kept_means_nobody_home_held_the_room(self):
+    def test_away_the_window_had_kept_from_nobody_home_means_nobody_home_held_the_room(self):
         room, _ = _restarted(
             StartSnapshot(
                 preset_mode=FROST,
                 window_kept_preset=AWAY_PRESET,
                 window_kept_c=20.0,
+                nobody_home_held=True,
                 window_state=ON,
                 presence_state=OFF,
             )
@@ -1313,9 +1332,10 @@ class TestUpgradeFromV14:
         _come_home(room, T0 + 1000)
         assert room.active_preset == COMFORT
 
-    def test_away_means_nobody_home_held_the_room_with_comfort_as_the_user_choice(self):
+    def test_away_from_nobody_home_comes_back_with_comfort_as_the_user_choice(self):
+        """v1.4.x did not write what nobody home would bring back."""
         room, effects = _restarted(
-            StartSnapshot(preset_mode=AWAY_PRESET, presence_state=UNAVAILABLE)
+            StartSnapshot(preset_mode=AWAY_PRESET, nobody_home_held=True, presence_state=UNAVAILABLE)
         )
         assert room.active_preset == AWAY_PRESET
         assert effects.timers == {}
@@ -1323,8 +1343,32 @@ class TestUpgradeFromV14:
         _come_home(room, T0 + 100)
         assert room.active_preset == COMFORT
 
+    def test_away_picked_by_hand_stays_the_user_choice(self):
+        """presence_away_active tells it apart from Away while nobody is home."""
+        room, _ = _restarted(StartSnapshot(preset_mode=AWAY_PRESET, presence_state=ON))
+
+        assert room.active_preset == AWAY_PRESET
+        assert room.user_choice.preset == AWAY_PRESET
+        assert not room.nobody_home_holds
+
+    def test_away_picked_by_hand_and_kept_by_the_window_comes_back_after_airing(self):
+        room, _ = _restarted(
+            StartSnapshot(
+                preset_mode=FROST,
+                window_kept_preset=AWAY_PRESET,
+                window_kept_c=16.0,
+                window_state=ON,
+                presence_state=ON,
+            )
+        )
+
+        _close_window(room, T0 + 100)
+
+        assert room.active_preset == AWAY_PRESET
+        assert room.user_choice.preset == AWAY_PRESET
+
     def test_away_without_a_presence_sensor_stays_the_user_choice(self):
-        room, _ = _restarted(StartSnapshot(preset_mode=AWAY_PRESET), presence_sensor=False)
+        room, _ = _restarted(StartSnapshot(preset_mode=AWAY_PRESET), has_presence_sensor=False)
 
         assert room.active_preset == AWAY_PRESET
         assert room.user_choice.preset == AWAY_PRESET
@@ -1356,3 +1400,99 @@ class TestUpgradeFromV14:
         room, _ = _restarted(StartSnapshot())
 
         assert room.active_preset == COMFORT
+
+
+# ---------------------------------------------------------------------------
+# Reading the state written before a restart
+# ---------------------------------------------------------------------------
+
+def _written_state(room: PresetLayers) -> dict:
+    """The attributes Home Assistant writes for the climate entity."""
+    return {
+        **room.attributes(),
+        "preset_mode": room.active_preset,
+        "temperature": room.room_target_c,
+    }
+
+
+class TestStateRoundTrip:
+
+    def test_what_the_room_writes_is_what_it_starts_from(self):
+        before = _off_action_room()
+        before.set_temperature(21.5, T0)
+        before.set_guest_mode(True, T0)
+        _open_window(before, T0)
+        before.valve_switched_off(T0 + 31)
+
+        after = _room(window_action="off")
+        after.start(
+            StartSnapshot.from_state(
+                "heat", _written_state(before), window_state=ON, presence_state=OFF
+            ),
+            T0 + 100,
+        )
+
+        assert after.user_choice == before.user_choice
+        assert after.window_holds
+        assert after.guest_mode
+        assert after.active_preset == FROST
+
+    def test_nobody_home_and_heating_off_are_read_back(self):
+        before = _room()
+        before.pick_preset(ECO, T0)
+        _leave(before, T0)
+        before.heating_off(T0 + 1000)
+
+        after = _room()
+        after.start(
+            StartSnapshot.from_state(
+                "off", _written_state(before), window_state=OFF, presence_state=OFF
+            ),
+            T0 + 2000,
+        )
+        after.pick_preset(BOOST_PRESET, T0 + 2000)
+
+        assert after.active_preset == AWAY_PRESET
+        _come_home(after, T0 + 3000)
+        assert after.boost_remaining_min(T0 + 5000) == 30  # paused: heating is off
+
+    def test_a_state_written_by_v14_is_upgraded(self):
+        snapshot = StartSnapshot.from_state(
+            "heat",
+            {
+                "preset_mode": FROST,
+                "temperature": 7.0,
+                "window_open_active": True,
+                "window_restore_preset": MANUAL,
+                "window_restore_target_c": 21.5,
+                "presence_away_active": False,
+                "guest_mode": False,
+            },
+            window_state=OFF,
+            presence_state=ON,
+        )
+
+        room, _ = _restarted(snapshot)
+
+        assert room.active_preset == MANUAL
+        assert room.room_target_c == 21.5
+
+    def test_unreadable_numbers_are_ignored(self):
+        snapshot = StartSnapshot.from_state(
+            "heat",
+            {"preset_mode": MANUAL, "user_preset": MANUAL, "manual_target_c": "nan"},
+            window_state=None,
+            presence_state=None,
+        )
+
+        room, _ = _restarted(snapshot)
+
+        assert room.active_preset == COMFORT
+
+    def test_no_state_written_before_starts_in_comfort(self):
+        snapshot = StartSnapshot.from_state(None, {}, window_state=ON, presence_state=ON)
+
+        room, effects = _restarted(snapshot)
+
+        assert room.active_preset == COMFORT
+        assert effects.timers == {WINDOW_OPEN: 30}

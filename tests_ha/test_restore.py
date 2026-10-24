@@ -84,7 +84,16 @@ async def test_comfort_default_after_restart_in_eco(hass):
 
 async def test_away_with_unavailable_presence_recovers(hass, freezer):
     """A presence sensor that is not ready at boot must still end AWAY once it reports home."""
-    mock_restore_cache(hass, [State(CLIMATE, HVACMode.HEAT, {"temperature": 17.0, "preset_mode": PRESET_AWAY})])
+    mock_restore_cache(
+        hass,
+        [
+            State(
+                CLIMATE,
+                HVACMode.HEAT,
+                {"temperature": 17.0, "preset_mode": PRESET_AWAY, "presence_away_active": True},
+            )
+        ],
+    )
     proxy = await async_setup_proxy(hass, presence=STATE_UNAVAILABLE)
     assert proxy.preset == PRESET_AWAY
 
@@ -186,8 +195,10 @@ async def test_open_window_keeps_frost_protection_across_restart(hass, freezer):
 
 
 async def test_away_saved_by_open_window_survives_restart(hass, freezer):
-    """Away under an open window: presence takes over again after the restart."""
-    mock_restore_cache(hass, [_window_frost_state(PRESET_AWAY, DEFAULT_COMFORT_C)])
+    """Upgrade from v1.4.x, Away under an open window: presence takes over again."""
+    mock_restore_cache(
+        hass, [_window_frost_state(PRESET_AWAY, DEFAULT_COMFORT_C, presence_away_active=True)]
+    )
     proxy = await async_setup_proxy(hass, presence=STATE_OFF, window=STATE_ON)
     assert proxy.preset == PRESET_FROST_PROTECTION
     assert proxy.state.attributes["presence_away_active"] is True
@@ -199,6 +210,21 @@ async def test_away_saved_by_open_window_survives_restart(hass, freezer):
     await async_set_state(hass, PRESENCE_SENSOR, STATE_ON)
     await async_advance(hass, freezer, PRESENCE_HOME_DELAY_S + 1)
     assert proxy.preset == PRESET_COMFORT
+
+
+async def test_away_picked_by_hand_and_kept_by_the_window_comes_back(hass, freezer):
+    """Upgrade from v1.4.x: an Away picked by hand stays the user choice."""
+    mock_restore_cache(
+        hass, [_window_frost_state(PRESET_AWAY, 16.0, presence_away_active=False)]
+    )
+    proxy = await async_setup_proxy(hass, window=STATE_ON)
+
+    await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
+    await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)
+
+    assert proxy.preset == PRESET_AWAY
+    assert proxy.state.attributes["user_preset"] == PRESET_AWAY
+    assert proxy.state.attributes["presence_away_active"] is False
 
 
 async def test_off_window_action_switches_the_trv_off_again_after_restart(hass, freezer):
@@ -242,7 +268,7 @@ async def test_trv_switched_off_by_window_is_switched_on_after_restart(hass, fre
     assert "window_trv_off" not in proxy.state.attributes
 
 
-async def test_window_saved_preset_survives_an_options_reload(hass, freezer):
+async def test_user_choice_survives_an_options_reload_with_an_open_window(hass, freezer):
     """Saving the options reloads the entry while the window is open."""
     proxy = await async_setup_proxy(hass)
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
