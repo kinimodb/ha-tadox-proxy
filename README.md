@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.4.1-blue)
+![Version](https://img.shields.io/badge/version-1.5.0--beta.1-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 **Read this page in your language:**
@@ -112,10 +112,11 @@ Come back to the settings only if something is actually wrong.
 
 Beyond the temperature correction, you get:
 
-- **Presets** — Comfort, Eco, Away, Boost, Frost Protection. One tap each.
+- **Presets** — Comfort, Eco, Away, Boost, Frost Protection. One tap each. What you
+  picked comes back by itself: after airing, after coming home and after a boost.
+  Even after a restart.
 - **Window detection** — when a window contact opens, heating drops to frost
-  protection, or switches off if you prefer. It comes back afterwards, even after a
-  restart. Optional.
+  protection, or switches off if you prefer. Optional.
 - **Presence detection** — when nobody is home, the room drops to Away and recovers
   when someone returns. Optional.
 - **Guest mode** — one switch for your dashboard: guests stay warm while you are

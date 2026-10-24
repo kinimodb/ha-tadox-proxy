@@ -134,8 +134,8 @@ async def test_temperature_change_during_close_delay_takes_effect(hass, freezer)
     assert proxy.state.attributes["window_open_active"] is False
 
 
-async def test_boost_during_close_delay_ends_in_the_saved_preset(hass, freezer):
-    """After the boost, the room returns to what the window saved, not to frost protection."""
+async def test_boost_during_close_delay_ends_in_the_user_choice(hass, freezer):
+    """After the boost, the room returns to the user choice, not to frost protection."""
     proxy = await async_setup_proxy(hass, options={"boost_duration": BOOST_DURATION_MIN})
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
     await async_open_window(hass, freezer)

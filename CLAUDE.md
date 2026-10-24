@@ -16,11 +16,13 @@ Feedforward + PI-Regelung mit externem Raumsensor.
 HA-frei (direkt testbar):          HA-Bridge:
 parameters.py → regulation.py      climate.py (Entity, Mixin-Komposition)
 climate_controllers.py             ├─ climate_regulation.py (RegulationMixin)
-                                   ├─ climate_presets.py (PresetMixin)
+preset_layers.py                   ├─ climate_presets.py (PresetMixin)
                                    └─ __init__.py (Coordinator), config_flow.py
 ```
 
-Neue Features immer erst in den HA-freien Modulen (`parameters.py`, `regulation.py`, `climate_controllers.py` – testbar ohne HA), dann in den HA-Modulen verdrahten.
+Neue Features immer erst in den HA-freien Modulen (`parameters.py`, `regulation.py`, `climate_controllers.py`, `preset_layers.py` – testbar ohne HA), dann in den HA-Modulen verdrahten.
+
+Fachbegriffe (aktives Preset, Nutzerwahl, Ebene, Boost, Schließ-Verzögerung, Fenster-Aktion, Gastmodus, Overlay) stehen im Glossar `CONTEXT.md`; Architekturentscheidungen in `docs/adr/`. Presets sind eine Nutzerwahl plus Ebenen, kein Sichern und Wiederherstellen (ADR 0001) – nichts davon zurückbauen.
 
 Entscheidungslogik (wann senden, welches Ziel, was wiederherstellen) gehört in die
 HA-freien Module; die Mixins lesen nur HA-Zustand ein und rufen sie auf. Tests
@@ -32,10 +34,11 @@ prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`
 
 - `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning, BehaviourConfig, Fenster-/Präsenz-/Overlay-Zeiten)
 - `regulation.py` – Feedforward + PI Engine (HA-unabhängig)
-- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Window/Presence/Boost-Zustandsmaschinen, Follow-Tado, Sensor-Grace + Sensorausfall-Aktion (`ControlModeResolver`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`), Preset nach Neustart (`preset_after_restart`)
-- `climate.py` – HA ClimateEntity: Properties, Lifecycle, Config, Follow-Tado
-- `climate_regulation.py` – RegulationMixin: Regelzyklus, TRV-Kommandos
-- `climate_presets.py` – PresetMixin: Preset-Wechsel, Boost-Timer, Window/Presence-Aktionen
+- `preset_layers.py` – `PresetLayers`: welches Preset der Raum fährt. Einziger Besitzer von Nutzerwahl, Fenster-, Niemand-da- und Boost-Ebene, Gastmodus, Rohzuständen der Sensoren und Ventil-Zustand der Fenster-Aktion „aus“; Start nach Neustart inkl. Migration von v1.4.x. Ereignisse rein, `Effects` (Timer starten/stoppen, Regelzyklus, Zustand geändert) raus; plant selbst keine Timer
+- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Follow-Tado-Erkennung, Sensor-Grace + Sensorausfall-Aktion (`ControlModeResolver`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`)
+- `climate.py` – HA ClimateEntity: Properties, Lifecycle (Start-Snapshot für PresetLayers), Config, Follow-Tado
+- `climate_regulation.py` – RegulationMixin: Regelzyklus, TRV-Kommandos, Rückmeldung der Fenster-Aktion an PresetLayers
+- `climate_presets.py` – PresetMixin: Adapter zu PresetLayers – leitet Sensor-/Service-Ereignisse weiter, Timer-Registry (id → cancel), wendet `Effects` an
 - `device.py` – `proxy_device_info()`: vollständige DeviceInfo für **alle** Entities (sonst fehlt der Gerätename im Entity-ID-Präfix)
 - `number.py` – NumberEntity für Preset-Temperaturen
 - `sensor.py` – Boost-Restzeit-Sensor

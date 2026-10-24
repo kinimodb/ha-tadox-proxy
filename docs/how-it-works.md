@@ -293,14 +293,29 @@ mean the heating stops working whenever Home Assistant does.
 control is for what remains — and the less you leave to it, the more stable the whole
 system is.
 
-**Why does the "off" window action still show Frost Protection?** The window
-automation keeps one model: while a window is open, the room is in frost protection
-and the preset to restore is saved (and written to the state, so it survives a
-restart). The action only changes what reaches the TRV — the frost target, or an off
+**Why a user choice plus layers instead of saving and restoring presets?** The room
+keeps exactly one *user choice* — the preset a person last picked, for Manual with its
+temperature. An open window, nobody home and a boost are *layers* with a fixed rank
+(window over nobody home over boost); the *active preset* is derived from them on
+every read, and no layer ever writes into the user choice. When a layer ends, there is
+nothing to restore — the user choice is simply visible again. Up to v1.4 each
+automation overwrote the active preset and kept its own saved copy of what to go back
+to; every overlap of two automations (a boost under a window, a change while nobody
+is home, a restart in between) needed its own rule, and each one was a bug waiting to
+happen. A boost fits the same model: it only counts down while it is the active
+layer, so a window or heating that is off pauses it instead of eating it up. The
+decision and the rejected alternative are recorded in
+[ADR 0001](adr/0001-presets-as-user-choice-plus-layers.md).
+
+**Why does the "off" window action still show Frost Protection?** The window is a
+layer: while it holds the room, the active preset is Frost Protection, whatever the
+action. The action only changes what reaches the TRV — the frost target, or an off
 command. Switching the proxy itself to off would mix the window up with a person
-turning the heating off, which has to survive a restart and must not be undone when
-the window closes. While the TRV is off, no setpoint is sent at all: every setpoint
-command carries `hvac_mode: heat` and would switch the TRV back on.
+turning the heating off — a decision of its own that the window must not undo when it
+closes. While the TRV is off, no setpoint is sent at all: every setpoint command
+carries `hvac_mode: heat` and would switch the TRV back on. For the same reason the
+TRV stays off when the heating is turned back on while the window still holds the
+room.
 
 ---
 
@@ -313,7 +328,8 @@ Assistant dependencies so it can be read and tested on its own:
 |---|---|
 | `custom_components/tadox_proxy/regulation.py` | The entire control loop, ~200 lines |
 | `custom_components/tadox_proxy/parameters.py` | Every default value, with rationale |
-| `custom_components/tadox_proxy/climate_controllers.py` | Window, presence, boost and follow state machines; sensor grace period and sensor-loss action; when a command is sent (rate limiting); preset targets |
+| `custom_components/tadox_proxy/preset_layers.py` | Which preset the room runs: the user choice, the window, nobody-home and boost layers, their delays, restart and the window's "off" action |
+| `custom_components/tadox_proxy/climate_controllers.py` | Follow detection; sensor grace period and sensor-loss action; when a command is sent (rate limiting); preset targets |
 | `tests/` | Test suite, runnable without Home Assistant |
 | `tests_ha/` | Integration tests against a real Home Assistant core (Linux/macOS) |
 

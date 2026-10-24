@@ -4,9 +4,14 @@ The room keeps one **user choice** – the preset a person last picked, for
 Manual together with its temperature.  An open window, nobody home and a
 boost are **layers** that hold the room for a while in a fixed rank: window
 over nobody home over boost over the user choice.  The **active preset** is
-always derived from these; no layer writes into the user choice.
+always derived from these; no layer writes into the user choice.  A boost only
+counts down while it heats the room; paused by heating that is off it still
+shows as the active preset – it is what holds the room once the heating is
+back on.
 
-This module stays importable without Home Assistant.
+The module never schedules anything: every event returns ``Effects`` with the
+timers to start or cancel, which the caller reports back as elapsed.  This
+module stays importable without Home Assistant.
 """
 from __future__ import annotations
 
