@@ -5,6 +5,7 @@ from typing import Any
 
 from homeassistant.components.climate import (
     PRESET_AWAY,
+    PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
     PRESET_NONE,
@@ -38,7 +39,7 @@ CONTROL_INTERVAL_S = 60
 
 
 def _window_frost_state(restore_preset: str, restore_target_c: float, **extra: Any) -> State:
-    """State written while an open window holds frost protection."""
+    """State written by v1.4.x while an open window held frost protection."""
     return State(
         CLIMATE,
         HVACMode.HEAT,
@@ -93,23 +94,66 @@ async def test_away_with_unavailable_presence_recovers(hass, freezer):
     assert proxy.preset == PRESET_COMFORT
 
 
-async def test_window_saved_preset_is_part_of_the_state(hass, freezer):
-    """The preset an open window saved is written to the state for a restart."""
+async def test_user_choice_is_part_of_the_state(hass, freezer):
+    """The user choice is written to the state for a restart, whatever holds the room."""
     proxy = await async_setup_proxy(hass)
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
     await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
     await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
     assert proxy.preset == PRESET_FROST_PROTECTION
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_ECO
+    assert proxy.state.attributes["user_preset"] == PRESET_ECO
 
-    # A change while the window is open replaces it.
+    # A change while the window is open is the new user choice.
     await proxy.call("climate", "set_temperature", proxy.climate, temperature=21.5)
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_NONE
-    assert proxy.state.attributes["window_restore_target_c"] == 21.5
+    assert proxy.state.attributes["user_preset"] == PRESET_NONE
+    assert proxy.state.attributes["manual_target_c"] == 21.5
+    assert "window_restore_preset" not in proxy.state.attributes
+
+
+async def test_user_choice_comes_back_after_a_restart_in_away(hass, freezer):
+    """Not Comfort: the user choice survives whatever held the room."""
+    mock_restore_cache(
+        hass,
+        [
+            State(
+                CLIMATE,
+                HVACMode.HEAT,
+                {
+                    "temperature": 17.0,
+                    "preset_mode": PRESET_AWAY,
+                    "user_preset": PRESET_ECO,
+                    "presence_away_active": True,
+                },
+            )
+        ],
+    )
+    proxy = await async_setup_proxy(hass, presence=STATE_OFF)
+    assert proxy.preset == PRESET_AWAY
+
+    await async_set_state(hass, PRESENCE_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, PRESENCE_HOME_DELAY_S + 1)
+
+    assert proxy.preset == PRESET_ECO
+
+
+async def test_user_choice_comes_back_after_a_restart_during_a_boost(hass):
+    mock_restore_cache(
+        hass,
+        [
+            State(
+                CLIMATE,
+                HVACMode.HEAT,
+                {"temperature": 25.0, "preset_mode": PRESET_BOOST, "user_preset": PRESET_ECO},
+            )
+        ],
+    )
+    proxy = await async_setup_proxy(hass)
+
+    assert proxy.preset == PRESET_ECO
 
 
 async def test_window_saved_preset_comes_back_after_restart(hass):
-    """Window closed while Home Assistant was down: Eco comes back, not Comfort."""
+    """Upgrade from v1.4.x, window closed while Home Assistant was down: Eco comes back."""
     mock_restore_cache(hass, [_window_frost_state(PRESET_ECO, DEFAULT_COMFORT_C)])
     proxy = await async_setup_proxy(hass, window=STATE_OFF)
 
@@ -133,7 +177,7 @@ async def test_open_window_keeps_frost_protection_across_restart(hass, freezer):
 
     assert proxy.preset == PRESET_FROST_PROTECTION
     assert proxy.state.attributes["window_open_active"] is True
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_ECO
+    assert proxy.state.attributes["user_preset"] == PRESET_ECO
 
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)
@@ -221,7 +265,7 @@ async def test_window_saved_preset_survives_an_options_reload(hass, freezer):
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
     assert proxy.preset == PRESET_FROST_PROTECTION
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_ECO
+    assert proxy.state.attributes["user_preset"] == PRESET_ECO
 
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)

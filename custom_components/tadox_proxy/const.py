@@ -87,14 +87,8 @@ LIVE_OPTION_KEYS = frozenset({
     CONF_FOLLOW_TADO_INPUT,
 })
 
-# Climate state attributes that are also read back on restart (RestoreEntity)
-ATTR_GUEST_MODE = "guest_mode"
-ATTR_MANUAL_TARGET = "manual_target_c"
-# Preset (and base target) an open window restores when it closes
-ATTR_WINDOW_RESTORE_PRESET = "window_restore_preset"
-ATTR_WINDOW_RESTORE_TARGET = "window_restore_target_c"
-# The window action switched the TRV off and it has not been switched on since
-ATTR_WINDOW_TRV_OFF = "window_trv_off"
+# The climate state attributes read back on restart are defined in
+# preset_layers, which owns that state.
 
 
 # ---------------------------------------------------------------------------

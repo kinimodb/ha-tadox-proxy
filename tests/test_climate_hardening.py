@@ -411,121 +411,7 @@ class TestPresetValueValidation:
 
 
 # ---------------------------------------------------------------------------
-# Bug 4: AWAY preset stuck after HA restart – regression guards
-# ---------------------------------------------------------------------------
-
-def _presence_away_save_logic(
-    current_preset: str,
-    current_temp: float,
-    comfort_target: float,
-) -> tuple[str, float]:
-    """Mirror of the save logic in _async_presence_away_action (Fix 1).
-
-    Returns (saved_preset, saved_temp) that would be stored by the
-    presence controller when switching to AWAY.
-    """
-    saved_preset = current_preset
-    saved_temp = current_temp
-    # Fix 1: never save AWAY as restore state
-    if saved_preset == "away":
-        saved_preset = "comfort"
-        saved_temp = comfort_target
-    return saved_preset, saved_temp
-
-
-def _startup_presence_logic(
-    restored_preset: str,
-    presence_state: str | None,
-    comfort_target: float,
-) -> str:
-    """Mirror of the startup presence handling (Fix 2).
-
-    Returns the preset that should be active after startup.
-    """
-    preset = restored_preset
-    if presence_state == "off":
-        # Controller would be pre-activated; preset stays as-is
-        pass
-    elif presence_state not in (None, "unavailable", "unknown"):
-        # Presence is home but preset was AWAY → switch to COMFORT
-        if preset == "away":
-            preset = "comfort"
-    return preset
-
-
-class TestPresenceAwaySaveLogic:
-    """Regression tests for Bug 4, Fix 1: AWAY never saved as restore state."""
-
-    def test_away_preset_saved_as_comfort(self):
-        """If current preset is AWAY, save COMFORT as restore state."""
-        preset, temp = _presence_away_save_logic("away", 17.0, 21.0)
-        assert preset == "comfort"
-        assert temp == 21.0
-
-    def test_comfort_preset_saved_as_is(self):
-        preset, temp = _presence_away_save_logic("comfort", 21.0, 21.0)
-        assert preset == "comfort"
-        assert temp == 21.0
-
-    def test_eco_preset_saved_as_is(self):
-        preset, temp = _presence_away_save_logic("eco", 17.0, 21.0)
-        assert preset == "eco"
-        assert temp == 17.0
-
-    def test_manual_preset_saved_as_is(self):
-        preset, temp = _presence_away_save_logic("none", 19.5, 21.0)
-        assert preset == "none"
-        assert temp == 19.5
-
-    def test_away_uses_comfort_target_not_away_temp(self):
-        """When falling back from AWAY, the comfort target is used, not the
-        away temperature (which would be meaningless as a restore target)."""
-        preset, temp = _presence_away_save_logic("away", 17.0, 22.5)
-        assert temp == 22.5
-
-
-class TestStartupPresenceLogic:
-    """Regression tests for Bug 4, Fix 2: presence home at startup + AWAY."""
-
-    def test_presence_on_and_away_switches_to_comfort(self):
-        result = _startup_presence_logic("away", "on", 21.0)
-        assert result == "comfort"
-
-    def test_presence_on_and_comfort_stays_comfort(self):
-        result = _startup_presence_logic("comfort", "on", 21.0)
-        assert result == "comfort"
-
-    def test_presence_off_keeps_away(self):
-        """When presence is off, AWAY stays (controller is pre-activated)."""
-        result = _startup_presence_logic("away", "off", 21.0)
-        assert result == "away"
-
-    def test_presence_unavailable_keeps_away(self):
-        """When presence is unavailable at boot, no action taken."""
-        result = _startup_presence_logic("away", "unavailable", 21.0)
-        assert result == "away"
-
-    def test_presence_unknown_keeps_away(self):
-        result = _startup_presence_logic("away", "unknown", 21.0)
-        assert result == "away"
-
-    def test_presence_none_keeps_away(self):
-        """No presence sensor state at all → no action."""
-        result = _startup_presence_logic("away", None, 21.0)
-        assert result == "away"
-
-    def test_presence_home_and_eco_stays_eco(self):
-        """Non-AWAY presets are not changed regardless of presence."""
-        result = _startup_presence_logic("eco", "on", 21.0)
-        assert result == "eco"
-
-
-# Bug 4, Fix 3 (window restore checks presence) is tested on the real
-# preset_after_window and presence_counts_as_home in test_controllers.py.
-
-
-# ---------------------------------------------------------------------------
-# Boost restore must start the boost timer (AST-based guard)
+# AST helpers
 # ---------------------------------------------------------------------------
 
 _CLIMATE_PRESETS_PY = os.path.join(_COMP_DIR, "climate_presets.py")
@@ -533,31 +419,6 @@ _CLIMATE_REGULATION_PY = os.path.join(_COMP_DIR, "climate_regulation.py")
 _CONFIG_FLOW_PY = os.path.join(_COMP_DIR, "config_flow.py")
 _CONST_PY = os.path.join(_COMP_DIR, "const.py")
 _INIT_PY = os.path.join(_COMP_DIR, "__init__.py")
-
-
-def _method_assigns_attr(file_path: str, method_name: str, attr_name: str) -> bool:
-    """Return True when *method_name* in *file_path* assigns self.<attr_name>."""
-    with open(file_path, encoding="utf-8") as fh:
-        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
-
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if node.name != method_name:
-            continue
-        for sub in ast.walk(node):
-            if not isinstance(sub, ast.Assign):
-                continue
-            for target in sub.targets:
-                if (
-                    isinstance(target, ast.Attribute)
-                    and target.attr == attr_name
-                    and isinstance(target.value, ast.Name)
-                    and target.value.id == "self"
-                ):
-                    return True
-        return False
-    raise AssertionError(f"{method_name} not found in {file_path}")
 
 
 def _method_calls(file_path: str, method_name: str, called: str) -> bool:
@@ -581,27 +442,17 @@ def _method_calls(file_path: str, method_name: str, called: str) -> bool:
     raise AssertionError(f"{method_name} not found in {file_path}")
 
 
-class TestBoostRestoreStartsTimer:
-    """Regression: restoring BOOST after window/presence automation must start
-    the boost timer, otherwise the boost never ends and the boost-remaining
-    sensor reports 0 minutes for the whole restored boost period.
-
-    BoostController.start sets the end timestamp (tested in test_controllers);
-    every boost entry point must go through _start_boost.
-    """
-
-    def test_window_restore_starts_boost(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_start_boost")
-
-    def test_presence_restore_starts_boost(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_presence_state", "_start_boost")
-
-    def test_preset_switch_starts_boost(self):
-        """The normal boost entry point must start the timer too."""
-        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "_start_boost")
-
-    def test_start_boost_uses_controller(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_start_boost", "start")
+def _method_reads(file_path: str, method_name: str, attr_name: str) -> bool:
+    """Return True when *method_name* reads <x>.<attr_name> (e.g. a property)."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == method_name:
+            return any(
+                isinstance(sub, ast.Attribute) and sub.attr == attr_name
+                for sub in ast.walk(node)
+            )
+    raise AssertionError(f"{method_name} not found in {file_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -622,39 +473,6 @@ class TestDecisionLogicRoutedThroughControllers:
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "resolve"
         )
 
-    def test_effective_setpoint_uses_preset_mapping(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_effective_setpoint", "preset_target_c")
-
-    def test_get_preset_target_uses_preset_mapping(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_get_preset_target", "preset_target_c")
-
-    def test_restart_uses_preset_after_restart(self):
-        assert _method_calls(_CLIMATE_PY, "async_added_to_hass", "preset_after_restart")
-
-    def test_window_restore_uses_preset_after_window(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "preset_after_window")
-
-    def test_presence_check_uses_presence_counts_as_home(self):
-        assert _method_calls(
-            _CLIMATE_PRESETS_PY, "_presence_effectively_home", "presence_counts_as_home"
-        )
-
-    def test_preset_change_is_routed(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "route_change")
-
-    def test_temperature_change_is_routed(self):
-        """Same routing as a preset: presence before the window (#117)."""
-        assert _method_calls(_CLIMATE_PY, "async_set_temperature", "route_change")
-
-    def test_manual_preset_after_boost_is_routed(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_async_boost_expired", "route_change")
-
-    def test_window_switches_trv_off_when_due(self):
-        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", "trv_off_due")
-
-    def test_window_switches_trv_on_when_due(self):
-        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", "trv_on_due")
-
     def test_regulation_cycle_switches_trv_for_window(self):
         assert _method_calls(
             _CLIMATE_REGULATION_PY,
@@ -662,10 +480,46 @@ class TestDecisionLogicRoutedThroughControllers:
             "_async_switch_trv_for_window",
         )
 
-    def test_heat_commands_mark_the_trv_on(self):
+
+class TestPresetDecisionsRoutedThroughPresetLayers:
+    """The HA side only forwards events to PresetLayers and applies what it
+    returns (ADR 0001).  The behaviour is tested on the module itself in
+    test_preset_layers.py and end to end in tests_ha/."""
+
+    @pytest.mark.parametrize(
+        ("file_path", "method", "event"),
+        [
+            (_CLIMATE_PRESETS_PY, "async_set_preset_mode", "pick_preset"),
+            (_CLIMATE_PY, "async_set_temperature", "set_temperature"),
+            (_CLIMATE_PY, "_async_tado_state_changed", "valve_changed"),
+            (_CLIMATE_PRESETS_PY, "_async_window_changed", "window_reported"),
+            (_CLIMATE_PRESETS_PY, "_async_presence_changed", "presence_reported"),
+            (_CLIMATE_PRESETS_PY, "async_set_guest_mode", "set_guest_mode"),
+            (_CLIMATE_PRESETS_PY, "_start_layer_timer", "timer_elapsed"),
+            (_CLIMATE_PY, "async_set_hvac_mode", "heating_off"),
+            (_CLIMATE_PY, "async_set_hvac_mode", "heating_on"),
+            (_CLIMATE_PY, "async_added_to_hass", "start"),
+            (_CLIMATE_PY, "_async_config_entry_updated", "options_changed"),
+        ],
+    )
+    def test_event_is_forwarded(self, file_path, method, event):
+        assert _method_calls(file_path, method, event)
+
+    def test_window_action_follows_what_is_due(self):
+        for due in ("valve_off_due", "valve_on_due", "valve_held_off"):
+            assert _method_reads(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", due)
+        for report in ("valve_switched_off", "valve_switch_off_failed"):
+            assert _method_calls(_CLIMATE_REGULATION_PY, "_async_switch_trv_for_window", report)
+
+    def test_heat_commands_report_the_valve_heats(self):
         """Otherwise a TRV the window switched off is switched on every cycle."""
-        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_hvac_mode_to_tado", "mark_trv_on")
-        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_to_tado", "mark_trv_on")
+        assert _method_calls(
+            _CLIMATE_REGULATION_PY, "_async_send_hvac_mode_to_tado", "heat_command_sent"
+        )
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_async_send_to_tado", "heat_command_sent")
+
+    def test_effective_setpoint_is_the_room_target_of_preset_layers(self):
+        assert _method_reads(_CLIMATE_PRESETS_PY, "_effective_setpoint", "room_target_c")
 
 
 class TestRoomSensorTimestamp:
@@ -757,63 +611,6 @@ class TestPresetNamesMatchConst:
             and isinstance(node.value, ast.Constant)
         ]
         assert values == [_ctrl.PRESET_FROST_PROTECTION]
-
-
-# ---------------------------------------------------------------------------
-# HVAC mode change must restore the saved pre-frost preset (AST-based guard)
-# ---------------------------------------------------------------------------
-
-class TestHvacModeChangeRestoresPreset:
-    """Regression: turning the heating off cancels active window automation.
-
-    Cancelling alone would leave the entity stuck in FROST_PROTECTION with the
-    saved pre-frost preset thrown away – if the window closes while HVAC is
-    OFF, nothing ever restores the preset.  The window automation must end
-    through WindowAutomationController.end (which returns the saved state,
-    tested in test_controllers) and the window restore.
-    tests_ha/test_turn_off.py covers the behaviour, including a TRV that
-    does not switch off.
-    """
-
-    def test_set_hvac_mode_ends_the_window(self):
-        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "end")
-
-    def test_set_hvac_mode_restores_the_preset(self):
-        assert _method_calls(_CLIMATE_PY, "async_set_hvac_mode", "_apply_window_restore")
-        assert _method_assigns_attr(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_preset_mode")
-
-
-# ---------------------------------------------------------------------------
-# A change during the window close delay restores first (AST-based guard)
-# ---------------------------------------------------------------------------
-
-class TestCloseDelayEndedByUserChange:
-    """Regression: a preset or temperature change during the window close
-    delay cancelled the window automation and dropped its saved preset.  With
-    presence away active, the change was then saved for the return and the
-    room stayed in frost protection with no window automation left to end it.
-
-    Both entry points must end the delay through the window restore
-    (WindowAutomationController.end_close_delay, tested in test_controllers)
-    instead of discarding it with cancel_all.
-    """
-
-    def test_set_preset_mode_ends_the_close_delay(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "_end_window_close_delay")
-        assert not _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "cancel_all")
-
-    def test_set_temperature_ends_the_close_delay(self):
-        assert _method_calls(_CLIMATE_PY, "async_set_temperature", "_end_window_close_delay")
-        assert not _method_calls(_CLIMATE_PY, "async_set_temperature", "cancel_all")
-
-    def test_ended_close_delay_restores_the_saved_preset(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_end_window_close_delay", "end_close_delay")
-        assert _method_calls(
-            _CLIMATE_PRESETS_PY, "_end_window_close_delay", "_apply_window_restore"
-        )
-
-    def test_expired_close_delay_uses_the_same_restore(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_window_state", "_apply_window_restore")
 
 
 # ---------------------------------------------------------------------------
@@ -1001,25 +798,17 @@ def _comfort_reads_outside_helper(file_path: str) -> list[int]:
 
 
 class TestComfortTargetRoutedThroughHelper:
-    """Bug 5 – every comfort-restore path must call _comfort_target()."""
+    """Bug 5 – the comfort target PresetLayers works with comes from
+    _comfort_target(), at setup and on every options change."""
 
-    def test_added_to_hass_calls_helper(self):
-        assert _method_calls(_CLIMATE_PY, "async_added_to_hass", "_comfort_target")
+    def test_layers_config_calls_helper(self):
+        assert _method_calls(_CLIMATE_PRESETS_PY, "_layers_config", "_comfort_target")
 
-    def test_config_entry_updated_calls_helper(self):
-        assert _method_calls(_CLIMATE_PY, "_async_config_entry_updated", "_comfort_target")
+    def test_setup_builds_the_layers_config(self):
+        assert _method_calls(_CLIMATE_PY, "__init__", "_layers_config")
 
-    def test_restore_window_state_calls_helper(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_apply_window_restore", "_comfort_target")
-
-    def test_restore_presence_state_calls_helper(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_restore_presence_state", "_comfort_target")
-
-    def test_set_preset_mode_calls_helper(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "async_set_preset_mode", "_comfort_target")
-
-    def test_get_preset_target_calls_helper(self):
-        assert _method_calls(_CLIMATE_PRESETS_PY, "_get_preset_target", "_comfort_target")
+    def test_config_entry_updated_builds_the_layers_config(self):
+        assert _method_calls(_CLIMATE_PY, "_async_config_entry_updated", "_layers_config")
 
 
 class TestComfortTargetCentralised:

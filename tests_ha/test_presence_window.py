@@ -64,16 +64,17 @@ async def test_close_delay_shows_right_away(hass, freezer):
     assert proxy.state.attributes["window_open_active"] is True
 
 
-async def test_presence_away_under_open_window_updates_restore_preset(hass, freezer):
-    """The state shows Away as the preset to restore right away, ready for a restart."""
+async def test_presence_away_under_open_window_keeps_the_user_choice(hass, freezer):
+    """Both layers hold the room; the state shows them for a restart."""
     proxy = await async_setup_proxy(hass)
+    await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
     await async_open_window(hass, freezer)
     await async_set_state(hass, PRESENCE_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, PRESENCE_AWAY_DELAY_S + 1)
 
     assert proxy.preset == PRESET_FROST_PROTECTION
     assert proxy.state.attributes["presence_away_active"] is True
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_AWAY
+    assert proxy.state.attributes["user_preset"] == PRESET_ECO
 
 
 async def _async_close_window_while_away(hass, freezer, proxy: Proxy) -> None:
@@ -157,7 +158,8 @@ async def test_temperature_while_away_with_an_open_window_waits_for_the_return(h
     await proxy.call("climate", "set_temperature", proxy.climate, temperature=21.5)
 
     assert proxy.preset == PRESET_FROST_PROTECTION
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_AWAY
+    assert proxy.state.attributes["user_preset"] == PRESET_NONE
+    assert proxy.state.attributes["manual_target_c"] == 21.5
 
     await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
     await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)

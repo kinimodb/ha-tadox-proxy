@@ -22,6 +22,7 @@ from .helpers import (
     async_open_window,
     async_set_state,
     async_setup_proxy,
+    trv_rejects,
 )
 
 OFF_ACTION = {"window_action": "off"}
@@ -101,6 +102,65 @@ async def test_change_during_close_delay_while_away_switches_the_trv_back_on(
     assert proxy.preset == PRESET_AWAY
     assert proxy.trv_commands("set_hvac_mode")[-1]["hvac_mode"] == HVACMode.HEAT
     assert proxy.state.attributes["hvac_action"] != HVACAction.OFF
+
+
+async def test_window_trv_off_shows_while_the_window_has_the_trv_off(hass, freezer):
+    """Dashboards show "OFF · Window Open" and "Closing" from these attributes."""
+    proxy = await async_setup_proxy(hass, options=OFF_ACTION)
+    await async_open_window(hass, freezer)
+    assert proxy.state.attributes["window_trv_off"] is True
+    assert proxy.state.attributes["window_open_active"] is True
+
+    await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
+    assert proxy.state.attributes["window_trv_off"] is True
+    assert proxy.state.attributes["window_close_delay_active"] is True
+
+    await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)
+    assert "window_trv_off" not in proxy.state.attributes
+
+
+async def test_failed_switch_off_falls_back_to_frost_protection(hass, freezer):
+    """No off command every cycle: frost protection until the window opens again."""
+    proxy = await async_setup_proxy(hass, options=OFF_ACTION)
+
+    with trv_rejects("set_hvac_mode"):
+        await async_open_window(hass, freezer)
+        await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+
+    assert proxy.preset == PRESET_FROST_PROTECTION
+    assert "window_trv_off" not in proxy.state.attributes
+    assert proxy.state.attributes["regulation_reason"] != "window_off"
+    assert proxy.trv_commands("set_temperature")
+
+
+async def test_turning_on_with_the_window_still_open_keeps_the_trv_off(hass, freezer):
+    """No heat command followed by an off command."""
+    proxy = await async_setup_proxy(hass, options=OFF_ACTION)
+    await async_open_window(hass, freezer)
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+    sent = len(proxy.trv_commands("set_hvac_mode"))
+
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.HEAT)
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+
+    assert len(proxy.trv_commands("set_hvac_mode")) == sent
+    assert proxy.state.attributes["regulation_reason"] == "window_off"
+    assert proxy.state.attributes["hvac_action"] == HVACAction.OFF
+
+
+async def test_trv_is_not_switched_on_while_the_heating_is_off(hass, freezer):
+    """Even if the window closes meanwhile; turning on switches it on."""
+    proxy = await async_setup_proxy(hass, options=OFF_ACTION)
+    await async_open_window(hass, freezer)
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+
+    await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
+    await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + CONTROL_INTERVAL_S)
+    assert proxy.trv_commands("set_hvac_mode")[-1]["hvac_mode"] == HVACMode.OFF
+
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.HEAT)
+    assert proxy.trv_commands("set_hvac_mode")[-1]["hvac_mode"] == HVACMode.HEAT
+    assert "window_trv_off" not in proxy.state.attributes
 
 
 async def test_frost_protection_stays_the_default(hass, freezer):

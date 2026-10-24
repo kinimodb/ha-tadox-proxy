@@ -6,6 +6,7 @@ import datetime
 import logging
 import math
 import time
+from collections.abc import Callable
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -37,26 +38,14 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .climate_controllers import (
-    CHANGE_APPLY,
     CONTROL_BACKUP_SENSOR,
     DEFAULT_SENSOR_LOSS_ACTION,
-    BoostController,
     ControlModeResolver,
     FollowPhysicalController,
-    PresenceAutomationController,
-    SavedState,
-    WindowAutomationController,
-    preset_after_restart,
-    route_change,
 )
 from .climate_presets import PresetMixin
 from .climate_regulation import RegulationMixin
 from .const import (
-    ATTR_GUEST_MODE,
-    ATTR_MANUAL_TARGET,
-    ATTR_WINDOW_RESTORE_PRESET,
-    ATTR_WINDOW_RESTORE_TARGET,
-    ATTR_WINDOW_TRV_OFF,
     CONF_AWAY_TARGET,
     CONF_BOOST_DURATION,
     CONF_BOOST_TARGET,
@@ -80,7 +69,6 @@ from .const import (
     CONF_SENSOR_GRACE_S,
     CONF_SENSOR_LOSS_ACTION,
     CONF_URGENT_DECREASE_THRESHOLD_C,
-    CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
     DOMAIN,
     PRESET_FROST_PROTECTION,
@@ -92,11 +80,22 @@ from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
     DEFAULT_OVERLAY_REFRESH_S,
     DEFAULT_SENSOR_GRACE_S,
-    DEFAULT_WINDOW_DELAY_S,
     BehaviourConfig,
     CorrectionTuning,
     PresetConfig,
     RegulationConfig,
+)
+from .preset_layers import (
+    ATTR_GUEST_MODE,
+    ATTR_MANUAL_TARGET,
+    ATTR_PRESENCE_AWAY_ACTIVE,
+    ATTR_USER_PRESET,
+    ATTR_V14_WINDOW_RESTORE_PRESET,
+    ATTR_V14_WINDOW_RESTORE_TARGET,
+    ATTR_WINDOW_OPEN_ACTIVE,
+    ATTR_WINDOW_TRV_OFF,
+    PresetLayers,
+    StartSnapshot,
 )
 from .regulation import FeedforwardPiRegulator, RegulationState
 
@@ -160,9 +159,6 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
         # UI state
         self._hvac_mode = HVACMode.HEAT
-        # Base target for COMFORT (= comfort target) and PRESET_NONE (= manual)
-        self._target_temp: float = self._comfort_target()
-        self._preset_mode: str = PRESET_COMFORT
 
         # Timing
         self._regulation_lock = asyncio.Lock()
@@ -184,10 +180,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S
         )
 
-        # State-machine controllers (hold their own timer + saved-state)
-        self._window_ctrl = WindowAutomationController()
-        self._presence_ctrl = PresenceAutomationController()
-        self._boost = BoostController()
+        # Which preset the room runs: the user choice plus the window,
+        # nobody-home and boost layers.  Its timers run here, by id.
+        self._layers = PresetLayers(self._layers_config())
+        self._layer_timers: dict[str, tuple[object, Callable[[], None]]] = {}
 
         # Diagnostics
         self._last_result = None
@@ -278,59 +274,21 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         """Run when entity about to be added to HA."""
         await super().async_added_to_hass()
 
-        # Window sensor state now: None while it has not reported yet (e.g. a
-        # Zigbee/MQTT sensor that comes up after this integration).
         window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
-        window_state = self.hass.states.get(window_sensor) if window_sensor else None
-        window_open: bool | None = False
-        if window_sensor:
-            if window_state is None or window_state.state in ("unavailable", "unknown"):
-                window_open = None
-            else:
-                window_open = window_state.state == "on"
-        resume_window = False
+        presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
 
-        # Restore previous state
+        # PresetLayers starts from the state written before the restart and
+        # the sensors now.  The comfort target comes from the options (it may
+        # have changed via the number entity while HA was down).
         last_state = await self.async_get_last_state()
-        if last_state:
-            attrs = last_state.attributes
-            if last_state.state in (HVACMode.HEAT, HVACMode.OFF):
-                self._hvac_mode = HVACMode(last_state.state)
-            # Only the Manual preset carries its own temperature.  The
-            # ATTR_TEMPERATURE attribute is the *effective* setpoint (5°C when
-            # OFF, the eco/boost/frost target otherwise) and must not become
-            # the base target – it is only a fallback for states written
-            # before manual_target_c existed, and only while heating.
-            manual = safe_float(attrs.get(ATTR_MANUAL_TARGET))
-            if manual is None and last_state.state == HVACMode.HEAT:
-                manual = safe_float(attrs.get(ATTR_TEMPERATURE))
-            # Boost and frost protection are not restored as such; an open
-            # window's frost protection gives way to the preset it saved.
-            restart = preset_after_restart(
-                attrs.get("preset_mode"),
-                manual,
-                SavedState(
-                    attrs.get(ATTR_WINDOW_RESTORE_PRESET),
-                    safe_float(attrs.get(ATTR_WINDOW_RESTORE_TARGET)),
-                ),
-                window_open=window_open,
-                trv_off=attrs.get(ATTR_WINDOW_TRV_OFF) is True,
+        if last_state and last_state.state in (HVACMode.HEAT, HVACMode.OFF):
+            self._hvac_mode = HVACMode(last_state.state)
+        self._apply_layer_effects(
+            self._layers.start(
+                self._start_snapshot(last_state, window_sensor, presence_sensor),
+                time.time(),
             )
-            self._preset_mode = restart.preset
-            if restart.manual_c is not None:
-                self._target_temp = restart.manual_c
-            resume_window = restart.resume_window
-            if restart.switch_trv_on:
-                # Still off from the window: the first cycle switches it on.
-                self._window_ctrl.mark_trv_off()
-            if attrs.get(ATTR_GUEST_MODE) is True:
-                self._presence_ctrl.set_guest_mode(True)
-
-        # For every named preset the comfort target from options is the
-        # authoritative base (may have changed via the number entity while
-        # HA was down).  Only PRESET_NONE (manual) keeps its own temperature.
-        if self._preset_mode != PRESET_NONE:
-            self._target_temp = self._comfort_target()
+        )
 
         # Initialize baseline for follow-tado from current tado setpoint so
         # the feature works immediately without waiting for the first regulation.
@@ -354,9 +312,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 )
             )
 
-        # Presence sensor listener.  Evaluated before the window: it works on
-        # the preset an open window will restore.
-        presence_sensor = self._config_entry.options.get(CONF_PRESENCE_SENSOR_ID)
+        # Sensor listeners: every state goes to PresetLayers.
         if presence_sensor:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -365,40 +321,6 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     self._async_presence_changed,
                 )
             )
-            # Evaluate current state after restart
-            presence_state = self.hass.states.get(presence_sensor)
-            presence = presence_state.state if presence_state else None
-            if self._presence_ctrl.guest_mode:
-                _LOGGER.info("Startup: guest mode active, presence automation suspended")
-            elif presence in (None, "off", "unavailable", "unknown"):
-                if self._preset_mode == PRESET_AWAY:
-                    # Preset AWAY was restored from state but the controller's
-                    # is_active flag is not persisted.  Pre-activate with
-                    # COMFORT as the saved state so that coming home restores
-                    # a useful preset instead of AWAY → AWAY (no-op).  This
-                    # also covers a sensor that is not available yet at boot –
-                    # otherwise its later "on" would find an inactive
-                    # controller and AWAY would stay forever.
-                    self._presence_ctrl.activate(
-                        PRESET_COMFORT, self._comfort_target()
-                    )
-                    _LOGGER.info(
-                        "Startup: preset AWAY restored, controller pre-activated "
-                        "with COMFORT as saved state"
-                    )
-                elif presence == "off":
-                    self._schedule_presence_away()
-            elif self._preset_mode == PRESET_AWAY:
-                # Presence shows home but preset was restored as AWAY.
-                # This happens when the user returned while HA was down.
-                self._preset_mode = PRESET_COMFORT
-                self._target_temp = self._comfort_target()
-                _LOGGER.info(
-                    "Startup: presence is home but preset was AWAY, "
-                    "switching to COMFORT"
-                )
-
-        # Window sensor listener
         if window_sensor:
             self.async_on_remove(
                 async_track_state_change_event(
@@ -407,21 +329,6 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     self._async_window_changed,
                 )
             )
-            # Evaluate current state after restart
-            if resume_window:
-                # Open before the restart and still open: frost protection
-                # goes on without a new open delay.
-                self._window_ctrl.activate(self._preset_mode, self._target_temp)
-                self._preset_mode = PRESET_FROST_PROTECTION
-                _LOGGER.info("Startup: window still open, frost protection resumed")
-            elif window_open:
-                delay = self._config_entry.options.get(
-                    CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
-                )
-                self._window_ctrl.handle_window_opened(
-                    self.hass, delay, self._async_window_action
-                )
-                _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
 
         # Start periodic regulation
         self.async_on_remove(
@@ -436,11 +343,38 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # this restore ran – refresh them with the restored state.
         self._write_linked_entities()
 
+    def _start_snapshot(
+        self, last_state, window_sensor: str | None, presence_sensor: str | None
+    ) -> StartSnapshot:
+        """Read what PresetLayers starts from: the state written before the
+        restart (None without one) and the sensors now (None while missing)."""
+        window = self.hass.states.get(window_sensor) if window_sensor else None
+        presence = self.hass.states.get(presence_sensor) if presence_sensor else None
+        sensors = {
+            "window_state": window.state if window else None,
+            "presence_state": presence.state if presence else None,
+        }
+        if last_state is None:
+            return StartSnapshot(**sensors)
+        attrs = last_state.attributes
+        return StartSnapshot(
+            heating_on=last_state.state != HVACMode.OFF,
+            preset_mode=attrs.get("preset_mode"),
+            user_preset=attrs.get(ATTR_USER_PRESET),
+            manual_c=safe_float(attrs.get(ATTR_MANUAL_TARGET)),
+            window_held=attrs.get(ATTR_WINDOW_OPEN_ACTIVE) is True,
+            nobody_home_held=attrs.get(ATTR_PRESENCE_AWAY_ACTIVE) is True,
+            valve_off=attrs.get(ATTR_WINDOW_TRV_OFF) is True,
+            guest_mode=attrs.get(ATTR_GUEST_MODE) is True,
+            window_kept_preset=attrs.get(ATTR_V14_WINDOW_RESTORE_PRESET),
+            window_kept_c=safe_float(attrs.get(ATTR_V14_WINDOW_RESTORE_TARGET)),
+            target_c=safe_float(attrs.get(ATTR_TEMPERATURE)),
+            **sensors,
+        )
+
     async def async_will_remove_from_hass(self) -> None:
         """Cancel all timers when the entity is being removed."""
-        self._window_ctrl.cancel_all()
-        self._presence_ctrl.cancel_timer()
-        self._boost.cancel()
+        self._cancel_layer_timers()
         await super().async_will_remove_from_hass()
 
     async def _async_config_entry_updated(self, hass, entry) -> None:
@@ -460,11 +394,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._overlay_refresh_s = entry.options.get(
             CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S
         )
-        # Only sync comfort target when COMFORT preset is active; PRESET_NONE
-        # (manual) keeps its independently set temperature.
-        if self._preset_mode == PRESET_COMFORT:
-            self._target_temp = self._comfort_target()
+        # New preset targets (e.g. the comfort target from its number entity)
+        # apply right away.
+        effects = self._layers.options_changed(self._layers_config(), time.time())
         self.async_write_ha_state()
+        await self._async_handle_layer_effects(effects)
 
     # ------------------------------------------------------------------
     # Follow physical thermostat
@@ -499,26 +433,15 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         ):
             return
 
-        # Don't override window frost protection or presence-away automation.
-        if self._window_ctrl.is_active:
-            _LOGGER.info("Follow-tado ignored: window automation active (frost protection)")
-            return
-        if self._presence_ctrl.is_active:
-            _LOGGER.info("Follow-tado ignored: presence automation active (away)")
-            return
-
         _LOGGER.info(
             "Physical Tado change detected: %.1f°C → following (last sent: %.1f°C)",
             tado_setpoint,
             self._last_sent_setpoint,
         )
-        self._target_temp = tado_setpoint
-        self._preset_mode = PRESET_NONE
-        self._boost.cancel()
-        self.async_write_ha_state()
-        # Trigger immediate regulation so the new target takes effect fast.
-        self.hass.async_create_task(
-            self._async_regulation_cycle(trigger="follow_tado")
+        # Counts like setting the temperature in the app – also while a layer
+        # holds the room, then it comes back once the layer lets go.
+        self._handle_layer_effects(
+            self._layers.valve_changed(self._clamp_target(tado_setpoint), time.time())
         )
 
     # ------------------------------------------------------------------
@@ -544,59 +467,44 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 self._last_result = None
             self.async_write_ha_state()
 
-            # Forward HVAC mode to the source TRV entity
+            # Forward HVAC mode to the source TRV entity.  This handler runs
+            # the follow-up cycle itself, under the lock: the cycle PresetLayers
+            # asks for is not run separately.
             if hvac_mode == HVACMode.OFF:
                 try:
                     await self._async_send_hvac_mode_to_tado(HVACMode.OFF)
                 except (TimeoutError, HomeAssistantError):
-                    # Command failed – revert local state so the proxy stays in sync
-                    # with the TRV (which may still be heating).  An open window
-                    # keeps its frost protection.
+                    # Command failed – revert local state so the proxy stays in
+                    # sync with the TRV (which may still be heating).  Nothing
+                    # else changes: the layers and a boost stay as they were.
                     self._hvac_mode = previous_mode
                     self._last_result = previous_result
                     self._last_reason = "hvac_off_failed"
                     self.async_write_ha_state()
                     return
-                # Turning the heating OFF ends the window detection for an open
-                # window so the user's intention is respected – only now that
-                # the TRV is off, so a failed command leaves the window in
-                # charge.  The saved preset comes back; otherwise the entity
-                # would stay in frost protection with no automation left to end
-                # it.  Only for OFF: a HEAT request (e.g. climate.turn_on while
-                # already heating) must not end frost protection.
-                self._apply_window_restore(self._window_ctrl.end())
+                # Only now that the valve is off: a boost pauses.  Window and
+                # presence detection keep following their sensors.
+                self._apply_layer_effects(self._layers.heating_off(time.time()))
                 self._last_reason = "sent(hvac_off)"
                 self.async_write_ha_state()
             elif hvac_mode == HVACMode.HEAT and previous_mode == HVACMode.OFF:
                 # Returning from OFF → reset timestamp so the first HEAT cycle uses
                 # dt=0 and avoids an integral spike from the long OFF period.
                 self._last_regulation_ts = 0
-                # Re-evaluate window sensor: if the window is still open after
-                # OFF→HEAT, restart frost protection so we don't heat into the void.
-                window_sensor = self._config_entry.options.get(CONF_WINDOW_SENSOR_ID)
-                if window_sensor:
-                    ws = self.hass.states.get(window_sensor)
-                    if ws and ws.state == "on":
-                        delay = self._config_entry.options.get(
-                            CONF_WINDOW_DELAY_S, DEFAULT_WINDOW_DELAY_S
-                        )
-                        self._window_ctrl.handle_window_opened(
-                            self.hass, delay, self._async_window_action
-                        )
-                        _LOGGER.info(
-                            "HVAC OFF→HEAT: window still open, frost action in %ds",
-                            delay,
-                        )
+                # Reported before the heat command: an open window with the
+                # window action "off" keeps the valve off.
+                self._apply_layer_effects(self._layers.heating_on(time.time()))
                 # Reactivate the TRV, then run regulation to send the correct setpoint.
                 # If set_hvac_mode fails, still run the cycle: every setpoint
                 # command carries hvac_mode=heat, so it retries the activation
                 # (rate limited) instead of aborting with an unhandled error.
-                try:
-                    await self._async_send_hvac_mode_to_tado(HVACMode.HEAT)
-                except (TimeoutError, HomeAssistantError):
-                    _LOGGER.warning(
-                        "HVAC OFF→HEAT: activating the TRV failed, retrying via setpoint command"
-                    )
+                if not self._layers.valve_held_off:
+                    try:
+                        await self._async_send_hvac_mode_to_tado(HVACMode.HEAT)
+                    except (TimeoutError, HomeAssistantError):
+                        _LOGGER.warning(
+                            "HVAC OFF→HEAT: activating the TRV failed, retrying via setpoint command"
+                        )
                 await self._async_regulation_cycle_locked(trigger="hvac_mode_change")
             else:
                 await self._async_regulation_cycle_locked(trigger="hvac_mode_change")
@@ -618,38 +526,13 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         if not math.isfinite(temp_f):
             _LOGGER.warning("Ignoring non-finite temperature: %s", temp)
             return
-        # Clamp to safe range
-        temp_f = max(self._config.min_target_c, min(self._config.max_target_c, temp_f))
-
-        # A manual change during the window close delay ends the delay right
-        # away (same as a preset change): the window's saved preset comes back
-        # first.  Must run before the routing below – the controller stays
-        # active until the delay expires.
-        close_delay_ended = self._end_window_close_delay()
-
-        # While presence away or an open window holds the room, the
-        # temperature is saved for when that automation ends.
-        route = route_change(
-            PRESET_NONE,
-            presence_away=self._presence_ctrl.is_active,
-            window_open=self._window_ctrl.is_active,
+        await self._async_handle_layer_effects(
+            self._layers.set_temperature(self._clamp_target(temp_f), time.time())
         )
-        if route != CHANGE_APPLY:
-            await self._async_save_change(
-                route, PRESET_NONE, temp_f, close_delay_ended=close_delay_ended
-            )
-            return
 
-        self._target_temp = temp_f
-
-        # Any direct temperature change activates manual mode and cancels
-        # any running boost timer.
-        if self._preset_mode != PRESET_NONE:
-            self._boost.cancel()
-            self._preset_mode = PRESET_NONE
-
-        self.async_write_ha_state()
-        await self._async_regulation_cycle(trigger="set_temperature")
+    def _clamp_target(self, temp_c: float) -> float:
+        """Clamp a requested temperature to the safe range."""
+        return max(self._config.min_target_c, min(self._config.max_target_c, temp_c))
 
     # ------------------------------------------------------------------
     # Properties for HA UI
@@ -680,7 +563,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
     @property
     def hvac_action(self) -> HVACAction:
         """Infer heating/idle from the Tado entity state."""
-        if self._hvac_mode == HVACMode.OFF or self._window_ctrl.trv_off:
+        if self._hvac_mode == HVACMode.OFF or self._layers.valve_off_by_window:
             return HVACAction.OFF
 
         tado_internal = self.coordinator.data.get("tado_internal_temp")
@@ -704,12 +587,12 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             PRESET_AWAY: "mdi:home-export-outline",
             PRESET_FROST_PROTECTION: "mdi:snowflake",
             PRESET_NONE: "mdi:hand-back-right",
-        }.get(self._preset_mode, "mdi:thermostat")
+        }.get(self._layers.active_preset, "mdi:thermostat")
 
     @property
     def preset_mode(self) -> str:
-        """Return the current preset mode."""
-        return self._preset_mode
+        """Return the active preset."""
+        return self._layers.active_preset
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -720,25 +603,13 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             "correction_kp": self._config.tuning.kp,
             "correction_ki": self._config.tuning.ki,
             "effective_setpoint_c": self._effective_setpoint(),
-            "window_open_active": self._window_ctrl.is_active,
-            "window_close_delay_active": self._window_ctrl.close_delay_active,
-            "presence_away_active": self._presence_ctrl.is_active,
-            ATTR_GUEST_MODE: self._presence_ctrl.guest_mode,
+            # User choice, layer flags and the window's valve state – also
+            # read back after a restart.
+            **self._layers.attributes(),
             "sensor_degraded": self._control.degraded,
             "active_control_mode": self._control.mode,
             "overlay_refresh_s": self._overlay_refresh_s,
         }
-        # Persisted so a restart restores the manual temperature instead of
-        # the effective setpoint (which is 5°C while HVAC is OFF).
-        if self._preset_mode == PRESET_NONE:
-            attrs[ATTR_MANUAL_TARGET] = self._target_temp
-        # Persisted so a restart brings back what the open window saved.
-        if self._window_ctrl.is_active:
-            saved = self._window_ctrl.get_saved()
-            attrs[ATTR_WINDOW_RESTORE_PRESET] = saved.preset
-            attrs[ATTR_WINDOW_RESTORE_TARGET] = saved.temp
-        if self._window_ctrl.trv_off:
-            attrs[ATTR_WINDOW_TRV_OFF] = True
 
         # Sensor resilience diagnostics
         control = self._control
