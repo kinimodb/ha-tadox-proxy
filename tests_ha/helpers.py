@@ -118,12 +118,17 @@ async def async_setup_proxy(
     window: str = "off",
     room_state: str = "20.0",
     entry_id: str | None = None,
+    trv_adopts: bool = False,
 ) -> Proxy:
     """Create the source TRV and sensors, then set up one proxy entry.
 
     Pass ``room_state`` to start with a room sensor that has not reported
     yet, and ``entry_id`` to prepare registry entries for the entry before
     setup.
+
+    Pass ``trv_adopts`` whenever the test runs regulation cycles over time:
+    the TRV then holds what it is sent, as a real one does.  See
+    ``trv_adopts_setpoints`` for why a TRV that does not is a trap.
     """
     hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
     hass.states.async_set(
@@ -146,6 +151,9 @@ async def async_setup_proxy(
         entry_id=entry_id,
     )
     entry.add_to_hass(hass)
+    if trv_adopts:
+        # Registered before the first cycle: the setup itself sends nothing.
+        trv_adopts_setpoints(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return Proxy(hass, entry, service_calls)
@@ -207,9 +215,15 @@ def on_trv_command(hass: HomeAssistant, service: str, action: Callable[[], None]
 def trv_adopts_setpoints(hass: HomeAssistant, *, internal_c: float = 22.0) -> None:
     """Let the fake TRV hold what the proxy sends it, like a real TRV does.
 
+    Usually reached through ``async_setup_proxy(trv_adopts=True)``; call it
+    directly only to pick another ``internal_c`` or to start adopting later.
+
     Without this the TRV state keeps the setpoint ``async_setup_proxy`` gave
-    it, which the proxy reads as a TRV that has drifted away from its command.
-    Call it right after the setup, before the first regulation cycle.
+    it, which the proxy correctly reads as a TRV that drifted away from its
+    command (see ``trv_drifted_setpoint``).  Any test that lets more than the
+    rate-limit interval pass after a command then gets a correction it did
+    not ask for, so every test that runs regulation cycles over time wants
+    this.
     """
 
     @callback

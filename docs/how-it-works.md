@@ -264,6 +264,15 @@ than 0.5 °C away from what we sent, reported more than 20 seconds after we sent
 Inside those 20 seconds every report counts as our own echo — otherwise the
 integration would spend its life arguing with itself.
 
+One case is deliberately left out: **keep the last TRV command** after the room
+sensor has gone (next section). That mode sends nothing at all, a correction
+included. The integration has no room temperature there, so insisting on its last
+setpoint would mean defending a number computed from a reading it knows to be stale —
+against the only party left who can feel the room. A hand on the dial is the better
+controller of the two while the sensor is missing. The other two choices for a missing
+sensor do correct a turned dial, because they are still regulating: on the backup
+sensor, or by handing the room target to the thermostat.
+
 ---
 
 ## When the sensor disappears

@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 from homeassistant.components.climate import PRESET_NONE
+from homeassistant.const import STATE_UNAVAILABLE
 
 from .helpers import (
     PRESET_FROST_PROTECTION,
+    ROOM_SENSOR,
     TRV,
     async_advance,
     async_open_window,
     async_set_state,
     async_setup_proxy,
-    trv_adopts_setpoints,
 )
 
 # DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
@@ -19,6 +20,8 @@ CONTROL_INTERVAL_S = 60
 MIN_COMMAND_INTERVAL_S = 180
 # BehaviourConfig.follow_grace_s – our own command's echo is ignored this long.
 FOLLOW_GRACE_S = 20
+# DEFAULT_SENSOR_GRACE_S
+SENSOR_GRACE_S = 300
 # PresetConfig.frost_protection_target_c
 FROST_C = 7.0
 # The TRV reads 22 °C in the 20 °C room of the test setup.
@@ -51,8 +54,7 @@ async def test_dial_change_during_an_open_window_is_corrected(hass, freezer):
     The computed target does not move while the window is open, so every
     cycle compared against its own last command and sent nothing.
     """
-    proxy = await async_setup_proxy(hass)
-    trv_adopts_setpoints(hass, internal_c=TRV_INTERNAL_C)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await async_open_window(hass, freezer)
     assert proxy.preset == PRESET_FROST_PROTECTION
     sent_before = len(_setpoints(proxy))
@@ -68,8 +70,7 @@ async def test_dial_change_during_an_open_window_is_corrected(hass, freezer):
 
 async def test_dial_change_waits_for_the_rate_limit(hass, freezer):
     """Battery: a correction is no reason to skip the waiting period."""
-    proxy = await async_setup_proxy(hass)
-    trv_adopts_setpoints(hass, internal_c=TRV_INTERNAL_C)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await async_open_window(hass, freezer)
     sent_before = len(_setpoints(proxy))
 
@@ -81,8 +82,7 @@ async def test_dial_change_waits_for_the_rate_limit(hass, freezer):
 
 async def test_dial_change_in_a_steady_preset_is_corrected(hass, freezer):
     """Not only frost protection: any preset whose target stands still."""
-    proxy = await async_setup_proxy(hass)
-    trv_adopts_setpoints(hass, internal_c=TRV_INTERNAL_C)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     regulated_c = _setpoints(proxy)[-1]
     assert regulated_c > proxy.target  # feedforward: the TRV needs more
@@ -101,8 +101,7 @@ async def test_a_trv_on_our_setpoint_gets_no_commands(hass, freezer):
     The TRV adopting what we sent is a setpoint change on the TRV too –
     mistaking it for a dial change would send a command every cycle.
     """
-    proxy = await async_setup_proxy(hass)
-    trv_adopts_setpoints(hass, internal_c=TRV_INTERNAL_C)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     sent = _setpoints(proxy)
     assert len(sent) == 1
@@ -121,7 +120,9 @@ async def test_a_report_inside_the_grace_period_is_not_a_dial_change(hass, freez
     the correction back.
     """
     proxy = await async_setup_proxy(
-        hass, options={"min_command_interval_s": 10, "follow_grace_s": 120}
+        hass,
+        options={"min_command_interval_s": 10, "follow_grace_s": 120},
+        trv_adopts=True,
     )
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     sent_before = len(_setpoints(proxy))
@@ -135,8 +136,9 @@ async def test_a_report_inside_the_grace_period_is_not_a_dial_change(hass, freez
 
 async def test_following_the_dial_takes_it_as_the_new_target(hass, freezer):
     """With follow enabled the dial is the user's decision, not a drift."""
-    proxy = await async_setup_proxy(hass, options={"follow_tado_input": True})
-    trv_adopts_setpoints(hass, internal_c=TRV_INTERNAL_C)
+    proxy = await async_setup_proxy(
+        hass, options={"follow_tado_input": True}, trv_adopts=True
+    )
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
 
     await _async_turn_the_dial(hass, freezer)
@@ -146,3 +148,24 @@ async def test_following_the_dial_takes_it_as_the_new_target(hass, freezer):
     assert proxy.target == DIALLED_C
     # Regulating towards the dialled room temperature, not back to 20 °C.
     assert _setpoints(proxy)[-1] > DIALLED_C
+
+
+async def test_dial_change_is_left_alone_while_the_room_sensor_is_gone(hass, freezer):
+    """Sensor-loss action "hold": the dial is the only control left.
+
+    Correcting here would defend a setpoint computed from a reading that is
+    known to be stale, against the only party that can still feel the room.
+    """
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    await async_set_state(hass, ROOM_SENSOR, STATE_UNAVAILABLE)
+    for _ in range(SENSOR_GRACE_S // CONTROL_INTERVAL_S + 2):
+        await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    assert proxy.state.attributes["active_control_mode"] == "hold"
+    sent_before = len(_setpoints(proxy))
+
+    await _async_turn_the_dial(hass, freezer)
+    await async_advance(hass, freezer, MIN_COMMAND_INTERVAL_S)
+
+    assert len(_setpoints(proxy)) == sent_before
+    assert proxy.state.attributes["regulation_reason"] == "waiting_for_sensors"

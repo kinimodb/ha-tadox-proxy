@@ -227,7 +227,7 @@ room sensor stays unavailable**:
 |---|---|
 | **Let the TRV regulate on its own** | The TRV gets your target temperature as it is and controls the room with its own built-in sensor. Presets, Eco and Away keep working. The room usually ends up a little cooler than set, because the TRV measures right next to the warm radiator. Default for new entries |
 | **Regulate with a backup room sensor** | A second room sensor takes over, and the integration keeps correcting as usual. Pick it under **Backup room sensor**; it must be a different sensor. If the backup is missing too, the TRV regulates on its own |
-| **Keep the last TRV command** | The TRV keeps the last temperature the integration sent, and nothing new is sent until the sensor is back. Preset changes have no effect meanwhile. Entries set up before this choice existed keep this behaviour until you change it |
+| **Keep the last TRV command** | The TRV keeps the last temperature the integration sent, and nothing new is sent until the sensor is back. Preset changes have no effect meanwhile, and a dial turned at the radiator is left alone — without a room reading your hand is the better judge. Entries set up before this choice existed keep this behaviour until you change it |
 
 The attribute `active_control_mode` on the climate entity and on the
 `sensor_degraded` entity shows what is in charge right now: `room_sensor`,

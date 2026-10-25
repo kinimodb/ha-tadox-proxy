@@ -57,7 +57,9 @@ def _degraded_attrs(proxy) -> dict[str, Any]:
 
 
 async def test_trv_action_sends_room_target_directly(hass, freezer):
-    proxy = await async_setup_proxy(hass, options={"sensor_loss_action": "trv"})
+    proxy = await async_setup_proxy(
+        hass, options={"sensor_loss_action": "trv"}, trv_adopts=True
+    )
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     assert proxy.state.attributes["active_control_mode"] == "room_sensor"
 
@@ -72,7 +74,9 @@ async def test_trv_action_sends_room_target_directly(hass, freezer):
 
 
 async def test_returning_room_sensor_resumes_regulation(hass, freezer):
-    proxy = await async_setup_proxy(hass, options={"sensor_loss_action": "trv"})
+    proxy = await async_setup_proxy(
+        hass, options={"sensor_loss_action": "trv"}, trv_adopts=True
+    )
     await _async_lose_room_sensor(hass, freezer)
 
     await async_set_state(hass, ROOM_SENSOR, "20.0", TEMPERATURE)
@@ -91,6 +95,7 @@ async def test_backup_sensor_takes_over_regulation(hass, freezer):
     proxy = await async_setup_proxy(
         hass,
         options={"sensor_loss_action": "backup_sensor", "backup_temperature_entity_id": BACKUP_SENSOR},
+        trv_adopts=True,
     )
 
     await _async_lose_room_sensor(hass, freezer)
@@ -105,6 +110,7 @@ async def test_missing_backup_sensor_hands_control_to_trv(hass, freezer):
     proxy = await async_setup_proxy(
         hass,
         options={"sensor_loss_action": "backup_sensor", "backup_temperature_entity_id": BACKUP_SENSOR},
+        trv_adopts=True,
     )
     await _async_lose_room_sensor(hass, freezer)
 
@@ -118,7 +124,7 @@ async def test_missing_backup_sensor_hands_control_to_trv(hass, freezer):
 
 async def test_entry_without_action_holds_last_command(hass, freezer):
     """Entries created before the option existed keep the old behaviour."""
-    proxy = await async_setup_proxy(hass)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     sent_before = proxy.trv_commands("set_temperature")
 
@@ -132,7 +138,7 @@ async def test_entry_without_action_holds_last_command(hass, freezer):
 
 
 async def test_hold_still_lowers_for_open_window_and_restores_target(hass, freezer):
-    proxy = await async_setup_proxy(hass)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await _async_lose_room_sensor(hass, freezer)
     assert proxy.state.attributes["active_control_mode"] == "hold"
 
@@ -152,7 +158,9 @@ async def test_hold_still_lowers_for_open_window_and_restores_target(hass, freez
 
 
 async def test_startup_frost_sends_without_a_room_reading(hass, freezer):
-    proxy = await async_setup_proxy(hass, window=STATE_ON, room_state=STATE_UNAVAILABLE)
+    proxy = await async_setup_proxy(
+        hass, window=STATE_ON, room_state=STATE_UNAVAILABLE, trv_adopts=True
+    )
 
     await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
 
@@ -168,7 +176,9 @@ async def test_startup_frost_sends_without_a_room_reading(hass, freezer):
 
 
 async def test_startup_frost_window_close_without_room_reading_restores_target(hass, freezer):
-    proxy = await async_setup_proxy(hass, window=STATE_ON, room_state=STATE_UNAVAILABLE)
+    proxy = await async_setup_proxy(
+        hass, window=STATE_ON, room_state=STATE_UNAVAILABLE, trv_adopts=True
+    )
     await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
     assert _last_sent(proxy) == FROST_C
 
@@ -183,7 +193,7 @@ async def test_startup_frost_window_close_without_room_reading_restores_target(h
 
 async def test_hold_after_turning_back_on_sends_room_target(hass, freezer):
     """After OFF the proxy no longer knows what the TRV holds."""
-    proxy = await async_setup_proxy(hass)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await _async_lose_room_sensor(hass, freezer)
     await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
     # The TRV comes back with a setpoint of its own; let the coordinator poll it.
