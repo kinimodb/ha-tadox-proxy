@@ -35,7 +35,7 @@ prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`
 - `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning, BehaviourConfig, Fenster-/Präsenz-/Overlay-Zeiten)
 - `regulation.py` – Feedforward + PI Engine (HA-unabhängig)
 - `preset_layers.py` – `PresetLayers`: welches Preset der Raum fährt. Einziger Besitzer von Nutzerwahl, Fenster-, Niemand-da- und Boost-Ebene, Gastmodus, Rohzuständen der Sensoren und Ventil-Zustand der Fenster-Aktion „aus“; Start nach Neustart inkl. Migration von v1.4.x. Ereignisse rein, `Effects` (Timer starten/stoppen, Regelzyklus, Zustand geändert) raus; plant selbst keine Timer
-- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Follow-Tado-Erkennung, Sensor-Grace + Sensorausfall-Aktion (`ControlModeResolver`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`)
+- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Follow-Tado-Erkennung, Sensor-Grace + Sensorausfall-Aktion (`ControlModeResolver`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`), tolerantes Zahlen-Parsing (`safe_float`)
 - `climate.py` – HA ClimateEntity: Properties, Lifecycle (Start-Snapshot für PresetLayers), Config, Follow-Tado
 - `climate_regulation.py` – RegulationMixin: Regelzyklus, TRV-Kommandos, Rückmeldung der Fenster-Aktion an PresetLayers
 - `climate_presets.py` – PresetMixin: Adapter zu PresetLayers – leitet Sensor-/Service-Ereignisse weiter, Timer-Registry (id → cancel), wendet `Effects` an
@@ -46,7 +46,7 @@ prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`
 - `switch.py` – Toggle-Features (z.B. Follow Tado Input)
 - `config_flow.py` – Setup + Options Flow
 - `diagnostics.py` – HA-Diagnostics-Export
-- `const.py` – DOMAIN, Config-Keys, Custom Preset Names, `safe_float()`
+- `const.py` – DOMAIN, Config-Keys, Custom Preset Names
 - `strings.json` + `translations/` – UI-Texte (EN + DE)
 - `manifest.json` – Version, Metadata
 

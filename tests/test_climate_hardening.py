@@ -664,3 +664,106 @@ class TestComfortTargetCentralised:
 
     def test_no_comfort_read_outside_helper_in_presets(self):
         assert _comfort_reads_outside_helper(_CLIMATE_PRESETS_PY) == []
+
+
+# ---------------------------------------------------------------------------
+# The grace period must count from the sensor's last_reported (AST guard)
+# ---------------------------------------------------------------------------
+
+class TestRoomSensorTimestamp:
+    """The grace period counts from the sensor's ``last_reported``.
+
+    ``last_updated`` does not advance when a sensor re-sends an unchanged
+    value, so a stable reading would look stale (see #107).
+    """
+
+    @staticmethod
+    def _attributes_read(method_name: str) -> set[str]:
+        with open(_INIT_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="__init__.py")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == method_name:
+                return {
+                    sub.attr for sub in ast.walk(node) if isinstance(sub, ast.Attribute)
+                }
+        raise AssertionError(f"{method_name} not found in __init__.py")
+
+    def test_room_reading_uses_last_reported(self):
+        attrs = self._attributes_read("_read_room_temperature")
+        assert "last_reported" in attrs
+        assert "last_updated" not in attrs
+
+
+# ---------------------------------------------------------------------------
+# Window/presence/overlay defaults live in parameters.py only (AST guard)
+# ---------------------------------------------------------------------------
+
+def _literal_option_defaults(file_path: str, keys: set[str]) -> list[tuple[int, str]]:
+    """(line, key) for every <x>.get(<key>, <number literal>) in *file_path*."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+    offenders: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and len(node.args) == 2
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id in keys
+            and isinstance(node.args[1], ast.Constant)
+        ):
+            offenders.append((node.lineno, node.args[0].id))
+    return offenders
+
+
+class TestTimingDefaultsCentralised:
+    """Window/presence/overlay defaults come from parameters.py only."""
+
+    _KEYS = {
+        "CONF_WINDOW_DELAY_S",
+        "CONF_WINDOW_CLOSE_DELAY_S",
+        "CONF_PRESENCE_AWAY_DELAY_S",
+        "CONF_PRESENCE_HOME_DELAY_S",
+        "CONF_OVERLAY_REFRESH_S",
+    }
+
+    def test_default_values(self):
+        assert _params.DEFAULT_WINDOW_DELAY_S == 30
+        assert _params.DEFAULT_WINDOW_CLOSE_DELAY_S == 120
+        assert _params.DEFAULT_PRESENCE_AWAY_DELAY_S == 600
+        assert _params.DEFAULT_PRESENCE_HOME_DELAY_S == 30
+        assert _params.DEFAULT_OVERLAY_REFRESH_S == 0
+
+    def test_no_literal_defaults_in_climate(self):
+        assert _literal_option_defaults(_CLIMATE_PY, self._KEYS) == []
+
+    def test_no_literal_defaults_in_presets(self):
+        assert _literal_option_defaults(_CLIMATE_PRESETS_PY, self._KEYS) == []
+
+    def test_no_literal_defaults_in_config_flow(self):
+        assert _literal_option_defaults(_CONFIG_FLOW_PY, self._KEYS) == []
+
+
+# ---------------------------------------------------------------------------
+# The custom frost preset name must match const.py (AST-based guard)
+# ---------------------------------------------------------------------------
+
+class TestPresetNamesMatchConst:
+    """climate_controllers redefines the preset names to stay HA-free; the
+    custom frost preset must keep the value const.py exposes to HA."""
+
+    def test_frost_protection_name(self):
+        with open(_CONST_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="const.py")
+        values = [
+            node.value.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(t, ast.Name) and t.id == "PRESET_FROST_PROTECTION"
+                for t in node.targets
+            )
+            and isinstance(node.value, ast.Constant)
+        ]
+        assert values == [_ctrl.PRESET_FROST_PROTECTION]
