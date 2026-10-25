@@ -258,6 +258,13 @@ choice and applies once the room is free again.
 The integration distinguishes your hand from its own commands by how far the new
 value sits from what it last sent — more than 0.5 °C (adjustable) counts as you.
 
+With the switch **off**, the integration owns the setpoint. A turned dial then
+holds only until the next command: it notices that the radiator thermostat no
+longer sits on the value it sent and puts its own value back, after the waiting
+period at the latest (**Min command interval**, 180 s by default). So a dial
+turned up while a window is open no longer heats into the open window. The
+attribute `regulation_reason` shows `sent(trv_drift)` for such a correction.
+
 ---
 
 ## When the sensor drops out
@@ -279,7 +286,7 @@ room sensor stays unavailable**:
 |---|---|
 | **Let the TRV regulate on its own** | The TRV gets your target temperature as it is and controls the room with its own built-in sensor. Presets, Eco and Away keep working. The room usually ends up a little cooler than set, because the TRV measures right next to the warm radiator. Default for new entries |
 | **Regulate with a backup room sensor** | A second room sensor takes over, and the integration keeps correcting as usual. Pick it under **Backup room sensor**; it must be a different sensor. If the backup is missing too, the TRV regulates on its own |
-| **Keep the last TRV command** | The TRV keeps the last temperature the integration sent, and nothing new is sent until the sensor is back. Preset changes have no effect meanwhile. Entries set up before this choice existed keep this behaviour until you change it |
+| **Keep the last TRV command** | The TRV keeps the last temperature the integration sent, and nothing new is sent until the sensor is back. Preset changes have no effect meanwhile, and a dial turned at the radiator is left alone — without a room reading your hand is the better judge. Entries set up before this choice existed keep this behaviour until you change it |
 
 The attribute `active_control_mode` on the climate entity and on the
 `sensor_degraded` entity shows what is in charge right now: `room_sensor`,

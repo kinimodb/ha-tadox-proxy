@@ -5,6 +5,7 @@ rest of the climate entity's decisions:
 
 - ``FollowPhysicalController``    – pure-logic helper (no state, static method)
 - ``ControlModeResolver``         – room-sensor grace period & sensor-loss action
+- ``trv_drifted_setpoint``       – setpoint the TRV left our command for (pure function)
 - ``decide_send``                 – send / rate-limit decision (pure function)
 - ``preset_target_c``             – preset → room target mapping (pure function)
 - ``safe_float``                  – tolerant number parsing for HA state values
@@ -272,6 +273,48 @@ class SendDecision(NamedTuple):
     reason: str
 
 
+def trv_drifted_setpoint(
+    *,
+    last_sent_c: float | None,
+    trv_setpoint_c: float | None,
+    last_command_ts: float,
+    now: float,
+    drift_threshold_c: float,
+    grace_s: float,
+) -> float | None:
+    """Return the setpoint the TRV left our command for, or ``None``.
+
+    The proxy decides what to send by comparing against its own last command
+    (always fresh, unlike the coordinator's reading).  But the TRV can leave
+    that setpoint without us: someone turns the dial, or a Tado schedule
+    writes its own block.  Then our own value says "nothing to do" while the
+    TRV heats to something else entirely – an open window held at frost
+    protection, with the dial at 22 °C, stayed that way forever.
+
+    ``None`` means the TRV still holds (or is believed to hold) our command,
+    and the cycle decides exactly as before.
+
+    *grace_s* keeps the proxy from mistaking the echo of its own command
+    (Tado acknowledges via Thread/cloud) for a dial change.  Drift is read
+    with the same predicate as follow-Tado, so both features agree on what
+    counts as the TRV moving on its own.
+    """
+    if last_sent_c is None or trv_setpoint_c is None:
+        # Nothing of ours to drift away from, or the TRV reports no setpoint
+        # (off/unavailable): the plain baseline rules.
+        return None
+    if FollowPhysicalController.should_follow(
+        tado_setpoint=trv_setpoint_c,
+        last_sent=last_sent_c,
+        last_sent_ts=last_command_ts,
+        threshold_c=drift_threshold_c,
+        grace_s=grace_s,
+        now=now,
+    ):
+        return trv_setpoint_c
+    return None
+
+
 def decide_send(
     *,
     target_c: float,
@@ -282,6 +325,7 @@ def decide_send(
     min_change_c: float,
     urgent_decrease_c: float,
     overlay_refresh_s: float,
+    drifted_setpoint_c: float | None = None,
 ) -> SendDecision:
     """Decide whether *target_c* is sent to the TRV in this cycle.
 
@@ -291,11 +335,20 @@ def decide_send(
     temperatures and suppress a needed fast cooldown.  Without a baseline the
     command is sent to establish one.
 
+    *drifted_setpoint_c* is what the TRV holds instead of our command, when it
+    has left it on its own (see ``trv_drifted_setpoint``).  The target then
+    has to match both values to count as reached, so a dialled TRV is
+    corrected even while our own target stands still.  The correction waits
+    for the rate limit: the urgent-decrease bypass stays tied to *baseline_c*,
+    our own command, so a TRV that never adopts our setpoint cannot push
+    commands past the limit (battery).
+
     *last_command_ts* is 0 before the first command.  *overlay_refresh_s* > 0
     resends an unchanged setpoint once that many seconds have passed.
 
     Reasons: ``no_baseline``, ``already_at_target``, ``overlay_refresh``,
-    ``urgent_decrease``, ``normal_update`` and ``rate_limited(<n>s)``.
+    ``urgent_decrease``, ``normal_update``, ``trv_drift`` and
+    ``rate_limited(<n>s)``.
     """
     time_since_last = now - last_command_ts
     is_rate_limited = time_since_last < min_interval_s
@@ -309,7 +362,12 @@ def decide_send(
             return SendDecision(False, rate_limited_reason)
         return SendDecision(True, "no_baseline")
 
-    if abs(target_c - baseline_c) < min_change_c:
+    at_baseline = abs(target_c - baseline_c) < min_change_c
+    drifted = not (
+        drifted_setpoint_c is None or abs(target_c - drifted_setpoint_c) < min_change_c
+    )
+
+    if at_baseline and not drifted:
         # Overlay refresh keeps timer-based overlays (cloud-API integrations)
         # alive by resending the same setpoint.
         if overlay_refresh_s > 0 and time_since_last >= overlay_refresh_s:
@@ -321,6 +379,9 @@ def decide_send(
             return SendDecision(True, "urgent_decrease")
         return SendDecision(False, rate_limited_reason)
 
+    # Only the TRV moved: the send is a correction, not a new target.
+    if at_baseline:
+        return SendDecision(True, "trv_drift")
     return SendDecision(True, "normal_update")
 
 

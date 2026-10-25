@@ -238,6 +238,43 @@ Two refinements soften the edges:
 
 ---
 
+## When the thermostat leaves our setpoint
+
+The send decision compares the new target against the setpoint the thermostat is
+believed to hold. Normally that is simply the last value the integration sent: it is
+always current, while the setpoint polled back from the thermostat can be a minute
+old.
+
+That comparison has a blind spot. The thermostat can leave our setpoint without us —
+someone turns the dial, or a schedule in the Tado app writes a block of its own — and
+our own last value still says "nothing to do". Whenever the computed target stands
+still as well, nothing is ever sent: frost protection behind an open window, or an
+output clamped at its limit. The room then does whatever the dial says, for as long
+as it says it.
+
+So the setpoint reported by the thermostat is weighed too. If it sits more than the
+minimum change threshold away from the target, a correction goes out — at the next
+allowed command, not immediately. The urgent bypass stays tied to our own target
+dropping, so a thermostat that never accepts our value cannot talk us past the rate
+limit and into a flat battery.
+
+Telling a turned dial from a thermostat merely acknowledging our own command is the
+same question the follow-the-dial feature asks, and it gets the same answer: more
+than 0.5 °C away from what we sent, reported more than 20 seconds after we sent it.
+Inside those 20 seconds every report counts as our own echo — otherwise the
+integration would spend its life arguing with itself.
+
+One case is deliberately left out: **keep the last TRV command** after the room
+sensor has gone (next section). That mode sends nothing at all, a correction
+included. The integration has no room temperature there, so insisting on its last
+setpoint would mean defending a number computed from a reading it knows to be stale —
+against the only party left who can feel the room. A hand on the dial is the better
+controller of the two while the sensor is missing. The other two choices for a missing
+sensor do correct a turned dial, because they are still regulating: on the backup
+sensor, or by handing the room target to the thermostat.
+
+---
+
 ## When the sensor disappears
 
 The whole design rests on the external sensor. If it stops reporting, the feedforward

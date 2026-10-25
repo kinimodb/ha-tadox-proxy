@@ -31,6 +31,7 @@ _params_mod = _load("parameters")
 
 FollowPhysicalController = _ctrl_mod.FollowPhysicalController
 decide_send = _ctrl_mod.decide_send
+trv_drifted_setpoint = _ctrl_mod.trv_drifted_setpoint
 preset_target_c = _ctrl_mod.preset_target_c
 PresetConfig = _params_mod.PresetConfig
 
@@ -270,12 +271,138 @@ class TestDecideSend:
         result = self._decide(target_c=22.0, last_command_ts=self.NOW - 180.0)
         assert result == (True, "normal_update")
 
+    # --- TRV drifted away from our command (dial, Tado schedule) ---
+
+    def test_drift_is_corrected_although_our_target_did_not_move(self):
+        """The bug: the TRV holds 22 °C, we want frost – a cycle must send.
+
+        Comparing only against our own last command made every cycle see
+        "already_at_target" and the TRV kept heating.
+        """
+        result = self._decide(
+            target_c=7.0,
+            baseline_c=7.0,
+            drifted_setpoint_c=22.0,
+            last_command_ts=self.NOW - 200.0,
+        )
+        assert result == (True, "trv_drift")
+
+    def test_drift_correction_waits_for_the_rate_limit(self):
+        """A drifted TRV must not unlock the urgent-decrease bypass.
+
+        Otherwise a TRV that never adopts our setpoint would be sent a
+        command every cycle instead of every min_interval_s (battery).
+        """
+        result = self._decide(target_c=7.0, baseline_c=7.0, drifted_setpoint_c=22.0)
+        assert result == (False, "rate_limited(90s)")
+
+    def test_drift_within_change_threshold_is_already_at_target(self):
+        """Close enough: the dialled value needs no correction."""
+        result = self._decide(
+            target_c=20.0,
+            baseline_c=20.0,
+            drifted_setpoint_c=20.2,
+            last_command_ts=self.NOW - 200.0,
+        )
+        assert result == (False, "already_at_target")
+
+    def test_own_target_change_stays_a_normal_update(self):
+        """Both moved: our new target is the news, not the drift."""
+        result = self._decide(
+            target_c=22.0, drifted_setpoint_c=18.0, last_command_ts=self.NOW - 200.0
+        )
+        assert result == (True, "normal_update")
+
+    def test_urgent_decrease_is_measured_against_our_own_command(self):
+        """A dial change neither triggers nor suppresses the bypass."""
+        assert self._decide(target_c=18.9, drifted_setpoint_c=25.0) == (True, "urgent_decrease")
+        assert self._decide(target_c=19.5, drifted_setpoint_c=25.0) == (
+            False,
+            "rate_limited(90s)",
+        )
+
+    def test_drift_keeps_the_overlay_refresh_from_resending_the_same_value(self):
+        """A real correction is due, so it is not a refresh of the old value."""
+        result = self._decide(
+            target_c=20.0,
+            baseline_c=20.0,
+            drifted_setpoint_c=22.0,
+            overlay_refresh_s=600,
+            last_command_ts=self.NOW - 600.0,
+        )
+        assert result == (True, "trv_drift")
+
     # --- result type ---
 
     def test_result_has_named_fields(self):
         result = self._decide(target_c=22.0, last_command_ts=0.0)
         assert result.should_send is True
         assert result.reason == "normal_update"
+
+
+# ---------------------------------------------------------------------------
+# trv_drifted_setpoint (the TRV left our command on its own)
+# ---------------------------------------------------------------------------
+
+class TestTrvDriftedSetpoint:
+    """Dial change vs. the echo of our own command.
+
+    Defaults match BehaviourConfig: 0.5 °C drift threshold, 20 s grace.
+    """
+
+    NOW = 1_000_000.0
+
+    def _drifted(self, **overrides):
+        args = {
+            "last_sent_c": 21.0,
+            "trv_setpoint_c": 21.0,
+            "last_command_ts": self.NOW - 100.0,
+            "now": self.NOW,
+            "drift_threshold_c": 0.5,
+            "grace_s": 20.0,
+        }
+        args.update(overrides)
+        return trv_drifted_setpoint(**args)
+
+    def test_trv_on_our_setpoint_has_not_drifted(self):
+        assert self._drifted() is None
+
+    def test_difference_at_the_threshold_is_not_drift(self):
+        """Rounding on the TRV's side must not count as a dial change."""
+        assert self._drifted(trv_setpoint_c=21.5) is None
+
+    def test_difference_beyond_the_threshold_is_the_drifted_setpoint(self):
+        """Someone turned the dial: that is what the TRV holds now."""
+        assert self._drifted(trv_setpoint_c=22.0) == 22.0
+
+    def test_drift_downwards_is_reported_too(self):
+        assert self._drifted(trv_setpoint_c=18.0) == 18.0
+
+    def test_inside_the_grace_period_it_is_our_own_echo(self):
+        """Tado acknowledging our command must not look like a dial change."""
+        assert self._drifted(trv_setpoint_c=22.0, last_command_ts=self.NOW - 10.0) is None
+
+    def test_without_an_own_command_nothing_can_drift(self):
+        """The TRV's value is already the baseline then."""
+        assert self._drifted(last_sent_c=None, trv_setpoint_c=20.0) is None
+
+    def test_without_a_report_nothing_can_drift(self):
+        """TRV off or unavailable: our own command is all we know."""
+        assert self._drifted(trv_setpoint_c=None) is None
+
+    def test_drift_detection_matches_follow_tado(self):
+        """One definition of "the TRV moved on its own" for both features."""
+        for trv_setpoint in (20.4, 20.5, 21.5, 22.0):
+            follows = FollowPhysicalController.should_follow(
+                tado_setpoint=trv_setpoint,
+                last_sent=21.0,
+                last_sent_ts=self.NOW - 100.0,
+                threshold_c=0.5,
+                grace_s=20.0,
+                now=self.NOW,
+            )
+            drifted = self._drifted(trv_setpoint_c=trv_setpoint) is not None
+            assert drifted is follows, f"{trv_setpoint}: follow={follows} drift={drifted}"
 
 
 # ---------------------------------------------------------------------------

@@ -455,6 +455,13 @@ class TestDecisionLogicRoutedThroughControllers:
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "decide_send"
         )
 
+    def test_regulation_cycle_uses_trv_drifted_setpoint(self):
+        """Comparing only against our own last command never noticed a TRV
+        holding a dialled setpoint, so the cycle must ask the tested helper."""
+        assert _method_calls(
+            _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "trv_drifted_setpoint"
+        )
+
     def test_regulation_cycle_uses_control_mode_resolver(self):
         assert _method_calls(
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "resolve"

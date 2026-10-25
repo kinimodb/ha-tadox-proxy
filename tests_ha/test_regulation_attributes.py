@@ -79,7 +79,7 @@ async def test_regulation_values_return_after_turning_back_on(hass, freezer):
 
 
 async def test_regulation_values_disappear_after_sensor_grace_period(hass, freezer):
-    proxy = await async_setup_proxy(hass)
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     assert _regulation_attrs(proxy) == set(REGULATION_ATTRS)
 
