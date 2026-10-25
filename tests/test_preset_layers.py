@@ -326,15 +326,24 @@ class TestWindow:
         assert room.room_target_c == 21.5
         assert not room.close_delay_running
 
-    def test_tapping_frost_protection_during_the_close_delay_changes_nothing(self):
+    def test_tapping_frost_protection_during_the_close_delay_ends_it_and_applies(self):
+        """A change by a person ends the close delay, so frost protection is
+        a real choice here and not a layer being confirmed."""
         room = _room()
         _open_window(room, T0)
         room.window_reported(OFF, T0 + 100)
 
         effects = room.pick_preset(FROST, T0 + 130)
 
-        assert effects.changed is False
-        assert room.close_delay_running
+        assert room.active_preset == FROST
+        assert room.user_choice.preset == FROST
+        assert not room.window_holds
+        assert not room.close_delay_running
+        assert effects.timers == {WINDOW_CLOSE: None}
+        # The room target does not move (frost protection either way), so the
+        # module asks for no cycle: nothing is sent to the TRV.
+        assert effects.cycle is None
+        assert effects.changed is True
 
     def test_window_zero_delays_act_right_away_without_a_timer(self):
         room = _room(window_delay_s=0, window_close_delay_s=0)
@@ -776,6 +785,33 @@ class TestBoost:
         room.pick_preset(ECO, T0 + 200)
         _close_window(room, T0 + 300)
 
+        assert room.active_preset == ECO
+        assert room.boost_remaining_min(T0 + 500) == 0
+
+    def test_tapping_away_while_nobody_home_forces_it_still_ends_the_boost(self):
+        """Confirming the layer is no user choice, but it is a change by a
+        person: a paused boost must not come back to life on the return."""
+        room = _room()
+        room.pick_preset(ECO, T0)
+        room.pick_preset(BOOST_PRESET, T0 + 10)
+        _leave(room, T0 + 100)
+
+        room.pick_preset(AWAY_PRESET, T0 + 1000)
+
+        _come_home(room, T0 + 2000)
+        assert room.active_preset == ECO
+        assert room.boost_remaining_min(T0 + 2100) == 0
+
+    def test_tapping_frost_protection_behind_an_open_window_ends_the_boost(self):
+        """Same for the window layer: the boost waiting behind it is over."""
+        room = _room()
+        room.pick_preset(ECO, T0)
+        room.pick_preset(BOOST_PRESET, T0 + 10)
+        _open_window(room, T0 + 100)
+
+        room.pick_preset(FROST, T0 + 200)
+
+        _close_window(room, T0 + 300)
         assert room.active_preset == ECO
         assert room.boost_remaining_min(T0 + 500) == 0
 

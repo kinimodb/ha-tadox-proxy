@@ -204,21 +204,20 @@ class PresetLayers:
     def pick_preset(self, preset: str, now: float) -> Effects:
         """A person picked *preset*.
 
-        Picking the preset an active layer forces right now changes nothing:
-        confirming what is shown must not become the user choice.
+        Picking the preset an active layer forces right now does not become
+        the user choice: confirming what is shown must not leave the room
+        cold later.  It is still a change by a person, so a running close
+        delay ends and a boost does not outlive the tap.
         """
         self._begin(now)
-        if (
-            preset not in (*_CHOOSABLE, PRESET_BOOST)
-            or (preset == PRESET_FROST_PROTECTION and self._window_holds)
-            or (preset == PRESET_AWAY and self._nobody_home_holds)
-        ):
+        if preset not in (*_CHOOSABLE, PRESET_BOOST):
             return self._effects("preset_change")
         self._change_by_person()
         if preset == PRESET_BOOST:
             self._start_boost()
-        else:
-            self._end_boost()
+            return self._effects("preset_change")
+        self._end_boost()
+        if not self._layer_forces(preset):
             self._user = UserChoice(preset)
         return self._effects("preset_change")
 
@@ -510,6 +509,17 @@ class PresetLayers:
         person is obviously back in the room."""
         if TIMER_WINDOW_CLOSE in self._armed:
             self._end_window()
+
+    def _layer_forces(self, preset: str) -> bool:
+        """*preset* is what an active layer shows right now, so picking it
+        only confirms that layer.
+
+        Read after ``_change_by_person``: a close delay that just ended no
+        longer forces anything, which makes the same tap a real choice.
+        """
+        return (preset == PRESET_FROST_PROTECTION and self._window_holds) or (
+            preset == PRESET_AWAY and self._nobody_home_holds
+        )
 
     def _upgrade_from_v14(self, snapshot: StartSnapshot) -> tuple[UserChoice, bool, bool]:
         """User choice, window held and nobody home held from a v1.4.x state.

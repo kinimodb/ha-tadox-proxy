@@ -61,8 +61,9 @@ after a boost and after a restart.
 - **A change while something has taken over** becomes your new choice right away. You
   see it once the room is free again, so you never have to repeat it.
 - **Tapping the preset that is forced right now** (Away while nobody is home, Frost
-  Protection while a window is open) changes nothing. Confirming what you see does not
-  leave the room cold later.
+  Protection while a window is open) does not become your choice. Confirming what you
+  see does not leave the room cold later. It does end a running boost, though:
+  tapping any preset ends one.
 - **Away or Frost Protection picked by hand** is your choice like any other preset. It
   stays after airing.
 
@@ -148,8 +149,10 @@ Point it at a window contact (`binary_sensor.*`).
   or temperature you pick meanwhile is your new choice and applies once the window
   closes.
 - **Any change during the close delay** ends the wait and takes effect right away –
-  you are obviously back in the room. If nobody is home, the room goes back to Away
-  instead, and your change applies when someone returns.
+  you are obviously back in the room. Tapping Frost Protection counts too: the wait is
+  over, so it is a real choice and the room stays in Frost Protection. If nobody is
+  home, the room goes back to Away instead, and your change applies when someone
+  returns.
 
 ### Presence detection
 
