@@ -204,6 +204,33 @@ def on_trv_command(hass: HomeAssistant, service: str, action: Callable[[], None]
     hass.bus.async_listen(EVENT_CALL_SERVICE, _listener)
 
 
+def trv_adopts_setpoints(hass: HomeAssistant, *, internal_c: float = 22.0) -> None:
+    """Let the fake TRV hold what the proxy sends it, like a real TRV does.
+
+    Without this the TRV state keeps the setpoint ``async_setup_proxy`` gave
+    it, which the proxy reads as a TRV that has drifted away from its command.
+    Call it right after the setup, before the first regulation cycle.
+    """
+
+    @callback
+    def _listener(event: Event) -> None:
+        data = event.data
+        if not _is_trv_command(
+            data["domain"], data["service"], data["service_data"], "set_temperature"
+        ):
+            return
+        hass.states.async_set(
+            TRV,
+            "heat",
+            {
+                "current_temperature": internal_c,
+                "temperature": data["service_data"]["temperature"],
+            },
+        )
+
+    hass.bus.async_listen(EVENT_CALL_SERVICE, _listener)
+
+
 async def async_open_window(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
     """Open the window and wait out the open delay: frost protection is on."""
     await async_set_state(hass, WINDOW_SENSOR, STATE_ON)

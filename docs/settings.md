@@ -199,6 +199,13 @@ preset and holds your temperature instead of overwriting it.
 The integration distinguishes your hand from its own commands by how far the new
 value sits from what it last sent — more than 0.5 °C (adjustable) counts as you.
 
+With the switch **off**, the integration owns the setpoint. A turned dial then
+holds only until the next command: it notices that the radiator thermostat no
+longer sits on the value it sent and puts its own value back, after the waiting
+period at the latest (**Min command interval**, 180 s by default). So a dial
+turned up while a window is open no longer heats into the open window. The
+attribute `regulation_reason` shows `sent(trv_drift)` for such a correction.
+
 ---
 
 ## When the sensor drops out

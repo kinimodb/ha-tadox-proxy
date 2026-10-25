@@ -266,6 +266,12 @@ regulation_reason: rate_limited(95s)
 A `regulation_reason` of `send_failed(...)` means the command to the TRV failed
 (e.g. TRV unreachable). The proxy retries after the rate-limit interval.
 
+A `regulation_reason` of `sent(trv_drift)` means the TRV was holding a different
+setpoint than the proxy had sent – someone turned the dial, or a Tado app schedule
+wrote its own block – and the proxy put its own value back. Expected right after a
+dial change; if it repeats every rate-limit interval, the TRV is not accepting the
+commands (check the Tado integration and whether the zone is in manual mode).
+
 ---
 
 ## Troubleshooting
