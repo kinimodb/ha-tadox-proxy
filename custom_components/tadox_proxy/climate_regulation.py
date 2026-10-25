@@ -9,7 +9,12 @@ import time
 from homeassistant.components.climate import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
-from .climate_controllers import CONTROL_TRV, DEFAULT_WINDOW_ACTION, decide_send
+from .climate_controllers import (
+    CONTROL_TRV,
+    DEFAULT_WINDOW_ACTION,
+    decide_send,
+    trv_drifted_setpoint,
+)
 from .const import CONF_WINDOW_ACTION, PRESET_FROST_PROTECTION
 from .regulation import RegulationState
 
@@ -138,9 +143,21 @@ class RegulationMixin:
             if self._last_sent_setpoint is not None
             else self.coordinator.data.get("tado_setpoint")
         )
+        # A TRV that has left our command on its own – a turned dial, a Tado
+        # schedule block – is corrected even while our own target stands
+        # still; comparing only against our own value never noticed it.
+        drifted = trv_drifted_setpoint(
+            last_sent_c=self._last_sent_setpoint,
+            trv_setpoint_c=self.coordinator.data.get("tado_setpoint"),
+            last_command_ts=self._last_command_sent_ts,
+            now=now,
+            drift_threshold_c=self._behaviour.follow_threshold_c,
+            grace_s=self._behaviour.follow_grace_s,
+        )
         should_send, reason = decide_send(
             target_c=target_c,
             baseline_c=baseline,
+            drifted_setpoint_c=drifted,
             last_command_ts=self._last_command_sent_ts,
             now=now,
             min_interval_s=self._config.min_command_interval_s,
