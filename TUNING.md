@@ -69,7 +69,7 @@ If you want to understand *why* a value has the effect it does, see
 |-----------|-----------|---------|
 | `feedforward_offset_c` | 1.0–5.0°C | < 0 indicates wrong sensor |
 | `error_c` | Trending towards 0 | Stays > 1°C after 30 min → Kp too low |
-| `i_correction_c` | < 0.3 during heat-up | > 1.0 → integral building up (should not happen) |
+| `i_correction_c` | < 0.3 during heat-up | > 1.0 when the room arrives → built up during a slow final approach, expect a small overshoot |
 | `target_for_tado_c` | Decreases as room warms | Stuck at max (30°C) → room too large or Kp too low |
 
 **Evaluate results:**
@@ -287,7 +287,7 @@ commands (check the Tado integration and whether the zone is in manual mode).
 
 1. Reduce Kp (e.g., from 0.8 to 0.5).
 2. If gain scheduling is enabled, reduce the near-target strength (e.g., 0.7).
-3. Check `i_correction_c`: If > 1.0 during heat-up → possible issue, please report as an issue.
+3. Check `i_correction_c` when the room arrives: above 1.0 means the integral built up while the room crept up the last few tenths of a degree, and it unwinds only slowly ([why](docs/how-it-works.md#integral-windup)). Step 4 narrows the zone where it can build up.
 4. Reduce `integral_deadband_c` (Options → PI Controller) to tighten the precision zone.
 
 ### Temperature Oscillates Strongly
