@@ -25,7 +25,7 @@ from homeassistant.const import (
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -33,7 +33,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .climate_controllers import (
@@ -101,6 +101,21 @@ from .parameters import (
 from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _source_state_available(state: State | None) -> bool:
+    """Return whether the source thermostat can currently be reached."""
+    return state is not None and state.state not in ("unavailable", "unknown")
+
+
+class _ProxyRestoreData(ExtraStoredData):
+    """Keep the desired climate state when HA hides unavailable attributes."""
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        self._values = values
+
+    def as_dict(self) -> dict[str, Any]:
+        return self._values
 
 
 async def async_setup_entry(
@@ -293,9 +308,12 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # Restore previous state
         last_state = await self.async_get_last_state()
         if last_state:
-            attrs = last_state.attributes
-            if last_state.state in (HVACMode.HEAT, HVACMode.OFF):
-                self._hvac_mode = HVACMode(last_state.state)
+            attrs = dict(last_state.attributes)
+            if extra_data := await self.async_get_last_extra_data():
+                attrs.update(extra_data.as_dict())
+            restored_hvac_mode = attrs.get("desired_hvac_mode", last_state.state)
+            if restored_hvac_mode in (HVACMode.HEAT, HVACMode.OFF):
+                self._hvac_mode = HVACMode(restored_hvac_mode)
             # Only the Manual preset carries its own temperature.  The
             # ATTR_TEMPERATURE attribute is the *effective* setpoint (5°C when
             # OFF, the eco/boost/frost target otherwise) and must not become
@@ -472,12 +490,15 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
     @callback
     def _async_tado_state_changed(self, event) -> None:
-        """Detect physical thermostat changes and follow them if enabled."""
-        if not self._config_entry.options.get(CONF_FOLLOW_TADO_INPUT, False):
-            return
-
+        """Track source availability and follow physical changes if enabled."""
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
+        if _source_state_available(new_state) != _source_state_available(old_state):
+            self.async_write_ha_state()
+            self.hass.async_create_task(self._async_source_availability_changed())
+
+        if not self._config_entry.options.get(CONF_FOLLOW_TADO_INPUT, False):
+            return
         if new_state is None or new_state.state in ("unavailable", "unknown"):
             return
 
@@ -520,6 +541,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self.hass.async_create_task(
             self._async_regulation_cycle(trigger="follow_tado")
         )
+
+    async def _async_source_availability_changed(self) -> None:
+        """Refresh source readings and resume regulation after reconnection."""
+        await self.coordinator.async_refresh()
+        await self._async_regulation_cycle(trigger="source_availability")
 
     # ------------------------------------------------------------------
     # Standard climate controls
@@ -656,6 +682,35 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
     # ------------------------------------------------------------------
 
     @property
+    def _source_available(self) -> bool:
+        source_entity = self._config_entry.data.get("source_entity_id")
+        source_state = self.hass.states.get(source_entity) if source_entity else None
+        return _source_state_available(source_state)
+
+    @property
+    def available(self) -> bool:
+        """The proxy cannot control an unavailable source thermostat."""
+        return super().available and self._source_available
+
+    @property
+    def extra_restore_state_data(self) -> ExtraStoredData:
+        """Persist the requested mode and preset even while unavailable."""
+        values: dict[str, Any] = {
+            "desired_hvac_mode": self._hvac_mode,
+            "preset_mode": self._preset_mode,
+            ATTR_GUEST_MODE: self._presence_ctrl.guest_mode,
+        }
+        if self._preset_mode == PRESET_NONE:
+            values[ATTR_MANUAL_TARGET] = self._target_temp
+        if self._window_ctrl.is_active:
+            saved = self._window_ctrl.get_saved()
+            values[ATTR_WINDOW_RESTORE_PRESET] = saved.preset
+            values[ATTR_WINDOW_RESTORE_TARGET] = saved.temp
+        if self._window_ctrl.trv_off:
+            values[ATTR_WINDOW_TRV_OFF] = True
+        return _ProxyRestoreData(values)
+
+    @property
     def current_temperature(self) -> float | None:
         """Return the room temperature the proxy regulates on.
 
@@ -678,8 +733,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         return self._hvac_mode
 
     @property
-    def hvac_action(self) -> HVACAction:
+    def hvac_action(self) -> HVACAction | None:
         """Infer heating/idle from the Tado entity state."""
+        if not self._source_available:
+            return None
         if self._hvac_mode == HVACMode.OFF or self._window_ctrl.trv_off:
             return HVACAction.OFF
 

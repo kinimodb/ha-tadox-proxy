@@ -67,6 +67,10 @@ class RegulationMixin:
         """Inner regulation cycle body, protected by _regulation_lock."""
         now = time.time()
 
+        if not self._source_available:
+            self._skip_regulation_cycle("source_unavailable")
+            return
+
         # Guard: skip when HVAC is OFF – the TRV has been turned off directly,
         # no regulation needed.
         if self._hvac_mode == HVACMode.OFF:

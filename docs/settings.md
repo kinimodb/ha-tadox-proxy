@@ -178,6 +178,12 @@ proxy goes back to the mode it was in, and an open window keeps its frost
 protection. This keeps what you see in Home Assistant honest about what the hardware
 is actually doing.
 
+If the source radiator thermostat itself becomes `unavailable` or `unknown`, the
+proxy climate entity becomes unavailable too. This is different from switching
+the heating off: the proxy retains the requested mode and target, and resumes
+regulation when the source returns. `sensor_degraded` reports only problems with
+the room temperature sensor, not with the source thermostat.
+
 While off, the proxy shows a target of 5 °C. Turning it off while a window is open
 ends the window detection for that window: the preset that would have come back when
 the window closed comes back right away. A boost comes back as Comfort, because it

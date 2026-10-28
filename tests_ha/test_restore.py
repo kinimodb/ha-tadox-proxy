@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from homeassistant.components.climate import (
     PRESET_AWAY,
     PRESET_COMFORT,
@@ -20,6 +21,7 @@ from .helpers import (
     PRESENCE_HOME_DELAY_S,
     PRESENCE_SENSOR,
     PRESET_FROST_PROTECTION,
+    TRV,
     WINDOW_DELAY_S,
     WINDOW_SENSOR,
     async_advance,
@@ -67,6 +69,29 @@ async def test_manual_target_survives_restart_while_off(hass):
 
     assert proxy.preset == PRESET_NONE
     assert proxy.target == 21.5
+
+
+@pytest.mark.parametrize("requested_mode", [HVACMode.HEAT, HVACMode.OFF])
+async def test_requested_mode_and_manual_target_survive_unavailable_reload(hass, requested_mode):
+    proxy = await async_setup_proxy(hass)
+    await proxy.call("climate", "set_temperature", proxy.climate, temperature=21.5)
+    if requested_mode == HVACMode.OFF:
+        await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+    await async_set_state(hass, TRV, STATE_UNAVAILABLE)
+    assert proxy.state.state == STATE_UNAVAILABLE
+
+    assert await hass.config_entries.async_reload(proxy.entry.entry_id)
+    await hass.async_block_till_done()
+    assert proxy.state.state == STATE_UNAVAILABLE
+
+    await async_set_state(
+        hass, TRV, requested_mode,
+        {"current_temperature": 22.0, "temperature": 20.0},
+    )
+
+    assert proxy.state.state == requested_mode
+    assert proxy.preset == PRESET_NONE
+    assert proxy.state.attributes["manual_target_c"] == 21.5
 
 
 async def test_comfort_default_after_restart_in_eco(hass):
