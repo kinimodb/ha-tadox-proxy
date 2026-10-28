@@ -52,6 +52,7 @@ from .climate_controllers import (
 )
 from .climate_presets import PresetMixin
 from .climate_regulation import RegulationMixin
+from .climate_schedule import ScheduleMixin
 from .const import (
     ATTR_GUEST_MODE,
     ATTR_MANUAL_RETURN_AT,
@@ -89,6 +90,7 @@ from .const import (
     CONF_WINDOW_SENSOR_ID,
     DEFAULT_MANUAL_MODE_ACTION,
     DOMAIN,
+    MANUAL_MODE_SCHEDULE,
     MANUAL_MODE_TIMER,
     PRESET_FROST_PROTECTION,
     PRESET_LIST,
@@ -141,7 +143,7 @@ async def async_setup_entry(
     async_add_entities([entity])
 
 
-class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, ClimateEntity, RestoreEntity):
+class TadoXProxyClimate(ScheduleMixin, RegulationMixin, PresetMixin, CoordinatorEntity, ClimateEntity, RestoreEntity):
     """Proxy climate entity that controls a Tado X TRV via feedforward + PI."""
 
     _attr_has_entity_name = True
@@ -211,6 +213,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._presence_ctrl = PresenceAutomationController()
         self._boost = BoostController()
         self._manual_return = ManualReturnController()
+        self._schedule_unsub = None
 
         # Diagnostics
         self._last_result = None
@@ -356,7 +359,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             manual_target = safe_float(attrs.get(ATTR_MANUAL_RETURN_TARGET))
             if (
                 self._config_entry.options.get(CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION)
-                == MANUAL_MODE_TIMER
+                in (MANUAL_MODE_TIMER, MANUAL_MODE_SCHEDULE)
                 and previous in PRESET_LIST
                 and deadline is not None
                 and deadline > 0
@@ -476,6 +479,12 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                     self.hass, delay, self._async_window_action
                 )
                 _LOGGER.info("Startup: window sensor is open, action in %ds", delay)
+
+        if self._has_schedule():
+            self._arm_weekly_schedule_timer()
+            self.async_on_remove(self._cancel_weekly_schedule_timer)
+            # Apply today's block after restore and safety holds are ready.
+            self.hass.async_create_task(self._async_apply_schedule_state())
 
         # Start periodic regulation
         self.async_on_remove(
@@ -714,7 +723,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             self._preset_mode = PRESET_NONE
 
         self.async_write_ha_state()
-        await self._async_regulation_cycle(trigger="set_temperature")
+        if self._hvac_mode == HVACMode.OFF and self._has_schedule():
+            await self.async_set_hvac_mode(HVACMode.HEAT)
+        else:
+            await self._async_regulation_cycle(trigger="set_temperature")
 
     # ------------------------------------------------------------------
     # Properties for HA UI
@@ -836,6 +848,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             attrs[ATTR_MANUAL_RETURN_PRESET] = self._manual_return.previous_preset
             attrs[ATTR_MANUAL_RETURN_AT] = self._manual_return.end_ts
             attrs[ATTR_MANUAL_RETURN_TARGET] = self._manual_return.manual_target_c
+        if self._has_schedule():
+            attrs["scheduled_action"] = self._scheduled_action()
         # Persisted so a restart brings back what the open window saved.
         if self._window_ctrl.is_active:
             saved = self._window_ctrl.get_saved()

@@ -16,6 +16,7 @@ async def _async_submit_options_flow(hass, entry, *, window_delay_s: int) -> Non
     assert result["type"] is FlowResultType.FORM
     user_input: dict[str, Any] = {
         "manual_mode": {},
+        "weekly_schedule": {},
         "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_delay_s": window_delay_s},
         "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
         "pi_controller": {},
@@ -36,6 +37,7 @@ async def test_manual_options_live_in_collapsed_section(hass):
     assert "manual_mode" in names
     assert "manual_mode_action" not in names
     assert "manual_mode_duration_min" not in names
+    assert "weekly_schedule" in names
 
 
 async def test_number_change_during_boost_does_not_reload(hass):
@@ -69,3 +71,59 @@ async def test_options_flow_change_reloads(hass):
 
     reload.assert_called_once_with(proxy.entry.entry_id)
     assert proxy.entry.options["window_delay_s"] == WINDOW_DELAY_S + 15
+
+
+async def test_weekly_editor_saves_blocks_and_discards_old_helper(hass):
+    proxy = await async_setup_proxy(hass, options={"schedule_entity_id": "schedule.old"})
+    result = await hass.config_entries.options.async_init(proxy.entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "manual_mode": {},
+            "weekly_schedule": {
+                "monday": [
+                    {"start": "20:00", "preset": "eco"},
+                    {"start": "07:00", "preset": "comfort"},
+                ],
+            },
+            "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
+            "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
+            "pi_controller": {},
+            "gain_scheduling": {},
+            "trv_communication": {},
+            "behaviour": {},
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert proxy.entry.options["weekly_preset_schedule"]["monday"] == [
+        {"start": "07:00", "preset": "comfort"},
+        {"start": "20:00", "preset": "eco"},
+    ]
+    assert "schedule_entity_id" not in proxy.entry.options
+
+
+async def test_weekly_editor_rejects_duplicate_time(hass):
+    proxy = await async_setup_proxy(hass)
+    result = await hass.config_entries.options.async_init(proxy.entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "manual_mode": {},
+            "weekly_schedule": {
+                "monday": [
+                    {"start": "07:00", "preset": "comfort"},
+                    {"start": "07:00", "preset": "eco"},
+                ],
+            },
+            "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
+            "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
+            "pi_controller": {},
+            "gain_scheduling": {},
+            "trv_communication": {},
+            "behaviour": {},
+        },
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"]["base"] == "invalid_weekly_schedule"
+    assert "weekly_preset_schedule" not in proxy.entry.options

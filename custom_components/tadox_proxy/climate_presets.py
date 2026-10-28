@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from homeassistant.components.climate import (
     PRESET_AWAY,
@@ -35,6 +36,7 @@ from .const import (
     CONF_WINDOW_SENSOR_ID,
     DEFAULT_MANUAL_MODE_ACTION,
     DEFAULT_MANUAL_MODE_DURATION_MIN,
+    MANUAL_MODE_SCHEDULE,
     MANUAL_MODE_TIMER,
     PRESET_FROST_PROTECTION,
     PRESET_LIST,
@@ -73,10 +75,10 @@ class PresetMixin:
 
     def _begin_manual_return(self, target_c: float) -> None:
         """Arm a timed return, keeping the original preset across adjustments."""
-        if (
-            self._config_entry.options.get(CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION)
-            != MANUAL_MODE_TIMER
-        ):
+        action = self._config_entry.options.get(
+            CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION
+        )
+        if action not in (MANUAL_MODE_TIMER, MANUAL_MODE_SCHEDULE):
             self._manual_return.cancel()
             return
 
@@ -93,20 +95,50 @@ class PresetMixin:
             previous = self._preset_mode
 
         if previous not in PRESET_LIST:
+            scheduled = self._scheduled_action()
+            previous = scheduled if scheduled in PRESET_LIST else (
+                PRESET_COMFORT if scheduled == "off" else None
+            )
+        if previous not in PRESET_LIST:
             self._manual_return.cancel()
             return
 
-        minutes = self._config_entry.options.get(
-            CONF_MANUAL_MODE_DURATION_MIN, DEFAULT_MANUAL_MODE_DURATION_MIN
-        )
+        if action == MANUAL_MODE_SCHEDULE:
+            boundary = self._next_schedule_boundary_ts()
+            if boundary is None or boundary <= time.time():
+                _LOGGER.warning("Cannot time Manual until the next schedule block: no boundary")
+                self._manual_return.cancel()
+                return
+            duration_s = boundary + 0.5 - time.time()
+        else:
+            minutes = self._config_entry.options.get(
+                CONF_MANUAL_MODE_DURATION_MIN, DEFAULT_MANUAL_MODE_DURATION_MIN
+            )
+            duration_s = minutes * 60
         self._manual_return.start(
-            self.hass, previous, target_c, minutes * 60,
+            self.hass, previous, target_c, duration_s,
             self._async_manual_return_expired,
         )
 
     async def _async_manual_return_expired(self, _now) -> None:
-        """Restore the prior preset, or update an active window/presence hold."""
+        """Resume the current schedule if set, otherwise the prior preset."""
         previous = self._manual_return.expire()
+        action = self._scheduled_action()
+        if action == "off":
+            if previous not in PRESET_LIST:
+                return
+            if self._presence_ctrl.is_active or self._window_ctrl.is_active:
+                await self.async_set_preset_mode(previous)
+            else:
+                # Leave Manual without sending a stale target before OFF.
+                self._preset_mode = previous
+                self._target_temp = self._get_preset_target(previous)
+                self.async_write_ha_state()
+            await self._async_apply_schedule_state()
+            return
+        if action in PRESET_LIST:
+            await self._async_apply_schedule_state(resume_manual=True)
+            return
         if previous in PRESET_LIST:
             await self.async_set_preset_mode(previous)
 
@@ -181,10 +213,14 @@ class PresetMixin:
         """Restore preset after window is closed."""
         self._apply_window_restore(self._window_ctrl.restore())
         _LOGGER.info("Window closed: restoring previous preset")
-        self.hass.async_create_task(
-            self._async_regulation_cycle(trigger="window_closed")
-        )
+        self.hass.async_create_task(self._async_resume_after_window())
         self.async_write_ha_state()
+
+    async def _async_resume_after_window(self) -> None:
+        """Reconcile the current schedule and send the restored setpoint."""
+        if self._scheduled_action() is not None:
+            await self._async_apply_schedule_state()
+        await self._async_regulation_cycle(trigger="window_closed")
 
     def _end_window_close_delay(self) -> bool:
         """End a running window close delay early for a user change.
@@ -360,7 +396,10 @@ class PresetMixin:
         self._preset_mode = PRESET_AWAY
         _LOGGER.info("Presence away: switching to AWAY preset")
         self.async_write_ha_state()
-        await self._async_regulation_cycle(trigger="presence_away")
+        if self._hvac_mode == HVACMode.OFF and self._has_schedule():
+            await self.async_set_hvac_mode(HVACMode.HEAT)
+        else:
+            await self._async_regulation_cycle(trigger="presence_away")
 
     async def _async_presence_home_action(self, _now) -> None:
         """Restore previous preset after presence-home delay."""
@@ -383,6 +422,12 @@ class PresetMixin:
         if saved.preset is None:
             _LOGGER.info("Presence home: nothing to restore")
             return
+
+        # The room may have been Away across several schedule blocks. Restore
+        # today's active block, not the block that was saved on departure.
+        scheduled = self._scheduled_action()
+        if saved.preset != PRESET_NONE and scheduled in PRESET_LIST:
+            saved = SavedState(scheduled, self._get_preset_target(scheduled))
 
         # If window automation is active, update the window's saved state
         # instead of changing the current preset (frost protection stays).
@@ -414,9 +459,12 @@ class PresetMixin:
         elif saved.temp is not None:
             self._target_temp = saved.temp
         _LOGGER.info("Presence home: restoring previous preset")
-        self.hass.async_create_task(
-            self._async_regulation_cycle(trigger="presence_home")
-        )
+        if scheduled == "off" and saved.preset != PRESET_NONE:
+            self.hass.async_create_task(self._async_apply_schedule_state())
+        else:
+            self.hass.async_create_task(
+                self._async_regulation_cycle(trigger="presence_home")
+            )
         self.async_write_ha_state()
 
     # ------------------------------------------------------------------

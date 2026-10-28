@@ -42,6 +42,7 @@ from .const import (
     CONF_SENSOR_LOSS_ACTION,
     CONF_SOURCE_ENTITY_ID,
     CONF_URGENT_DECREASE_THRESHOLD_C,
+    CONF_WEEKLY_PRESET_SCHEDULE,
     CONF_WINDOW_ACTION,
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
@@ -50,6 +51,7 @@ from .const import (
     DEFAULT_MANUAL_MODE_DURATION_MIN,
     DOMAIN,
     MANUAL_MODE_ACTIONS,
+    MANUAL_MODE_SCHEDULE,
 )
 from .parameters import (
     DEFAULT_OVERLAY_REFRESH_S,
@@ -61,6 +63,7 @@ from .parameters import (
     BehaviourConfig,
     RegulationConfig,
 )
+from .schedule import WEEKDAYS, normalize_weekly_schedule
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -129,21 +132,20 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
-            # Flatten section data (sections return nested dicts) into
-            # a single flat dict for storage in config_entry.options.
+            # Flatten ordinary sections, keeping the weekly editor as one
+            # structured value in config_entry.options.
             flat: dict = {}
             for key, value in user_input.items():
+                if key == "weekly_schedule":
+                    continue
                 if isinstance(value, dict):
                     flat.update(value)
                 else:
                     flat[key] = value
 
-            # Strip empty optional sensor values so they're stored as absent
             cleaned = {k: v for k, v in flat.items() if v not in (None, "")}
-            # Preserve existing options not shown in this form (e.g. preset
-            # temperatures set via Number entities, follow_tado_input flag).
+            # Preserve options managed by entities, such as preset temperatures.
             merged = dict(self.config_entry.options)
-            # Remove optional sensor keys that were cleared by the user
             for key in (
                 CONF_WINDOW_SENSOR_ID,
                 CONF_PRESENCE_SENSOR_ID,
@@ -152,12 +154,35 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 if key not in cleaned:
                     merged.pop(key, None)
             merged.update(cleaned)
-            errors = _validate_sensor_loss(merged)
+            merged.pop("schedule_entity_id", None)  # retired helper option
+
+            errors: dict[str, str] = {}
+            weekly_input = user_input.get("weekly_schedule")
+            if weekly_input is not None:
+                try:
+                    weekly = normalize_weekly_schedule(weekly_input)
+                except ValueError:
+                    errors["base"] = "invalid_weekly_schedule"
+                else:
+                    if weekly:
+                        merged[CONF_WEEKLY_PRESET_SCHEDULE] = weekly
+                    else:
+                        merged.pop(CONF_WEEKLY_PRESET_SCHEDULE, None)
+
+            errors.update(_validate_sensor_loss(merged))
+            if (
+                not errors
+                and merged.get(CONF_MANUAL_MODE_ACTION) == MANUAL_MODE_SCHEDULE
+                and not merged.get(CONF_WEEKLY_PRESET_SCHEDULE)
+            ):
+                errors["base"] = "schedule_required"
             if not errors:
-                # Reload is triggered by the update_listener in __init__.py
-                # AFTER HA has persisted the new options, avoiding stale data.
+                # The update listener reloads after HA persists these options.
                 return self.async_create_entry(title="", data=merged)
-            # Show the form again with the values just entered.
+
+            # Keep the submitted blocks visible when a duplicate time is fixed.
+            if weekly_input is not None:
+                merged[CONF_WEEKLY_PRESET_SCHEDULE] = weekly_input
             return self.async_show_form(
                 step_id="init", data_schema=self._options_schema(merged), errors=errors
             )
@@ -281,6 +306,46 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             }
         )
 
+        # ObjectSelector supplies HA's own Add/Edit/Delete dialog for each
+        # weekday. Time and preset are typed fields, with no YAML entry.
+        schedule_block_selector = selector.ObjectSelector(
+            selector.ObjectSelectorConfig(
+                fields={
+                    "start": {
+                        "selector": {"time": {}},
+                        "required": True,
+                        "label": "Start time",
+                    },
+                    "preset": {
+                        "selector": {
+                            "select": {
+                                "options": [
+                                    {"value": "comfort", "label": "Comfort"},
+                                    {"value": "eco", "label": "Eco"},
+                                    {"value": "frost_protection", "label": "Frost protection"},
+                                    {"value": "off", "label": "Off"},
+                                ],
+                                "translation_key": "schedule_preset",
+                            }
+                        },
+                        "required": True,
+                        "label": "Preset",
+                    },
+                },
+                multiple=True,
+                label_field="start",
+                description_field="preset",
+                translation_key="weekly_schedule_block",
+            )
+        )
+        stored_weekly = opts.get(CONF_WEEKLY_PRESET_SCHEDULE, {})
+        schedule_section_schema = vol.Schema(
+            {
+                vol.Optional(day, default=stored_weekly.get(day, [])): schedule_block_selector
+                for day in WEEKDAYS
+            }
+        )
+
         # --- Main options schema with sections ---
         options_schema = vol.Schema(
             {
@@ -320,6 +385,12 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 # Section: Manual mode
                 vol.Required("manual_mode"): section(
                     manual_section_schema,
+                    {"collapsed": True},
+                ),
+
+                # Section: weekly preset schedule
+                vol.Required("weekly_schedule"): section(
+                    schedule_section_schema,
                     {"collapsed": True},
                 ),
 

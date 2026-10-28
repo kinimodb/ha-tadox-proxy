@@ -228,6 +228,7 @@ async def _async_submit_sensor_loss_options(hass, entry, **top_level: Any):
     user_input: dict[str, Any] = {
         **top_level,
         "manual_mode": {},
+        "weekly_schedule": {},
         "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
         "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
         "pi_controller": {},

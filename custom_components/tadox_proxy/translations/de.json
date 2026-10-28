@@ -52,9 +52,22 @@
               "manual_mode_duration_min": "Dauer des manuellen Modus"
             },
             "data_description": {
-              "manual_mode_action": "Im manuellen Modus bleiben, bis ein anderes Preset gewählt wird, oder nach Ablauf eines Timers zum vorherigen Preset zurückkehren. Jede neue Temperaturänderung startet den Timer neu.",
+              "manual_mode_action": "Im manuellen Modus bleiben, beim nächsten Wochenblock oder nach Ablauf eines Timers zurückkehren. Mit Zeitplan gilt nach dem Timer dessen aktueller Block, sonst das vorherige Preset.",
               "manual_mode_duration_min": "Dauer des manuellen Modus bei zeitgesteuerter Rückkehr. Standard: 15 Minuten."
             }
+          },
+          "weekly_schedule": {
+            "name": "Wochenzeitplan",
+            "data": {
+              "monday": "Montag",
+              "tuesday": "Dienstag",
+              "wednesday": "Mittwoch",
+              "thursday": "Donnerstag",
+              "friday": "Freitag",
+              "saturday": "Samstag",
+              "sunday": "Sonntag"
+            },
+            "description": "Startzeiten und Presets für die Wochentage festlegen. Ein Preset gilt bis zum nächsten Block, auch über Mitternacht. Abwesend und Fenstererkennung haben Vorrang."
           },
           "window_sensor": {
             "name": "Fenstersensor",
@@ -153,14 +166,17 @@
       "backup_sensor_required": "Für diese Aktion einen Ersatz-Raumsensor auswählen.",
       "backup_sensor_same": "Der Ersatz-Raumsensor muss sich vom externen Temperatursensor unterscheiden.",
       "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
-      "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
+      "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen.",
+      "schedule_required": "Für „Bis zum nächsten Zeitblock“ mindestens einen Wochenblock hinzufügen.",
+      "invalid_weekly_schedule": "Wochenblöcke prüfen: Eine Startzeit darf pro Tag nur einmal vorkommen und jeder Block braucht ein gültiges Preset."
     }
   },
   "selector": {
     "manual_mode_action": {
       "options": {
         "keep": "Im manuellen Modus bleiben",
-        "timer": "Nach Ablauf zum vorherigen Preset zurückkehren"
+        "schedule": "Bis zum nächsten Zeitblock",
+        "timer": "Nach Ablauf eines Timers zurückkehren"
       }
     },
     "sensor_loss_action": {
@@ -174,6 +190,24 @@
       "options": {
         "frost_protection": "Frostschutz",
         "off": "TRV ausschalten"
+      }
+    },
+    "weekly_schedule_block": {
+      "fields": {
+        "start": {
+          "name": "Startzeit"
+        },
+        "preset": {
+          "name": "Preset"
+        }
+      }
+    },
+    "schedule_preset": {
+      "options": {
+        "comfort": "Komfort",
+        "eco": "Eco",
+        "frost_protection": "Frostschutz",
+        "off": "Aus"
       }
     }
   },

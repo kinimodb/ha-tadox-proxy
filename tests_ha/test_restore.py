@@ -235,6 +235,7 @@ async def test_window_saved_preset_survives_an_options_reload(hass, freezer):
         result["flow_id"],
         {
             "manual_mode": {},
+            "weekly_schedule": {},
             "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
             "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
             "pi_controller": {},

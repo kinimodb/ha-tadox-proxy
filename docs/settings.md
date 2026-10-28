@@ -12,15 +12,16 @@ Everything you can see, switch, and adjust — looked up rather than read start 
 ## Contents
 
 1. [Presets](#presets)
-2. [Entities you get](#entities-you-get)
-3. [Window and presence detection](#window-and-presence-detection)
-4. [Guest mode](#guest-mode)
-5. [Turning the thermostat off](#turning-the-thermostat-off)
-6. [Following the physical thermostat](#following-the-physical-thermostat)
-7. [When the sensor drops out](#when-the-sensor-drops-out)
-8. [Adjustable settings](#adjustable-settings)
-9. [Diagnostic attributes](#diagnostic-attributes)
-10. [Supported radiators](#supported-radiators)
+2. [Weekly schedule](#weekly-schedule)
+3. [Entities you get](#entities-you-get)
+4. [Window and presence detection](#window-and-presence-detection)
+5. [Guest mode](#guest-mode)
+6. [Turning the thermostat off](#turning-the-thermostat-off)
+7. [Following the physical thermostat](#following-the-physical-thermostat)
+8. [When the sensor drops out](#when-the-sensor-drops-out)
+9. [Adjustable settings](#adjustable-settings)
+10. [Diagnostic attributes](#diagnostic-attributes)
+11. [Supported radiators](#supported-radiators)
 
 ---
 
@@ -45,8 +46,12 @@ Moving the temperature slider without picking a preset switches to **Manual**. Y
 stored Comfort temperature is left alone, so you can always get back to it.
 
 Under **Configure → Manual mode**, the default is **Stay in Manual**:
-it remains active until you select another preset. Choose **Return to the previous
-preset after a timer** to make it temporary; the duration defaults to 15 minutes.
+it remains active until you select another preset. Choose **Return after a timer**
+to make it temporary; the duration defaults to 15 minutes. With a weekly schedule,
+the timer returns to the block active at expiry; without one it returns to the
+previous preset. **Until the next schedule block** ends Manual at the next block
+boundary, even if the next block uses the same preset. This choice needs at
+least one block under **Weekly schedule**.
 Every new manual temperature change restarts the countdown without changing which
 preset will return. A direct change on the radiator also starts the countdown when
 **Follow Physical Thermostat** is enabled. Selecting a named preset cancels it.
@@ -56,6 +61,27 @@ active. The deadline survives a Home Assistant restart, including one that lasts
 longer than the remaining time. A change from Boost returns to Boost's previous
 preset rather than restarting Boost. If Manual was already active with no earlier
 named preset, there is nothing to return to and it stays Manual.
+
+---
+
+## Weekly schedule
+
+Open the proxy's **Configure → Weekly schedule** section. Each weekday has an
+**Add** button. Enter a start time and choose **Comfort**, **Eco**, **Frost
+protection** or **Off**. You can edit or delete a block in the same list; no YAML
+or separate Schedule helper is needed. For example, add **00:00 Eco**, **07:00
+Comfort** and **20:00 Eco** to each day. A preset stays active until the next
+block, even across midnight and the end of the week. Days with no blocks inherit
+the last selected profile. Times follow Home Assistant's configured time zone.
+The schedule is stored in the integration's options and survives a restart.
+
+The schedule applies to the proxy's existing preset temperatures. **Off** turns
+the source TRV off; **Frost protection** keeps frost protection active. Presence
+Away and open-window protection take priority. While Away is active, even a
+scheduled Off block gives way to the Away target; when Presence returns Home, the
+block active then applies. Manual ignores blocks until its selected return
+condition. If another automation also sets this proxy's preset at a fixed time,
+disable it when you enable the schedule to avoid competing commands.
 
 ---
 

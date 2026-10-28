@@ -52,9 +52,22 @@
               "manual_mode_duration_min": "Manual duration"
             },
             "data_description": {
-              "manual_mode_action": "Keep Manual until another preset is selected, or return to the previous preset after a timer. Each new manual adjustment restarts the timer.",
+              "manual_mode_action": "Keep Manual, return at the next weekly block, or return after a timer. A timer returns to the active schedule block when one is configured; otherwise it returns to the previous preset.",
               "manual_mode_duration_min": "How long Manual lasts when timed return is selected. Default: 15 minutes."
             }
+          },
+          "weekly_schedule": {
+            "name": "Weekly schedule",
+            "data": {
+              "monday": "Monday",
+              "tuesday": "Tuesday",
+              "wednesday": "Wednesday",
+              "thursday": "Thursday",
+              "friday": "Friday",
+              "saturday": "Saturday",
+              "sunday": "Sunday"
+            },
+            "description": "Add start times and presets for any day. A preset stays active until the next block, including across midnight. Presence Away and open-window protection take priority."
           },
           "window_sensor": {
             "name": "Window sensor",
@@ -153,14 +166,17 @@
       "backup_sensor_required": "Choose a backup room sensor for this action.",
       "backup_sensor_same": "The backup room sensor must differ from the external temperature sensor.",
       "temp_entity_not_found": "External temperature sensor not found.",
-      "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
+      "temp_not_temperature": "Please select a temperature sensor (device_class: temperature).",
+      "schedule_required": "Add a weekly block to use 'until the next schedule block'.",
+      "invalid_weekly_schedule": "Check the weekly blocks: each time can appear only once per day, and every block needs a valid preset."
     }
   },
   "selector": {
     "manual_mode_action": {
       "options": {
         "keep": "Stay in Manual",
-        "timer": "Return to the previous preset after a timer"
+        "schedule": "Until the next schedule block",
+        "timer": "Return after a timer"
       }
     },
     "sensor_loss_action": {
@@ -174,6 +190,24 @@
       "options": {
         "frost_protection": "Frost protection",
         "off": "Switch the TRV off"
+      }
+    },
+    "weekly_schedule_block": {
+      "fields": {
+        "start": {
+          "name": "Start time"
+        },
+        "preset": {
+          "name": "Preset"
+        }
+      }
+    },
+    "schedule_preset": {
+      "options": {
+        "comfort": "Comfort",
+        "eco": "Eco",
+        "frost_protection": "Frost protection",
+        "off": "Off"
       }
     }
   },
