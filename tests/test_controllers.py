@@ -32,6 +32,7 @@ _params_mod = _load("parameters")
 WindowAutomationController = _ctrl_mod.WindowAutomationController
 PresenceAutomationController = _ctrl_mod.PresenceAutomationController
 BoostController = _ctrl_mod.BoostController
+ManualReturnController = _ctrl_mod.ManualReturnController
 FollowPhysicalController = _ctrl_mod.FollowPhysicalController
 SavedState = _ctrl_mod.SavedState
 is_binary_sensor_transition = _ctrl_mod.is_binary_sensor_transition
@@ -46,6 +47,8 @@ CHANGE_APPLY = _ctrl_mod.CHANGE_APPLY
 CHANGE_FOR_PRESENCE = _ctrl_mod.CHANGE_FOR_PRESENCE
 CHANGE_FOR_WINDOW = _ctrl_mod.CHANGE_FOR_WINDOW
 PresetConfig = _params_mod.PresetConfig
+PRESET_COMFORT = _ctrl_mod.PRESET_COMFORT
+PRESET_ECO = _ctrl_mod.PRESET_ECO
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +81,26 @@ class FakeCallLater:
     @property
     def active_count(self) -> int:
         return sum(1 for c in self.calls if not c["cancelled"])
+
+
+class TestManualReturnController:
+    def test_restart_arms_only_remaining_time(self):
+        later = FakeCallLater()
+        ctrl = ManualReturnController()
+        ctrl.start(None, PRESET_ECO, 21.5, 900, lambda _: None, call_later=later, now=100)
+        assert ctrl.end_ts == 1000
+
+        ctrl.restore(None, PRESET_ECO, 21.5, 1000, lambda _: None, call_later=later, now=400)
+        assert later.calls[0]["cancelled"]
+        assert later.calls[1]["delay"] == 600
+        assert ctrl.expire() == PRESET_ECO
+        assert not ctrl.is_active
+
+    def test_expired_while_stopped_is_armed_immediately(self):
+        later = FakeCallLater()
+        ctrl = ManualReturnController()
+        ctrl.restore(None, PRESET_COMFORT, 21.5, 1000, lambda _: None, call_later=later, now=1100)
+        assert later.calls[0]["delay"] == 0
 
 
 # ---------------------------------------------------------------------------

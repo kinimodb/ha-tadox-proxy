@@ -25,12 +25,17 @@ from .climate_controllers import (
 )
 from .const import (
     CONF_COMFORT_TARGET,
+    CONF_MANUAL_MODE_ACTION,
+    CONF_MANUAL_MODE_DURATION_MIN,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
+    DEFAULT_MANUAL_MODE_ACTION,
+    DEFAULT_MANUAL_MODE_DURATION_MIN,
+    MANUAL_MODE_TIMER,
     PRESET_FROST_PROTECTION,
     PRESET_LIST,
     safe_float,
@@ -65,6 +70,45 @@ class PresetMixin:
             self._config.presets.boost_duration_min * 60,
             self._async_boost_expired,
         )
+
+    def _begin_manual_return(self, target_c: float) -> None:
+        """Arm a timed return, keeping the original preset across adjustments."""
+        if (
+            self._config_entry.options.get(CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION)
+            != MANUAL_MODE_TIMER
+        ):
+            self._manual_return.cancel()
+            return
+
+        if self._manual_return.is_active:
+            previous = self._manual_return.previous_preset
+        elif self._presence_ctrl.is_active:
+            previous = self._presence_ctrl.get_saved().preset
+        elif self._window_ctrl.is_active:
+            previous = self._window_ctrl.get_saved().preset
+        elif self._boost.is_active:
+            # Boost is temporary; return to the preset it would have restored.
+            previous = self._boost.saved.preset
+        else:
+            previous = self._preset_mode
+
+        if previous not in PRESET_LIST:
+            self._manual_return.cancel()
+            return
+
+        minutes = self._config_entry.options.get(
+            CONF_MANUAL_MODE_DURATION_MIN, DEFAULT_MANUAL_MODE_DURATION_MIN
+        )
+        self._manual_return.start(
+            self.hass, previous, target_c, minutes * 60,
+            self._async_manual_return_expired,
+        )
+
+    async def _async_manual_return_expired(self, _now) -> None:
+        """Restore the prior preset, or update an active window/presence hold."""
+        previous = self._manual_return.expire()
+        if previous in PRESET_LIST:
+            await self.async_set_preset_mode(previous)
 
     # ------------------------------------------------------------------
     # Window sensor
@@ -384,6 +428,8 @@ class PresetMixin:
         if preset_mode not in PRESET_LIST:
             _LOGGER.warning("Unknown preset mode: %s", preset_mode)
             return
+
+        self._manual_return.cancel()
 
         # A change during the window close delay ends the delay right away.
         # The window's saved preset comes back first and the change applies

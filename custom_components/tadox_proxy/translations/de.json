@@ -45,6 +45,17 @@
           "boost_duration": "Wie lange der Boost-Modus aktiv bleibt, bevor zum vorherigen Preset zurückgekehrt wird."
         },
         "sections": {
+          "manual_mode": {
+            "name": "Manueller Modus",
+            "data": {
+              "manual_mode_action": "Manuelle Temperaturänderungen",
+              "manual_mode_duration_min": "Dauer des manuellen Modus"
+            },
+            "data_description": {
+              "manual_mode_action": "Im manuellen Modus bleiben, bis ein anderes Preset gewählt wird, oder nach Ablauf eines Timers zum vorherigen Preset zurückkehren. Jede neue Temperaturänderung startet den Timer neu.",
+              "manual_mode_duration_min": "Dauer des manuellen Modus bei zeitgesteuerter Rückkehr. Standard: 15 Minuten."
+            }
+          },
           "window_sensor": {
             "name": "Fenstersensor",
             "data": {
@@ -146,6 +157,12 @@
     }
   },
   "selector": {
+    "manual_mode_action": {
+      "options": {
+        "keep": "Im manuellen Modus bleiben",
+        "timer": "Nach Ablauf zum vorherigen Preset zurückkehren"
+      }
+    },
     "sensor_loss_action": {
       "options": {
         "hold": "Letzten TRV-Befehl halten",

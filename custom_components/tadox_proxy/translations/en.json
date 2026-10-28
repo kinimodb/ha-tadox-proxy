@@ -45,6 +45,17 @@
           "boost_duration": "How long boost mode stays active before returning to the previous preset."
         },
         "sections": {
+          "manual_mode": {
+            "name": "Manual mode",
+            "data": {
+              "manual_mode_action": "Manual temperature changes",
+              "manual_mode_duration_min": "Manual duration"
+            },
+            "data_description": {
+              "manual_mode_action": "Keep Manual until another preset is selected, or return to the previous preset after a timer. Each new manual adjustment restarts the timer.",
+              "manual_mode_duration_min": "How long Manual lasts when timed return is selected. Default: 15 minutes."
+            }
+          },
           "window_sensor": {
             "name": "Window sensor",
             "data": {
@@ -146,6 +157,12 @@
     }
   },
   "selector": {
+    "manual_mode_action": {
+      "options": {
+        "keep": "Stay in Manual",
+        "timer": "Return to the previous preset after a timer"
+      }
+    },
     "sensor_loss_action": {
       "options": {
         "hold": "Keep the last TRV command",

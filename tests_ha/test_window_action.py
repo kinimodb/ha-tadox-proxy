@@ -119,6 +119,7 @@ async def test_window_action_is_set_in_the_options(hass):
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
+            "manual_mode": {},
             "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_action": "off"},
             "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
             "pi_controller": {},

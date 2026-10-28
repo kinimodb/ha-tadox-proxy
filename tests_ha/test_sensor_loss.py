@@ -227,6 +227,7 @@ async def _async_submit_sensor_loss_options(hass, entry, **top_level: Any):
     assert result["type"] is FlowResultType.FORM
     user_input: dict[str, Any] = {
         **top_level,
+        "manual_mode": {},
         "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
         "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
         "pi_controller": {},

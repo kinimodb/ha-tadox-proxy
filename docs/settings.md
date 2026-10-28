@@ -44,6 +44,19 @@ or an away phase.
 Moving the temperature slider without picking a preset switches to **Manual**. Your
 stored Comfort temperature is left alone, so you can always get back to it.
 
+Under **Configure → Manual mode**, the default is **Stay in Manual**:
+it remains active until you select another preset. Choose **Return to the previous
+preset after a timer** to make it temporary; the duration defaults to 15 minutes.
+Every new manual temperature change restarts the countdown without changing which
+preset will return. A direct change on the radiator also starts the countdown when
+**Follow Physical Thermostat** is enabled. Selecting a named preset cancels it.
+Window and presence protection can temporarily take over, but the countdown keeps
+running; on expiry, the preset to restore is updated even if protection is still
+active. The deadline survives a Home Assistant restart, including one that lasts
+longer than the remaining time. A change from Boost returns to Boost's previous
+preset rather than restarting Boost. If Manual was already active with no earlier
+named preset, there is nothing to return to and it stays Manual.
+
 ---
 
 ## Entities you get
@@ -350,6 +363,7 @@ something is wrong or when you are curious what the integration is thinking.
 | `presence_away_active` | Presence detection has taken over |
 | `guest_mode` | Guest mode is on, presence detection will not switch to Away |
 | `manual_target_c` | The temperature of the Manual preset. Only shown while Manual is active |
+| `manual_return_preset` / `manual_return_at_ts` | Prior preset and absolute Unix timestamp of a pending timed return |
 | `sensor_degraded` | Room sensor missing, running on the last reading |
 | `active_control_mode` | What controls the TRV right now: `room_sensor`, `backup_sensor`, `trv` or `hold`. See [when the sensor drops out](#when-the-sensor-drops-out) |
 | `overlay_refresh_s` | The configured overlay refresh interval. 0 means off |

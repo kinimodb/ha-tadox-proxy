@@ -15,6 +15,7 @@ async def _async_submit_options_flow(hass, entry, *, window_delay_s: int) -> Non
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     user_input: dict[str, Any] = {
+        "manual_mode": {},
         "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_delay_s": window_delay_s},
         "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
         "pi_controller": {},
@@ -25,6 +26,16 @@ async def _async_submit_options_flow(hass, entry, *, window_delay_s: int) -> Non
     result = await hass.config_entries.options.async_configure(result["flow_id"], user_input)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
+
+
+async def test_manual_options_live_in_collapsed_section(hass):
+    proxy = await async_setup_proxy(hass)
+    result = await hass.config_entries.options.async_init(proxy.entry.entry_id)
+    names = {str(key) for key in result["data_schema"].schema}
+
+    assert "manual_mode" in names
+    assert "manual_mode_action" not in names
+    assert "manual_mode_duration_min" not in names
 
 
 async def test_number_change_during_boost_does_not_reload(hass):

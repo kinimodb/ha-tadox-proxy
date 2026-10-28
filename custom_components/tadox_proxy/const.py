@@ -23,6 +23,8 @@ CONF_COMFORT_TARGET = "comfort_target"
 CONF_ECO_TARGET = "eco_target"
 CONF_BOOST_TARGET = "boost_target"
 CONF_BOOST_DURATION = "boost_duration"
+CONF_MANUAL_MODE_ACTION = "manual_mode_action"
+CONF_MANUAL_MODE_DURATION_MIN = "manual_mode_duration_min"
 CONF_AWAY_TARGET = "away_target"
 CONF_FROST_PROTECTION_TARGET = "frost_protection_target"
 
@@ -57,6 +59,12 @@ CONF_SENSOR_GRACE_S = "sensor_grace_s"
 CONF_SENSOR_LOSS_ACTION = "sensor_loss_action"
 CONF_BACKUP_TEMPERATURE_ENTITY_ID = "backup_temperature_entity_id"
 
+MANUAL_MODE_KEEP = "keep"
+MANUAL_MODE_TIMER = "timer"
+MANUAL_MODE_ACTIONS = (MANUAL_MODE_KEEP, MANUAL_MODE_TIMER)
+DEFAULT_MANUAL_MODE_ACTION = MANUAL_MODE_KEEP
+DEFAULT_MANUAL_MODE_DURATION_MIN = 15
+
 # Overlay refresh (for cloud-API integrations with timer-based overlays)
 CONF_OVERLAY_REFRESH_S = "overlay_refresh_s"
 
@@ -90,6 +98,9 @@ LIVE_OPTION_KEYS = frozenset({
 # Climate state attributes that are also read back on restart (RestoreEntity)
 ATTR_GUEST_MODE = "guest_mode"
 ATTR_MANUAL_TARGET = "manual_target_c"
+ATTR_MANUAL_RETURN_PRESET = "manual_return_preset"
+ATTR_MANUAL_RETURN_AT = "manual_return_at_ts"
+ATTR_MANUAL_RETURN_TARGET = "manual_return_target_c"
 # Preset (and base target) an open window restores when it closes
 ATTR_WINDOW_RESTORE_PRESET = "window_restore_preset"
 ATTR_WINDOW_RESTORE_TARGET = "window_restore_target_c"

@@ -43,6 +43,7 @@ from .climate_controllers import (
     BoostController,
     ControlModeResolver,
     FollowPhysicalController,
+    ManualReturnController,
     PresenceAutomationController,
     SavedState,
     WindowAutomationController,
@@ -53,6 +54,9 @@ from .climate_presets import PresetMixin
 from .climate_regulation import RegulationMixin
 from .const import (
     ATTR_GUEST_MODE,
+    ATTR_MANUAL_RETURN_AT,
+    ATTR_MANUAL_RETURN_PRESET,
+    ATTR_MANUAL_RETURN_TARGET,
     ATTR_MANUAL_TARGET,
     ATTR_WINDOW_RESTORE_PRESET,
     ATTR_WINDOW_RESTORE_TARGET,
@@ -73,6 +77,7 @@ from .const import (
     CONF_GAIN_STARTUP_MULTIPLIER,
     CONF_GAIN_STARTUP_THRESHOLD_C,
     CONF_INTEGRAL_DEADBAND_C,
+    CONF_MANUAL_MODE_ACTION,
     CONF_MIN_CHANGE_THRESHOLD_C,
     CONF_MIN_COMMAND_INTERVAL_S,
     CONF_OVERLAY_REFRESH_S,
@@ -82,7 +87,9 @@ from .const import (
     CONF_URGENT_DECREASE_THRESHOLD_C,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
+    DEFAULT_MANUAL_MODE_ACTION,
     DOMAIN,
+    MANUAL_MODE_TIMER,
     PRESET_FROST_PROTECTION,
     PRESET_LIST,
     safe_float,
@@ -203,6 +210,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._window_ctrl = WindowAutomationController()
         self._presence_ctrl = PresenceAutomationController()
         self._boost = BoostController()
+        self._manual_return = ManualReturnController()
 
         # Diagnostics
         self._last_result = None
@@ -343,6 +351,21 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 self._window_ctrl.mark_trv_off()
             if attrs.get(ATTR_GUEST_MODE) is True:
                 self._presence_ctrl.set_guest_mode(True)
+            previous = attrs.get(ATTR_MANUAL_RETURN_PRESET)
+            deadline = safe_float(attrs.get(ATTR_MANUAL_RETURN_AT))
+            manual_target = safe_float(attrs.get(ATTR_MANUAL_RETURN_TARGET))
+            if (
+                self._config_entry.options.get(CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION)
+                == MANUAL_MODE_TIMER
+                and previous in PRESET_LIST
+                and deadline is not None
+                and deadline > 0
+                and manual_target is not None
+            ):
+                self._manual_return.restore(
+                    self.hass, previous, manual_target, deadline,
+                    self._async_manual_return_expired,
+                )
 
         # For every named preset the comfort target from options is the
         # authoritative base (may have changed via the number entity while
@@ -391,29 +414,42 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             elif presence in (None, "off", "unavailable", "unknown"):
                 if self._preset_mode == PRESET_AWAY:
                     # Preset AWAY was restored from state but the controller's
-                    # is_active flag is not persisted.  Pre-activate with
-                    # COMFORT as the saved state so that coming home restores
-                    # a useful preset instead of AWAY → AWAY (no-op).  This
+                    # is_active flag is not persisted.  Restore a pending
+                    # timed Manual choice, otherwise use COMFORT, so that
+                    # coming home restores a useful preset instead of
+                    # AWAY → AWAY (no-op).  This
                     # also covers a sensor that is not available yet at boot –
                     # otherwise its later "on" would find an inactive
                     # controller and AWAY would stay forever.
-                    self._presence_ctrl.activate(
-                        PRESET_COMFORT, self._comfort_target()
-                    )
+                    if self._manual_return.is_active:
+                        self._presence_ctrl.activate(
+                            PRESET_NONE, self._manual_return.manual_target_c
+                        )
+                    else:
+                        self._presence_ctrl.activate(
+                            PRESET_COMFORT, self._comfort_target()
+                        )
                     _LOGGER.info(
                         "Startup: preset AWAY restored, controller pre-activated "
-                        "with COMFORT as saved state"
+                        "with %s as saved state",
+                        self._presence_ctrl.get_saved().preset,
                     )
                 elif presence == "off":
                     self._schedule_presence_away()
             elif self._preset_mode == PRESET_AWAY:
                 # Presence shows home but preset was restored as AWAY.
                 # This happens when the user returned while HA was down.
-                self._preset_mode = PRESET_COMFORT
-                self._target_temp = self._comfort_target()
+                # A timed Manual change saved while Away must take effect
+                # until its original deadline, not be replaced by Comfort.
+                if self._manual_return.is_active:
+                    self._preset_mode = PRESET_NONE
+                    self._target_temp = self._manual_return.manual_target_c
+                else:
+                    self._preset_mode = PRESET_COMFORT
+                    self._target_temp = self._comfort_target()
                 _LOGGER.info(
-                    "Startup: presence is home but preset was AWAY, "
-                    "switching to COMFORT"
+                    "Startup: presence is home but preset was AWAY, switching to %s",
+                    self._preset_mode,
                 )
 
         # Window sensor listener
@@ -459,6 +495,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._window_ctrl.cancel_all()
         self._presence_ctrl.cancel_timer()
         self._boost.cancel()
+        self._manual_return.cancel()
         await super().async_will_remove_from_hass()
 
     async def _async_config_entry_updated(self, hass, entry) -> None:
@@ -534,6 +571,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             self._last_sent_setpoint,
         )
         self._target_temp = tado_setpoint
+        self._begin_manual_return(tado_setpoint)
         self._preset_mode = PRESET_NONE
         self._boost.cancel()
         self.async_write_ha_state()
@@ -660,6 +698,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             presence_away=self._presence_ctrl.is_active,
             window_open=self._window_ctrl.is_active,
         )
+        self._begin_manual_return(temp_f)
         if route != CHANGE_APPLY:
             await self._async_save_change(
                 route, PRESET_NONE, temp_f, close_delay_ended=close_delay_ended
@@ -708,6 +747,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             values[ATTR_WINDOW_RESTORE_TARGET] = saved.temp
         if self._window_ctrl.trv_off:
             values[ATTR_WINDOW_TRV_OFF] = True
+        if self._manual_return.is_active:
+            values[ATTR_MANUAL_RETURN_PRESET] = self._manual_return.previous_preset
+            values[ATTR_MANUAL_RETURN_AT] = self._manual_return.end_ts
+            values[ATTR_MANUAL_RETURN_TARGET] = self._manual_return.manual_target_c
         return _ProxyRestoreData(values)
 
     @property
@@ -789,6 +832,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # the effective setpoint (which is 5°C while HVAC is OFF).
         if self._preset_mode == PRESET_NONE:
             attrs[ATTR_MANUAL_TARGET] = self._target_temp
+        if self._manual_return.is_active:
+            attrs[ATTR_MANUAL_RETURN_PRESET] = self._manual_return.previous_preset
+            attrs[ATTR_MANUAL_RETURN_AT] = self._manual_return.end_ts
+            attrs[ATTR_MANUAL_RETURN_TARGET] = self._manual_return.manual_target_c
         # Persisted so a restart brings back what the open window saved.
         if self._window_ctrl.is_active:
             saved = self._window_ctrl.get_saved()

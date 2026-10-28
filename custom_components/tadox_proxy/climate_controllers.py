@@ -10,6 +10,7 @@ Architecture
 - ``WindowAutomationController``  – window-open/close delays & state
 - ``PresenceAutomationController`` – presence-away delay, guest mode & state
 - ``BoostController``             – boost timer & pre-boost state
+- ``ManualReturnController``      – timed manual override and return preset
 - ``FollowPhysicalController``    – pure-logic helper (no state, static method)
 - ``ControlModeResolver``         – room-sensor grace period & sensor-loss action
 - ``trv_drifted_setpoint``       – setpoint the TRV left our command for (pure function)
@@ -428,6 +429,10 @@ class PresenceAutomationController:
         self.is_active = False
         return saved
 
+    def get_saved(self) -> SavedState:
+        """Return the preset held beneath the presence-away layer."""
+        return SavedState(preset=self._saved.preset, temp=self._saved.temp)
+
     def update_saved(self, preset: str, temp: float | None) -> None:
         """Update the saved preset/temp without changing active state.
 
@@ -529,6 +534,75 @@ class BoostController:
         self._cancel = None
         self.end_ts = 0.0
         return SavedState(preset=self.saved.preset, temp=self.saved.temp)
+
+
+class ManualReturnController:
+    """Keep a manual override's original preset and absolute expiry time."""
+
+    def __init__(self) -> None:
+        self.previous_preset: str | None = None
+        self.manual_target_c: float | None = None
+        self.end_ts: float = 0.0
+        self._cancel: _CancelFn | None = None
+
+    @property
+    def is_active(self) -> bool:
+        return self._cancel is not None
+
+    def start(
+        self,
+        hass: Any,
+        previous_preset: str,
+        manual_target_c: float,
+        duration_s: float,
+        on_expire: Callable,
+        *,
+        call_later: _CallLaterFn | None = None,
+        now: float | None = None,
+    ) -> None:
+        """Start or restart the timeout from the latest manual adjustment."""
+        current = now if now is not None else time.time()
+        self.restore(
+            hass, previous_preset, manual_target_c, current + duration_s,
+            on_expire, call_later=call_later, now=current,
+        )
+
+    def restore(
+        self,
+        hass: Any,
+        previous_preset: str,
+        manual_target_c: float,
+        end_ts: float,
+        on_expire: Callable,
+        *,
+        call_later: _CallLaterFn | None = None,
+        now: float | None = None,
+    ) -> None:
+        """Re-arm only the remaining time after a restart."""
+        self.cancel()
+        self.previous_preset = previous_preset
+        self.manual_target_c = manual_target_c
+        self.end_ts = end_ts
+        current = now if now is not None else time.time()
+        _cl = call_later or _get_call_later()
+        self._cancel = _cl(hass, max(0.0, end_ts - current), on_expire)
+
+    def cancel(self) -> None:
+        if self._cancel is not None:
+            self._cancel()
+        self._cancel = None
+        self.previous_preset = None
+        self.manual_target_c = None
+        self.end_ts = 0.0
+
+    def expire(self) -> str | None:
+        """Clear the timer and return the preset to restore."""
+        previous = self.previous_preset
+        self._cancel = None
+        self.previous_preset = None
+        self.manual_target_c = None
+        self.end_ts = 0.0
+        return previous
 
 
 # ---------------------------------------------------------------------------
