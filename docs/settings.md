@@ -148,6 +148,10 @@ Point it at a window contact (`binary_sensor.*`).
 - **Changes while the window is open:** the room stays in Frost Protection. A preset
   or temperature you pick meanwhile is your new choice and applies once the window
   closes.
+- **The card shows the frost protection target meanwhile.** Tapping **+** starts from
+  there: with the default 7 °C, one tap makes Manual 7.5 °C your choice – and that is
+  what you get once the window has closed. To have a warm room again, pick a preset or set the temperature
+  you actually want.
 - **Any change during the close delay** ends the wait and takes effect right away –
   you are obviously back in the room. Tapping Frost Protection counts too: the wait is
   over, so it is a real choice and the room stays in Frost Protection. If nobody is
