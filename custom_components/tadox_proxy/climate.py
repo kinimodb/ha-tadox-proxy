@@ -573,13 +573,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             "overlay_refresh_s": self._overlay_refresh_s,
         }
 
-        # Sensor resilience diagnostics
-        control = self._control
-        if control.last_valid is not None:
-            attrs["room_temp_last_valid_c"] = control.last_valid
-            if control.last_valid_ts > 0:
-                age = int(time.time() - control.last_valid_ts)
-                attrs["room_temp_last_valid_age_s"] = age
+        # The last valid room reading, only while the sensor is missing.
+        attrs.update(self._control.missing_sensor_attributes(time.time()))
 
         if self._last_result:
             r = self._last_result

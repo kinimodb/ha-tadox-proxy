@@ -164,6 +164,36 @@ class TestSensorGracePeriod:
         assert _room_temp(r, None, None, now=1100.0) is None
 
 
+class TestMissingSensorAttributes:
+    """The last valid reading shows only while the room sensor is missing.
+
+    Shown all the time, its ever-growing age made every state write a new
+    recorder row - about two a minute per room.
+    """
+
+    def test_nothing_while_the_sensor_reports(self):
+        r = ControlModeResolver(grace_s=300)
+        _room_temp(r, 20.5, 900.0, now=1000.0)
+        assert r.missing_sensor_attributes(now=1060.0) == {}
+
+    def test_last_valid_reading_and_its_age_while_the_sensor_is_missing(self):
+        """Reported at 900, missing at 1100: the reading is 200 s old."""
+        r = ControlModeResolver(grace_s=300)
+        _room_temp(r, 20.5, 900.0, now=1000.0)
+        _room_temp(r, None, None, now=1100.0)
+        assert r.missing_sensor_attributes(now=1100.0) == {
+            "room_temp_last_valid_c": 20.5,
+            "room_temp_last_valid_age_s": 200,
+        }
+
+    def test_nothing_to_show_from_a_sensor_that_never_reported(self):
+        r = ControlModeResolver(grace_s=300)
+        _room_temp(r, None, None, now=1000.0)
+        _room_temp(r, None, None, now=1400.0)  # grace expired: degraded
+        assert r.degraded is True
+        assert r.missing_sensor_attributes(now=1400.0) == {}
+
+
 class TestSensorTimestamp:
     """The grace period counts from the sensor's own report time.
 
