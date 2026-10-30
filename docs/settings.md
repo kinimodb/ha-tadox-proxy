@@ -434,12 +434,16 @@ The proxy shows **Heating** (`hvac_action: heating`) when the target it sent to 
 Tado is above the Tado's own reading. In practice this means the valve is open. It
 does **not** mean that the room still needs heat: the correction keeps the valve
 slightly open to hold the room at its target, so a room only 0.05 °C below target can
-show Heating.
+show Heating. After a slow final approach it can even stay on for a while once the
+room is slightly above its target (see
+[Integral windup](how-it-works.md#integral-windup)).
 
 To decide whether a boiler should run, use `error_c` instead (target minus room
 temperature). Leave out rooms that are off or have `sensor_degraded` on. Add some
-hysteresis so the boiler does not start for tiny gaps — for example, start above
-0.5 °C and keep running until the gap drops below 0.2 °C.
+hysteresis so the boiler does not start for tiny gaps — for example, start when
+`error_c` rises above 0.3 °C and keep running until it reaches 0, which is when the
+room is at its target. Do not stop earlier: a boiler that stops while `error_c` is
+still above 0 leaves the room short of its target.
 
 The [tuning guide](../TUNING.md#diagnostics-what-the-attributes-tell-you) shows what
 healthy and unhealthy values look like side by side.

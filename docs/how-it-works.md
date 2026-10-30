@@ -175,15 +175,25 @@ Two defences are used here:
 
 1. **Only accumulate near the target.** The integral grows only when the error is
    inside a narrow band (default 0.3 °C). Outside that band it does not just stop —
-   it *decays*, losing 5 % per cycle. This is the important one. It means the
-   integral simply does not participate in heat-up, which is precisely where it would
-   cause harm. Its job is fine adjustment once you have arrived.
+   it *decays*, losing 5 % per cycle. This is the important one. It keeps the
+   integral out of the bulk of a heat-up, which is precisely where it would cause
+   harm. Its job is fine adjustment once you have arrived.
 
 2. **Freeze while saturated.** If the command has already been clamped at 30 °C, more
    integral would achieve nothing except a debt to be paid off later. So while the
    output is pinned at a limit and the error still points that way, accumulation stops.
 
 The accumulated value is also hard-limited to ±2 °C, as a last line of defence.
+
+One case slips through the first defence. When a room creeps up the last 0.3 °C
+slowly — a large room, a small radiator — it spends that whole time inside the band,
+and the integral builds up anyway, to 1 °C or more. Once the room arrives, it unwinds
+just as slowly: the 5 % decay only applies outside the band, and just above the
+target the error is small. So the valve stays open for a while, the room ends up a
+little above its target, and `hvac_action` keeps showing `heating`. The overshoot
+itself is usually small, but anything that reads `hvac_action` as "this room wants
+heat" keeps firing — one reason a boiler should follow `error_c` instead (see
+[What "heating" means](settings.md#what-heating-means)).
 
 ### One setting, two conflicting jobs
 
