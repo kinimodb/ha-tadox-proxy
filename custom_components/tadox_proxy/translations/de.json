@@ -42,7 +42,7 @@
           "external_temperature_entity_id": "Ein Temperatursensor im Raum, mit Abstand zum Heizkörper. Für alle Einträge desselben Raums denselben Sensor verwenden.",
           "sensor_loss_action": "Was passiert, wenn die Karenzzeit für einen fehlenden Raumsensor abgelaufen ist: den letzten Befehl am TRV halten, mit einem Ersatz-Raumsensor regeln oder das TRV selbst regeln lassen. Ein offenes Fenster (Frostschutz) und das Ausschalten der Heizung haben immer Vorrang.",
           "backup_temperature_entity_id": "Wird nur mit der Aktion Ersatz-Raumsensor verwendet. Einen anderen Sensor als den externen Temperatursensor wählen.",
-          "boost_duration": "Wie lange der Boost-Modus aktiv bleibt, bevor zum vorherigen Preset zurückgekehrt wird."
+          "boost_duration": "Wie lange ein Boost heizt, bevor die eigene Wahl zurückkommt. Die Zeit läuft nur, solange der Boost wirklich heizt."
         },
         "sections": {
           "window_sensor": {
@@ -55,9 +55,9 @@
             },
             "data_description": {
               "window_sensor_id": "Binärsensor zur Fenstererkennung. Bei Auslösung wechselt das Thermostat in den Frostschutz.",
-              "window_action": "Frostschutz hält den Raum auf der Frostschutz-Temperatur. TRV ausschalten schaltet das Thermostat komplett ab. In beiden Fällen kommt das vorherige Preset zurück, wenn das Fenster geschlossen wird.",
+              "window_action": "Frostschutz hält den Raum auf der Frostschutz-Temperatur. TRV ausschalten schaltet das Thermostat komplett ab. In beiden Fällen kommt die eigene Wahl zurück, sobald das Fenster wieder geschlossen ist.",
               "window_delay_s": "Verzögerung bevor der Frostschutz aktiviert wird, nachdem das Fenster geöffnet wurde.",
-              "window_close_delay_s": "Verzögerung bevor das vorherige Preset wiederhergestellt wird, nachdem das Fenster geschlossen wurde."
+              "window_close_delay_s": "Wartezeit nach dem Schließen des Fensters, bevor die eigene Wahl zurückkommt."
             }
           },
           "presence_sensor": {
@@ -68,9 +68,9 @@
               "presence_home_delay_s": "Verzögerung Heimkehr"
             },
             "data_description": {
-              "presence_sensor_id": "Binärsensor zur Präsenzerkennung. Wechselt bei fehlender Präsenz in den Abwesend-Modus.",
+              "presence_sensor_id": "Binärsensor, der eingeschaltet ist, solange jemand zu Hause ist. Meldet er, dass niemand da ist, wechselt der Raum zu Abwesend.",
               "presence_away_delay_s": "Verzögerung bevor in den Abwesend-Modus gewechselt wird.",
-              "presence_home_delay_s": "Verzögerung bevor nach erkannter Präsenz das vorherige Preset wiederhergestellt wird."
+              "presence_home_delay_s": "Wartezeit nach der Heimkehr, bevor die eigene Wahl zurückkommt."
             }
           },
           "pi_controller": {
