@@ -574,7 +574,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         }
 
         # The last valid room reading, only while the sensor is missing.
-        attrs.update(self._control.missing_sensor_attributes(time.time()))
+        missing = self._control.missing_reading(time.time())
+        if missing is not None:
+            attrs["room_temp_last_valid_c"], attrs["room_temp_last_valid_age_s"] = missing
 
         if self._last_result:
             r = self._last_result

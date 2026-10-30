@@ -266,6 +266,20 @@ class TestWindow:
         room.timer_elapsed(WINDOW_CLOSE, T0 + 220)
         assert room.active_preset == COMFORT
 
+    def test_close_delay_lets_go_although_the_contact_dropped_out(self):
+        """Unlike the open, away and home delays, the close delay does not
+        check its sensor again: a dead contact must not keep the room in frost
+        protection."""
+        room = _room()
+        _open_window(room, T0)
+        room.window_reported(OFF, T0 + 100)
+        room.window_reported(UNAVAILABLE, T0 + 110)
+
+        room.timer_elapsed(WINDOW_CLOSE, T0 + 220)
+
+        assert room.active_preset == COMFORT
+        assert not room.window_holds
+
     def test_preset_picked_while_the_window_is_open_takes_effect_once_it_closes(self):
         room = _room()
         _open_window(room, T0)

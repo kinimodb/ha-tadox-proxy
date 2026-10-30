@@ -94,12 +94,19 @@ async def test_regulation_values_disappear_after_sensor_grace_period(hass, freez
     assert _regulation_attrs(proxy) == set()
 
 
+def _degraded_sensor_attrs(proxy) -> dict:
+    state = proxy.hass.states.get(proxy.entity_id("binary_sensor", "sensor_degraded"))
+    assert state is not None
+    return dict(state.attributes)
+
+
 async def test_last_valid_reading_shows_only_while_the_sensor_is_missing(hass, freezer):
     """Shown all the time, its growing age made every write a new recorder row."""
     proxy = await async_setup_proxy(hass, trv_adopts=True)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     assert "room_temp_last_valid_c" not in proxy.state.attributes
     assert "room_temp_last_valid_age_s" not in proxy.state.attributes
+    assert "last_valid_age_s" not in _degraded_sensor_attrs(proxy)
 
     # The coordinator polls the sensor on its own 60 s timer: two cycles make
     # sure the regulation has seen the change.
@@ -108,9 +115,12 @@ async def test_last_valid_reading_shows_only_while_the_sensor_is_missing(hass, f
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     assert proxy.state.attributes["room_temp_last_valid_c"] == 20.0
     assert proxy.state.attributes["room_temp_last_valid_age_s"] >= CONTROL_INTERVAL_S
+    assert _degraded_sensor_attrs(proxy)["last_valid_reading"] == 20.0
+    assert _degraded_sensor_attrs(proxy)["last_valid_age_s"] >= CONTROL_INTERVAL_S
 
     await async_set_state(hass, ROOM_SENSOR, "20.5", TEMPERATURE)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     assert "room_temp_last_valid_c" not in proxy.state.attributes
     assert "room_temp_last_valid_age_s" not in proxy.state.attributes
+    assert "last_valid_age_s" not in _degraded_sensor_attrs(proxy)

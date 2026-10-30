@@ -114,9 +114,9 @@ Each entry creates:
 
 The `sensor_degraded` entity is worth putting on a dashboard or wiring to a
 notification — a dead room sensor is the one failure that quietly ruins the
-temperature in a room. It carries extra attributes: `last_valid_reading`,
-`last_valid_age_s`, `grace_period_s` and `active_control_mode` (see
-[when the sensor drops out](#when-the-sensor-drops-out)).
+temperature in a room. It carries extra attributes: `grace_period_s` and
+`active_control_mode`, and while the sensor is missing also `last_valid_reading`
+and `last_valid_age_s` (see [when the sensor drops out](#when-the-sensor-drops-out)).
 
 ---
 
@@ -387,7 +387,7 @@ overlay never runs out. Over Matter there is no timer — leave it at 0.
 | Sensor grace period | 300 s | 0–1800 s | How long to keep using the last reading when the sensor is missing |
 | Follow-tado threshold | 0.5 °C | 0.1–2.0 °C | How far a change must be from the last sent value to count as a human turning the dial |
 | Follow-tado grace period | 20 s | 5–120 s | Ignore changes on the Tado for this long after sending a command, so it does not mistake its own command for you |
-| Urgent decrease threshold | 1.0 °C | 0.5–3.0 °C | Skip the waiting period when the temperature needs to drop by at least this much |
+| Urgent decrease threshold | 1.0 °C | 0.5–3.0 °C | Skip the waiting period when the temperature needs to drop by more than this much |
 
 ---
 

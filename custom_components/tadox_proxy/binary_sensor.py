@@ -74,9 +74,9 @@ class TadoXProxySensorDegradedBinarySensor(CoordinatorEntity, BinarySensorEntity
             "active_control_mode": control.mode,
         }
 
-        if control.last_valid is not None:
-            attrs["last_valid_reading"] = control.last_valid
-            if control.last_valid_ts > 0:
-                attrs["last_valid_age_s"] = int(time.time() - control.last_valid_ts)
+        # The last valid room reading, only while the sensor is missing.
+        missing = control.missing_reading(time.time())
+        if missing is not None:
+            attrs["last_valid_reading"], attrs["last_valid_age_s"] = missing
 
         return attrs

@@ -262,7 +262,7 @@ still as well, nothing is ever sent: frost protection behind an open window, or 
 output clamped at its limit. The room then does whatever the dial says, for as long
 as it says it.
 
-So the setpoint reported by the thermostat is weighed too. If it sits more than the
+So the setpoint reported by the thermostat is weighed too. If it sits at least the
 minimum change threshold away from the target, a correction goes out — at the next
 allowed command, not immediately. The urgent bypass stays tied to our own target
 dropping, so a thermostat that never accepts our value cannot talk us past the rate

@@ -182,14 +182,16 @@ class ControlModeResolver:
         self.mode = mode
         return ControlDecision(mode, temp, changed)
 
-    def missing_sensor_attributes(self, now: float) -> dict[str, float | int]:
-        """State attributes about the last valid reading, while the sensor is missing."""
+    def missing_reading(self, now: float) -> tuple[float, int] | None:
+        """The last valid reading and its age in seconds, while the sensor is missing.
+
+        None while the sensor reports, and for one that never did.  Shown all
+        the time, the ever-growing age would make every state write a new
+        recorder row.
+        """
         if not self.degraded or self.last_valid is None:
-            return {}
-        return {
-            "room_temp_last_valid_c": self.last_valid,
-            "room_temp_last_valid_age_s": int(now - self.last_valid_ts),
-        }
+            return None
+        return self.last_valid, int(now - self.last_valid_ts)
 
     def _select(
         self,
