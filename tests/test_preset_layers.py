@@ -418,25 +418,48 @@ class TestNobodyHome:
         assert room.active_preset == COMFORT
         assert effects.cycle is None
 
-    def test_home_delay_goes_ahead_while_the_sensor_is_just_unavailable(self):
+    def test_home_delay_acts_only_if_someone_is_still_reported_home(self):
+        """A sensor that dropped out confirms nobody: Away stays."""
+        for state in (UNAVAILABLE, "unknown", None):
+            room = _room()
+            _leave(room, T0)
+            room.presence_reported(ON, T0 + 1000)
+            room.presence_reported(state, T0 + 1010)
+
+            effects = room.timer_elapsed(HOME, T0 + 1030)
+
+            assert room.active_preset == AWAY_PRESET, state
+            assert room.nobody_home_holds, state
+            assert effects.cycle is None, state
+
+    def test_fresh_on_after_a_dropout_runs_a_new_home_delay(self):
         room = _room()
+        room.pick_preset(ECO, T0)
         _leave(room, T0)
         room.presence_reported(ON, T0 + 1000)
         room.presence_reported(UNAVAILABLE, T0 + 1010)
-
         room.timer_elapsed(HOME, T0 + 1030)
 
-        assert room.active_preset == COMFORT
+        effects = room.presence_reported(ON, T0 + 5000)
+        assert effects.timers == {HOME: 30}
+        assert room.active_preset == AWAY_PRESET
 
-    def test_home_delay_is_skipped_when_the_sensor_is_gone(self):
+        effects = room.timer_elapsed(HOME, T0 + 5030)
+        assert room.active_preset == ECO
+        assert effects.cycle == "presence_home"
+
+    def test_guest_mode_ends_away_while_the_sensor_stays_unavailable(self):
+        """The way out while a dead sensor keeps the room in Away."""
         room = _room()
+        room.pick_preset(ECO, T0)
         _leave(room, T0)
         room.presence_reported(ON, T0 + 1000)
-        room.presence_reported(None, T0 + 1010)
-
+        room.presence_reported(UNAVAILABLE, T0 + 1010)
         room.timer_elapsed(HOME, T0 + 1030)
 
-        assert room.active_preset == AWAY_PRESET
+        room.set_guest_mode(True, T0 + 2000)
+
+        assert room.active_preset == ECO
 
     def test_repeated_reports_do_not_restart_the_away_delay(self):
         """Attribute updates (battery, link quality) and a brief unavailable."""
@@ -1264,6 +1287,17 @@ class TestRestart:
             )
             assert room.active_preset == AWAY_PRESET, state
             assert effects.timers == {}, state
+
+    def test_sensor_reporting_on_after_a_restart_runs_the_home_delay(self):
+        room, _ = _restarted(
+            StartSnapshot(user_preset=ECO, nobody_home_held=True, presence_state=UNAVAILABLE)
+        )
+
+        effects = room.presence_reported(ON, T0 + 100)
+
+        assert effects.timers == {HOME: 30}
+        room.timer_elapsed(HOME, T0 + 130)
+        assert room.active_preset == ECO
 
     def test_someone_home_after_the_restart_ends_away_at_once(self):
         room, _ = _restarted(

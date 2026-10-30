@@ -169,7 +169,9 @@ Point it at a presence sensor or person tracker (`binary_sensor.*`).
   you pick meanwhile is your new choice and applies once someone returns. This also
   holds while a window is open: once it closes, the room goes back to Away.
 - A presence sensor that is `unavailable` or `unknown` does not count as someone
-  home.
+  home. If it drops out while the return delay runs and is still out when the delay
+  ends, Away stays until it reports someone home again and the delay has run once
+  more. To heat in the meantime, switch [guest mode](#guest-mode) on.
 
 ### What counts as a change
 

@@ -586,9 +586,10 @@ class PresetLayers:
                 self._nobody_home_holds = True
             return "presence_away"
         if timer_id == TIMER_HOME:
-            # Skipped if the sensor reports nobody home again or is gone; a
-            # sensor that is just unavailable does not undo the return.
-            if self._presence_state not in (_OFF, None):
+            # Only if the sensor still reports someone home: one that has
+            # dropped out (unavailable, unknown, gone) confirms nobody, so
+            # Away stays until a fresh "on" runs a new home delay.
+            if self._presence_state == _ON:
                 self._nobody_home_holds = False
             return "presence_home"
         self._end_boost()
