@@ -282,6 +282,15 @@ class SendDecision(NamedTuple):
     reason: str
 
 
+def _apart(a_c: float, b_c: float, threshold_c: float) -> bool:
+    """True if *a_c* and *b_c* are at least *threshold_c* apart.
+
+    Rounded to hundredths first: temperatures come in tenths, and binary
+    floats make an exact 0.3 K step (19.9 -> 19.6) 0.2999... apart.
+    """
+    return round(abs(a_c - b_c), 2) >= threshold_c
+
+
 def trv_drifted_setpoint(
     *,
     last_sent_c: float | None,
@@ -371,9 +380,9 @@ def decide_send(
             return SendDecision(False, rate_limited_reason)
         return SendDecision(True, "no_baseline")
 
-    at_baseline = abs(target_c - baseline_c) < min_change_c
-    drifted = not (
-        drifted_setpoint_c is None or abs(target_c - drifted_setpoint_c) < min_change_c
+    at_baseline = not _apart(target_c, baseline_c, min_change_c)
+    drifted = drifted_setpoint_c is not None and _apart(
+        target_c, drifted_setpoint_c, min_change_c
     )
 
     if at_baseline and not drifted:

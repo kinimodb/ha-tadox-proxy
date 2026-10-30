@@ -223,6 +223,17 @@ class TestDecideSend:
         )
         assert result == (True, "normal_update")
 
+    def test_a_step_of_exactly_the_threshold_is_sent(self):
+        """19.9 -> 19.6 is 0.3 K, although the float difference is 0.2999...
+
+        Seen in the field: the TRV kept 19.9 for 24 minutes while the
+        target stood at 19.6.
+        """
+        result = self._decide(
+            target_c=19.6, baseline_c=19.9, last_command_ts=self.NOW - 200.0
+        )
+        assert result == (True, "normal_update")
+
     def test_small_change_ignores_rate_limit_expiry(self):
         result = self._decide(target_c=20.2, last_command_ts=self.NOW - 10_000.0)
         assert result == (False, "already_at_target")
@@ -320,6 +331,16 @@ class TestDecideSend:
             False,
             "rate_limited(90s)",
         )
+
+    def test_a_drift_of_exactly_the_threshold_is_corrected(self):
+        """The TRV holds 19.9 where 19.6 belongs: 0.3 K, a correction."""
+        result = self._decide(
+            target_c=19.6,
+            baseline_c=19.6,
+            drifted_setpoint_c=19.9,
+            last_command_ts=self.NOW - 200.0,
+        )
+        assert result == (True, "trv_drift")
 
     def test_drift_keeps_the_overlay_refresh_from_resending_the_same_value(self):
         """A real correction is due, so it is not a refresh of the old value."""
