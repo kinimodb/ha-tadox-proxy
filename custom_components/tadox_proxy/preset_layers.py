@@ -587,8 +587,8 @@ class PresetLayers:
             return "presence_away"
         if timer_id == TIMER_HOME:
             # Only if the sensor still reports someone home: one that has
-            # dropped out (unavailable, unknown, gone) confirms nobody, so
-            # Away stays until a fresh "on" runs a new home delay.
+            # dropped out (unavailable, unknown, gone) does not confirm anyone
+            # home, so Away stays until a fresh "on" runs a new home delay.
             if self._presence_state == _ON:
                 self._nobody_home_holds = False
             return "presence_home"

@@ -419,7 +419,7 @@ class TestNobodyHome:
         assert effects.cycle is None
 
     def test_home_delay_acts_only_if_someone_is_still_reported_home(self):
-        """A sensor that dropped out confirms nobody: Away stays."""
+        """A sensor that dropped out does not confirm anyone home: Away stays."""
         for state in (UNAVAILABLE, "unknown", None):
             room = _room()
             _leave(room, T0)
