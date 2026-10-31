@@ -251,6 +251,11 @@ running:
 If the radiator thermostat does not respond when you turn it back on, the proxy stays
 on and tries again with its next temperature command.
 
+If the source radiator thermostat becomes `unavailable` or `unknown`, the proxy
+climate entity becomes unavailable too. Its requested mode and preset are retained;
+regulation pauses until the source returns. This is different from turning the
+heating off.
+
 ---
 
 ## Following the physical thermostat
