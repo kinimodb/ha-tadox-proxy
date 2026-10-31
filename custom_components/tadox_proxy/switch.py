@@ -70,7 +70,7 @@ class GuestModeSwitch(CoordinatorEntity, SwitchEntity):
 
     When on, the presence sensor reporting "nobody home" no longer switches
     to AWAY – the heating keeps running normally.  Turning it on while AWAY
-    is active restores the previous preset immediately.  Only has an effect
+    is active brings back the user choice immediately.  Only has an effect
     when a presence sensor is configured.
 
     The state lives in the climate entity (persisted across restarts via its

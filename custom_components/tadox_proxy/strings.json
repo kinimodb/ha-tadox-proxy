@@ -42,7 +42,7 @@
           "external_temperature_entity_id": "A temperature sensor placed in the room, away from the radiator. Use the same sensor for every entry belonging to that room.",
           "sensor_loss_action": "What happens once the grace period for a missing room sensor has expired: keep the last command on the TRV, regulate with a backup room sensor, or let the TRV regulate on its own. An open window (frost protection) and turning the heating off always take priority.",
           "backup_temperature_entity_id": "Only used with the backup room sensor action. Pick a different sensor than the external temperature sensor.",
-          "boost_duration": "How long boost mode stays active before returning to the previous preset."
+          "boost_duration": "How long a boost heats before your own choice comes back. Its time pauses while a window is open, nobody is home or the heating is off."
         },
         "sections": {
           "window_sensor": {
@@ -55,9 +55,9 @@
             },
             "data_description": {
               "window_sensor_id": "Binary sensor that detects an open window. When triggered, the thermostat switches to frost protection.",
-              "window_action": "Frost protection keeps the room at the frost protection temperature. Switch the TRV off turns it off completely. Either way the previous preset comes back when the window closes.",
+              "window_action": "Frost protection keeps the room at the frost protection temperature. Switch the TRV off turns it off completely. Either way your own choice comes back once the window has closed – or Away, if nobody is home.",
               "window_delay_s": "Delay before frost protection is activated after the window opens.",
-              "window_close_delay_s": "Delay before the previous preset is restored after the window closes."
+              "window_close_delay_s": "Wait after the window closes before your own choice comes back."
             }
           },
           "presence_sensor": {
@@ -68,9 +68,9 @@
               "presence_home_delay_s": "Home delay"
             },
             "data_description": {
-              "presence_sensor_id": "Binary sensor for presence detection. Switches to away mode when no presence is detected.",
-              "presence_away_delay_s": "Delay before switching to away mode after presence is lost.",
-              "presence_home_delay_s": "Delay before the previous preset is restored after presence is detected."
+              "presence_sensor_id": "Binary sensor that is on while somebody is home. When it reports nobody home, the room switches to Away.",
+              "presence_away_delay_s": "Wait after nobody is home any more before the room switches to Away.",
+              "presence_home_delay_s": "Wait after someone comes home before your own choice comes back."
             }
           },
           "pi_controller": {

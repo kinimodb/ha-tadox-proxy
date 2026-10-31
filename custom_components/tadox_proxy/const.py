@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import math
-from typing import Any
-
 from homeassistant.components.climate import (
     PRESET_AWAY,
     PRESET_BOOST,
@@ -87,29 +84,8 @@ LIVE_OPTION_KEYS = frozenset({
     CONF_FOLLOW_TADO_INPUT,
 })
 
-# Climate state attributes that are also read back on restart (RestoreEntity)
-ATTR_GUEST_MODE = "guest_mode"
-ATTR_MANUAL_TARGET = "manual_target_c"
-# Preset (and base target) an open window restores when it closes
-ATTR_WINDOW_RESTORE_PRESET = "window_restore_preset"
-ATTR_WINDOW_RESTORE_TARGET = "window_restore_target_c"
-# The window action switched the TRV off and it has not been switched on since
-ATTR_WINDOW_TRV_OFF = "window_trv_off"
-
-
-# ---------------------------------------------------------------------------
-# Shared utilities (used by climate.py, climate_presets.py, climate_regulation.py)
-# ---------------------------------------------------------------------------
-
-def safe_float(value: Any) -> float | None:
-    """Convert value to float, returning None for non-finite or unparseable values."""
-    if value is None:
-        return None
-    try:
-        f = float(value)
-    except (ValueError, TypeError):
-        return None
-    return f if math.isfinite(f) else None
+# The climate state attributes read back on restart are defined in
+# preset_layers, which owns that state.
 
 
 # Ordered list of presets shown in the UI.

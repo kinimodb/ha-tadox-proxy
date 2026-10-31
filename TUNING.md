@@ -190,7 +190,7 @@ These parameters can be adjusted in the options flow under "TRV Communication":
 | Parameter | Default | Range | Meaning |
 |-----------|---------|-------|---------|
 | `min_command_interval_s` | 180s | 60–600s | Minimum interval between commands (battery conservation) |
-| `min_change_threshold_c` | 0.3°C | 0.1–1.0°C | Only send when difference exceeds this value |
+| `min_change_threshold_c` | 0.3°C | 0.1–1.0°C | Only send when the difference is at least this value |
 | `overlay_refresh_s` | 0s | 0–3600s | Periodically resend setpoint to keep cloud overlays alive (0 = off) |
 
 ### Configurable Parameters (Options → Behaviour)

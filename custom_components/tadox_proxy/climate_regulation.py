@@ -9,13 +9,8 @@ import time
 from homeassistant.components.climate import HVACMode
 from homeassistant.exceptions import HomeAssistantError
 
-from .climate_controllers import (
-    CONTROL_TRV,
-    DEFAULT_WINDOW_ACTION,
-    decide_send,
-    trv_drifted_setpoint,
-)
-from .const import CONF_WINDOW_ACTION, PRESET_FROST_PROTECTION
+from .climate_controllers import CONTROL_TRV, decide_send, trv_drifted_setpoint
+from .const import PRESET_FROST_PROTECTION
 from .regulation import RegulationState
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,7 +91,7 @@ class RegulationMixin:
             room_temp_ts=self.coordinator.data.get("room_temp_ts"),
             backup_temp=self.coordinator.data.get("backup_room_temp"),
             tado_internal_c=tado_internal,
-            frost_protection=self._preset_mode == PRESET_FROST_PROTECTION,
+            frost_protection=self._layers.active_preset == PRESET_FROST_PROTECTION,
             trv_command_known=self._last_sent_setpoint is not None,
             now=now,
         )
@@ -186,24 +181,26 @@ class RegulationMixin:
     async def _async_switch_trv_for_window(self) -> bool:
         """Switch the TRV off for an open window, or on again once it closed.
 
-        Returns True while the TRV stays off for the open window.  If
-        switching off fails, frost protection takes over for the rest of this
-        window opening.
+        PresetLayers says what is due; this is the only place that sends
+        these commands, and it reports the outcome back.  Returns True while
+        the TRV stays off for the open window.  If switching off fails,
+        frost protection takes over for the rest of this window opening.
         """
-        window = self._window_ctrl
-        action = self._config_entry.options.get(CONF_WINDOW_ACTION, DEFAULT_WINDOW_ACTION)
-        if window.trv_off_due(action):
-            window.mark_trv_off()
+        layers = self._layers
+        if layers.valve_off_due:
+            # Reported before the command, so a window that closes meanwhile
+            # still gets the TRV switched on again.
+            self._apply_layer_effects(layers.valve_switched_off(time.time()))
             try:
                 await self._async_send_hvac_mode_to_tado(HVACMode.OFF)
             except (TimeoutError, HomeAssistantError):
                 _LOGGER.warning(
                     "Window open: switching the TRV off failed, using frost protection instead"
                 )
-                window.fail_trv_off()
+                self._apply_layer_effects(layers.valve_switch_off_failed(time.time()))
             else:
                 _LOGGER.info("Window open: TRV switched off")
-        if window.trv_on_due():
+        if layers.valve_on_due:
             # Also covers a window that closed while the off command was in
             # flight.  If this fails, the setpoint command (hvac_mode=heat)
             # of this cycle retries it.
@@ -213,7 +210,7 @@ class RegulationMixin:
                 _LOGGER.warning(
                     "Window closed: switching the TRV on failed, retrying via setpoint command"
                 )
-        return window.trv_off and window.is_active
+        return layers.valve_held_off
 
     async def _async_send_hvac_mode_to_tado(self, mode: HVACMode) -> None:
         """Forward an HVAC mode change to the source Tado entity."""
@@ -240,7 +237,7 @@ class RegulationMixin:
             else:
                 # Any heat command switches the TRV on, also one the window
                 # action had switched off.
-                self._window_ctrl.mark_trv_on()
+                self._apply_layer_effects(self._layers.heat_command_sent(time.time()))
         except (TimeoutError, HomeAssistantError):
             _LOGGER.exception("Failed to send HVAC mode to Tado")
             raise
@@ -270,7 +267,8 @@ class RegulationMixin:
                     blocking=True,
                 )
             self._last_sent_setpoint = target_c
-            self._window_ctrl.mark_trv_on()
+            # Every setpoint command carries hvac_mode=heat.
+            self._apply_layer_effects(self._layers.heat_command_sent(time.time()))
         except (TimeoutError, HomeAssistantError):
             _LOGGER.exception("Failed to send command to Tado")
             return False

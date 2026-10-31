@@ -1,8 +1,7 @@
-"""Turning the proxy off while a window holds (or is about to hold) frost protection."""
+"""Turning the proxy off: window and presence detection keep running, a boost pauses."""
 from __future__ import annotations
 
 from homeassistant.components.climate import (
-    PRESET_AWAY,
     PRESET_BOOST,
     PRESET_COMFORT,
     PRESET_ECO,
@@ -22,8 +21,10 @@ from .helpers import (
     trv_rejects,
 )
 
+BOOST_DURATION_MIN = 10
 
-async def test_turning_off_ends_frost_protection_with_the_saved_preset(hass, freezer):
+
+async def test_turning_off_leaves_an_open_window_in_charge(hass, freezer):
     proxy = await async_setup_proxy(hass)
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
     await async_open_window(hass, freezer)
@@ -31,35 +32,53 @@ async def test_turning_off_ends_frost_protection_with_the_saved_preset(hass, fre
     await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
 
     assert proxy.state.state == HVACMode.OFF
+    assert proxy.preset == PRESET_FROST_PROTECTION
+    assert proxy.target == 5.0
+    assert proxy.state.attributes["window_open_active"] is True
+    assert proxy.state.attributes["user_preset"] == PRESET_ECO
+
+
+async def test_turning_back_on_with_the_window_still_open_goes_straight_to_frost_protection(
+    hass, freezer
+):
+    """No new open delay: the room does not heat into the open window."""
+    proxy = await async_setup_proxy(hass)
+    await async_open_window(hass, freezer)
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.HEAT)
+
+    assert proxy.preset == PRESET_FROST_PROTECTION
+    assert proxy.target == 7.0
+
+
+async def test_window_opened_while_off_holds_after_the_open_delay(hass, freezer):
+    proxy = await async_setup_proxy(hass)
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+
+    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
+    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+
+    assert proxy.preset == PRESET_FROST_PROTECTION
+    assert proxy.state.attributes["window_open_active"] is True
+
+
+async def test_window_closing_while_off_ends_its_layer_after_the_close_delay(hass, freezer):
+    proxy = await async_setup_proxy(hass)
+    await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
+    await async_open_window(hass, freezer)
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+
+    await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
+    await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)
+
+    assert proxy.state.state == HVACMode.OFF
     assert proxy.preset == PRESET_ECO
     assert proxy.state.attributes["window_open_active"] is False
 
 
-async def test_turning_off_brings_back_comfort_for_away_when_someone_is_home(hass, freezer):
-    """The same rule as when the window closes."""
-    proxy = await async_setup_proxy(hass)
-    await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_AWAY)
-    await async_open_window(hass, freezer)
-
-    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
-
-    assert proxy.preset == PRESET_COMFORT
-
-
-async def test_turning_off_brings_back_comfort_for_a_boost(hass, freezer):
-    """A boost would run out while the heating is off."""
-    proxy = await async_setup_proxy(hass)
-    await async_open_window(hass, freezer)
-    await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_BOOST)
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_BOOST
-
-    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
-
-    assert proxy.preset == PRESET_COMFORT
-
-
 async def test_window_keeps_frost_protection_when_the_trv_does_not_switch_off(hass, freezer):
-    """No heating into the open window: it stays in charge until the TRV is off."""
+    """A failed attempt changes nothing at all."""
     proxy = await async_setup_proxy(hass)
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
     await async_open_window(hass, freezer)
@@ -71,36 +90,32 @@ async def test_window_keeps_frost_protection_when_the_trv_does_not_switch_off(ha
     assert proxy.state.attributes["regulation_reason"] == "hvac_off_failed"
     assert proxy.preset == PRESET_FROST_PROTECTION
     assert proxy.state.attributes["window_open_active"] is True
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_ECO
+    assert proxy.state.attributes["user_preset"] == PRESET_ECO
 
 
-async def test_turning_off_during_the_open_delay_ends_the_window_detection(hass, freezer):
-    """Turning back on checks the window again."""
-    proxy = await async_setup_proxy(hass)
-    await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
+async def test_boost_pauses_while_the_heating_is_off(hass, freezer):
+    proxy = await async_setup_proxy(hass, options={"boost_duration": BOOST_DURATION_MIN})
+    await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_BOOST)
+    await async_advance(hass, freezer, 4 * 60)
 
     await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
-
-    assert proxy.preset == PRESET_COMFORT
-    assert proxy.state.attributes["window_open_active"] is False
+    await async_advance(hass, freezer, 2 * BOOST_DURATION_MIN * 60)
+    assert proxy.preset == PRESET_BOOST
 
     await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.HEAT)
-    await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
+    await async_advance(hass, freezer, 5 * 60)
+    assert proxy.preset == PRESET_BOOST
 
-    assert proxy.preset == PRESET_FROST_PROTECTION
+    await async_advance(hass, freezer, 60 + 1)
+    assert proxy.preset == PRESET_COMFORT
 
 
-async def test_window_closing_while_off_brings_back_comfort_for_a_boost(hass, freezer):
-    """No boost timer starts while the heating is off."""
-    proxy = await async_setup_proxy(hass)
-    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
-    await async_open_window(hass, freezer)
+async def test_failed_turn_off_does_not_pause_the_boost(hass, freezer):
+    proxy = await async_setup_proxy(hass, options={"boost_duration": BOOST_DURATION_MIN})
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_BOOST)
-    assert proxy.state.attributes["window_restore_preset"] == PRESET_BOOST
 
-    await async_set_state(hass, WINDOW_SENSOR, STATE_OFF)
-    await async_advance(hass, freezer, WINDOW_CLOSE_DELAY_S + 1)
+    with trv_rejects("set_hvac_mode"):
+        await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+    await async_advance(hass, freezer, BOOST_DURATION_MIN * 60 + 1)
 
-    assert proxy.state.state == HVACMode.OFF
     assert proxy.preset == PRESET_COMFORT

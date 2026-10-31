@@ -30,7 +30,7 @@ Everything you can see, switch, and adjust — looked up rather than read start 
 |---|---|---|
 | **Comfort** | 20.0 °C | Your normal temperature |
 | **Eco** | 17.0 °C | Saving energy |
-| **Boost** | 25.0 °C | A short burst of heat. Reverts by itself after 30 minutes |
+| **Boost** | 25.0 °C | A short burst of heat for 30 minutes, then your own preset is back |
 | **Away** | 17.0 °C | Nobody home |
 | **Frost Protection** | 7.0 °C | Just enough to stop pipes freezing |
 | **Manual** | — | You picked a temperature yourself, no preset active |
@@ -43,6 +43,47 @@ or an away phase.
 
 Moving the temperature slider without picking a preset switches to **Manual**. Your
 stored Comfort temperature is left alone, so you can always get back to it.
+
+### Your choice, and what can take over
+
+The preset you pick (or the temperature you set) is **your choice**. The room
+remembers it. Three things can take over the room for a while:
+
+1. **An open window** – Frost Protection (see [window detection](#window-detection))
+2. **Nobody home** – Away (see [presence detection](#presence-detection))
+3. **A boost** – Boost (see [boost](#boost))
+
+They rank in this order: an open window beats nobody home, and nobody home beats a
+boost. Whatever ranks highest decides the preset you see. None of them changes your
+choice. Once they let go, your choice is back – after airing, after coming home,
+after a boost and after a restart.
+
+- **A change while something has taken over** becomes your new choice right away. You
+  see it once the room is free again, so you never have to repeat it.
+- **Tapping the preset that is forced right now** (Away while nobody is home, Frost
+  Protection while a window is open) does not become your choice. Confirming what you
+  see does not leave the room cold later. It does end a running boost, though:
+  tapping any preset ends one.
+- **Away or Frost Protection picked by hand** is your choice like any other preset. It
+  stays after airing.
+
+The attribute `user_preset` on the climate entity shows your choice at any time.
+
+### Boost
+
+- Picking Boost heats at the boost temperature for the boost time (default 30
+  minutes). Then your own choice is back – a boost started from Eco goes back to Eco.
+- The time only counts down while the boost is what heats the room. An open window,
+  nobody home or heating that is off **pauses** it. Afterwards it continues with the
+  time that was left. `sensor.<name>_boost_remaining` stands still meanwhile.
+- A boost picked while a window is open, nobody is home or the heating is off waits
+  and then runs its full time.
+- Picking Boost again during a boost starts its full time again. Picking another
+  preset or setting a temperature ends it.
+- **Boost while nobody is home:** it waits until someone comes home. To warm the
+  house before you arrive, turn [guest mode](#guest-mode) on. Without a presence
+  sensor there is nothing to wait for, and a boost heats right away.
+- A boost does not survive a Home Assistant restart. Your own choice comes back.
 
 ---
 
@@ -66,16 +107,16 @@ Each entry creates:
 |---|---|
 | `climate.<name>` | The thermostat you actually use |
 | `number.<name>_comfort_temperature` | What Comfort means, and one of these per preset |
-| `sensor.<name>_boost_remaining` | Minutes of boost left. Shows 0 when boost is off |
+| `sensor.<name>_boost_remaining` | Minutes of boost left. Stands still while the boost is paused, 0 without a boost |
 | `binary_sensor.<name>_sensor_degraded` | Turns on when your room sensor stops reporting |
 | `switch.<name>_follow_physical_thermostat` | Off by default, see [below](#following-the-physical-thermostat) |
 | `switch.<name>_guest_mode` | Off by default, see [guest mode](#guest-mode) |
 
 The `sensor_degraded` entity is worth putting on a dashboard or wiring to a
 notification — a dead room sensor is the one failure that quietly ruins the
-temperature in a room. It carries extra attributes: `last_valid_reading`,
-`last_valid_age_s`, `grace_period_s` and `active_control_mode` (see
-[when the sensor drops out](#when-the-sensor-drops-out)).
+temperature in a room. It carries extra attributes: `grace_period_s` and
+`active_control_mode`, and while the sensor is missing also `last_valid_reading`
+and `last_valid_age_s` (see [when the sensor drops out](#when-the-sensor-drops-out)).
 
 ---
 
@@ -83,7 +124,8 @@ temperature in a room. It carries extra attributes: `last_valid_reading`,
 
 Both are optional. Configure them under
 **Settings → Devices & Services → Tado X Proxy → Configure**. They work
-independently and can both be active at once.
+independently and can both be active at once. They keep working while the
+thermostat is [off](#turning-the-thermostat-off).
 
 ### Window detection
 
@@ -96,17 +138,24 @@ Point it at a window contact (`binary_sensor.*`).
   **Switch the TRV off**, the TRV is switched off completely instead. The room still
   shows Frost Protection, and its action shows Off. If the TRV cannot be switched
   off, frost protection takes over until the window opens again.
-- **Window closes:** after a delay (default 120 s), the previous preset comes back.
-  This delay is intentional — it stops the radiator from firing hard the instant you
-  shut the window, while the room air is still cold from the draught.
-- If the window shuts again before the first delay is up, nothing happens at all.
-- **Changes while the window is open:** the room stays in Frost Protection. If you
-  pick another preset or temperature in the meantime, that is what comes back when
-  the window closes — not the one from before the window opened. If nobody is home,
-  Away comes back instead (see [Presence detection](#presence-detection)).
-- A preset or temperature change during the close delay ends the wait and takes
-  effect right away. If nobody is home (presence detection has the room in Away),
-  the room goes back to Away instead, and your change comes back when someone
+- **Window closes:** after a delay (default 120 s), your own choice comes back – or
+  Away, if nobody is home. This delay is intentional — it stops the radiator from
+  firing hard the instant you shut the window, while the room air is still cold from
+  the draught.
+- If the window shuts again before the first delay is up, nothing happens at all. If
+  it opens again during the close delay, Frost Protection simply goes on, without a
+  new open delay.
+- **Changes while the window is open:** the room stays in Frost Protection. A preset
+  or temperature you pick meanwhile is your new choice and applies once the window
+  closes.
+- **The card shows the frost protection target meanwhile.** Tapping **+** starts from
+  there: with the default 7 °C, one tap makes Manual 7.5 °C your choice – and that is
+  what you get once the window has closed. To have a warm room again, pick a preset or set the temperature
+  you actually want.
+- **Any change during the close delay** ends the wait and takes effect right away –
+  you are obviously back in the room. Tapping Frost Protection counts too: the wait is
+  over, so it is a real choice and the room stays in Frost Protection. If nobody is
+  home, the room goes back to Away instead, and your change applies when someone
   returns.
 
 ### Presence detection
@@ -114,39 +163,44 @@ Point it at a window contact (`binary_sensor.*`).
 Point it at a presence sensor or person tracker (`binary_sensor.*`).
 
 - **Nobody home:** after a delay (default 10 minutes), the room switches to Away.
-- **Someone returns:** after a delay (default 30 s), the previous preset comes back.
-- **Changes while nobody is home:** the room stays in Away. If you pick another preset
-  or temperature in the meantime, that is what comes back when someone returns. This
-  also holds while a window is open: once it closes, the room goes back to Away.
+- **Someone returns:** after a delay (default 30 s), your own choice comes back.
+- **Nobody home again during that delay:** the return is off, Away stays.
+- **Changes while nobody is home:** the room stays in Away. A preset or temperature
+  you pick meanwhile is your new choice and applies once someone returns. This also
+  holds while a window is open: once it closes, the room goes back to Away.
+- A presence sensor that is `unavailable` or `unknown` does not count as someone
+  home. If it drops out while the home delay runs and is still out when the delay
+  ends, Away stays until it reports someone home again and the delay has run once
+  more. To heat in the meantime, switch [guest mode](#guest-mode) on.
 
 ### What counts as a change
 
 Only a real switch between on and off counts. Many Zigbee sensors re-send their
 battery level or signal strength every few minutes; those updates do not restart the
 delays. A sensor that briefly drops out (`unavailable`) and comes back does not restart a
-running delay, and it does not overwrite the preset that will be restored.
+running delay, and it does not change what comes back afterwards.
 
 ### After a Home Assistant restart
 
-The preset that was active before a window opened survives a restart, and a reload
-after you change the settings:
+Your own choice survives a restart, and a reload after you change the settings,
+whatever had taken over the room – including a Manual temperature. A running boost
+does not survive; your own choice comes back.
 
 - **Window still open:** frost protection (or the switched-off TRV) simply goes on,
-  without a new open delay. Closing the window brings back the saved preset.
+  without a new open delay. Closing the window brings back your choice.
 - **Window sensor not back yet:** many Zigbee sensors report a little later than the
   integration starts. Until the sensor reports, frost protection goes on, just as when
   a sensor drops out while the window is open.
-- **Window closed in the meantime:** the saved preset comes back right away, and a TRV
-  the window had switched off is switched on again. This also covers a restart during
-  the close delay.
+- **Window closed in the meantime:** your choice comes back right away, and a TRV the
+  window had switched off is switched on again. This also covers a restart during the
+  close delay.
 - **Window opened while Home Assistant was down:** the normal open delay starts.
-
-The attributes `window_restore_preset` and `window_restore_target_c` on the climate
-entity show what comes back when the window closes.
-
-Presence detection does not remember the preset from before everybody left. If Home
-Assistant restarts while the room is in Away, coming home brings back **Comfort**. A
-running boost does not survive a restart either; the room goes back to Comfort.
+- **Away before the restart:** Away goes on without a new away delay while nobody is
+  home, or while the presence sensor has not reported yet. Coming home brings back
+  your choice. If someone came home while Home Assistant was down, your choice comes
+  back right away.
+- **Nobody home, but no Away before the restart:** the normal away delay starts.
+- **Guest mode** keeps its state.
 
 ---
 
@@ -159,7 +213,10 @@ You are away, but guests are staying at your place. Your presence sensor says
 heating keeps running as usual. Put the switch on a dashboard to flip it with one tap.
 
 - **Turning it on:** the presence sensor no longer switches the room to Away. If the
-  room is already in Away, the previous preset comes back immediately.
+  room is already in Away, your own choice comes back immediately.
+- **Warming the house before you get home:** a boost picked while nobody is home
+  waits until someone returns. Turn guest mode on first, then the boost heats right
+  away.
 - **Turning it off:** presence detection works normally again. If nobody is home at
   that moment, the room drops to Away after the usual delay (default 10 minutes).
 - Presets, the temperature slider and window detection keep working as usual.
@@ -174,17 +231,25 @@ Switching the proxy to **OFF** passes the off command straight through to the re
 Tado X radiator thermostat.
 
 If that command fails — the radiator thermostat is unreachable, for instance — the
-proxy goes back to the mode it was in, and an open window keeps its frost
-protection. This keeps what you see in Home Assistant honest about what the hardware
-is actually doing.
+proxy goes back to the mode it was in and nothing else changes: an open window keeps
+its frost protection and a boost keeps running. This keeps what you see in Home
+Assistant honest about what the hardware is actually doing.
 
-While off, the proxy shows a target of 5 °C. Turning it off while a window is open
-ends the window detection for that window: the preset that would have come back when
-the window closed comes back right away. A boost comes back as Comfort, because it
-would run out while the heating is off; the same applies when a window closes while
-the heating is off. Turning it back on checks the window again. If the radiator
-thermostat does not respond when you turn it back on, the proxy stays on and tries
-again with its next temperature command.
+While off, the proxy shows a target of 5 °C. Window and presence detection keep
+running:
+
+- The preset shows what will hold the room once the heating is back on: Frost
+  Protection while a window is open, Away while nobody is home.
+- A window that closes while the heating is off lets go after the usual close delay.
+- Turning back on with a window still open goes straight to Frost Protection – no new
+  open delay, no heating into the open window. With the window action **Switch the
+  TRV off**, the TRV simply stays off. It is never switched on while the heating is
+  off, even if the window closes meanwhile.
+- A boost pauses while the heating is off and continues with the time that was left
+  once you turn it back on. A boost picked while off starts with its full time then.
+
+If the radiator thermostat does not respond when you turn it back on, the proxy stays
+on and tries again with its next temperature command.
 
 ---
 
@@ -193,8 +258,11 @@ again with its next temperature command.
 `switch.<name>_follow_physical_thermostat`, **off by default**.
 
 Turn it on if you want to be able to walk up to the radiator, turn the dial, and have
-the proxy accept that as your decision. The proxy then switches to the **Manual**
-preset and holds your temperature instead of overwriting it.
+the proxy accept that as your decision. Turning the dial counts exactly like setting
+the temperature in the app: the proxy switches to the **Manual** preset and holds your
+temperature instead of overwriting it. It ends a running boost and a running close
+delay. While a window is open or nobody is home, your temperature is kept as your
+choice and applies once the room is free again.
 
 The integration distinguishes your hand from its own commands by how far the new
 value sits from what it last sent — more than 0.5 °C (adjustable) counts as you.
@@ -319,7 +387,7 @@ overlay never runs out. Over Matter there is no timer — leave it at 0.
 | Sensor grace period | 300 s | 0–1800 s | How long to keep using the last reading when the sensor is missing |
 | Follow-tado threshold | 0.5 °C | 0.1–2.0 °C | How far a change must be from the last sent value to count as a human turning the dial |
 | Follow-tado grace period | 20 s | 5–120 s | Ignore changes on the Tado for this long after sending a command, so it does not mistake its own command for you |
-| Urgent decrease threshold | 1.0 °C | 0.5–3.0 °C | Skip the waiting period when the temperature needs to drop by at least this much |
+| Urgent decrease threshold | 1.0 °C | 0.5–3.0 °C | Skip the waiting period when the temperature needs to drop by more than this much |
 
 ---
 
@@ -339,11 +407,13 @@ something is wrong or when you are curious what the integration is thinking.
 | `error_c` | The gap between target and actual room temperature |
 | `target_for_tado_c` | The number actually sent to the Tado |
 | `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
-| `window_open_active` | Window detection has taken over |
+| `user_preset` | Your own choice – what comes back once nothing else holds the room. `none` means Manual |
+| `manual_target_c` | The temperature of Manual. Shown whenever your choice is Manual, also while something else holds the room |
+| `window_open_active` | An open window holds the room, including the close delay. Also while the heating is off |
 | `window_close_delay_active` | Waiting after a window closed |
-| `presence_away_active` | Presence detection has taken over |
+| `window_trv_off` | The window action switched the TRV off, and it has not heated since. True while the window holds the room, including the close delay; gone once the TRV is switched on again |
+| `presence_away_active` | Nobody home holds the room. Also while the heating is off |
 | `guest_mode` | Guest mode is on, presence detection will not switch to Away |
-| `manual_target_c` | The temperature of the Manual preset. Only shown while Manual is active |
 | `sensor_degraded` | Room sensor missing, running on the last reading |
 | `active_control_mode` | What controls the TRV right now: `room_sensor`, `backup_sensor`, `trv` or `hold`. See [when the sensor drops out](#when-the-sensor-drops-out) |
 | `overlay_refresh_s` | The configured overlay refresh interval. 0 means off |

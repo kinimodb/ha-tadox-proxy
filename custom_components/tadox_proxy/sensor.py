@@ -28,8 +28,8 @@ async def async_setup_entry(
 class TadoXProxyBoostTimerSensor(CoordinatorEntity, SensorEntity):
     """Sensor showing remaining boost timer minutes.
 
-    Reports 0 when boost is not active, otherwise the remaining
-    minutes rounded up to the next whole minute.
+    Reports 0 without a boost, otherwise the remaining minutes rounded up
+    to the next whole minute.  Stands still while the boost is paused.
     """
 
     _attr_has_entity_name = True
