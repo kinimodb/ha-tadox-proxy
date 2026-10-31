@@ -17,6 +17,7 @@ async def _async_submit_options_flow(hass, entry, *, window_delay_s: int) -> Non
     user_input: dict[str, Any] = {
         "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_delay_s": window_delay_s},
         "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
+        "manual_mode": {},
         "pi_controller": {},
         "gain_scheduling": {},
         "trv_communication": {},
@@ -38,6 +39,16 @@ async def test_number_change_during_boost_does_not_reload(hass):
     assert proxy.entry.options["eco_target"] == 16.0
     # A reload would have ended the boost.
     assert proxy.preset == PRESET_BOOST
+
+
+async def test_manual_options_are_in_their_collapsed_section(hass):
+    proxy = await async_setup_proxy(hass)
+    result = await hass.config_entries.options.async_init(proxy.entry.entry_id)
+    names = {str(key) for key in result["data_schema"].schema}
+
+    assert "manual_mode" in names
+    assert "manual_mode_action" not in names
+    assert "manual_mode_duration_min" not in names
 
 
 async def test_comfort_number_change_applies_live(hass):

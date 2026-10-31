@@ -306,6 +306,7 @@ async def test_user_choice_survives_an_options_reload_with_an_open_window(hass, 
         {
             "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
             "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
+            "manual_mode": {},
             "pi_controller": {},
             "gain_scheduling": {},
             "trv_communication": {},
