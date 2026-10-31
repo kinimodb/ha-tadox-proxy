@@ -298,7 +298,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         if tado_sp is not None and self._last_sent_setpoint is None:
             self._last_sent_setpoint = tado_sp
 
-        # Config entry update listener (from number/switch entities)
+        # Config entry update listener (number/switch entities and the
+        # options dialog)
         self.async_on_remove(
             self._config_entry.add_update_listener(self._async_config_entry_updated)
         )

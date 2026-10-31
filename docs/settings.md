@@ -343,6 +343,11 @@ that an automation switches on and off. This sensor gives you that signal. It is
 - It is always **off** while the thermostat is off, and while
   `binary_sensor.<name>_sensor_degraded` is on. A missing room sensor should not
   keep your boiler running.
+- It is also **off** while the integration does not regulate the room. Its
+  attribute `error_c` is then empty. This happens for up to a minute after Home
+  Assistant starts or the integration reloads. It also happens while the radiator
+  thermostat does not report, before the room sensor reports for the first time,
+  and while an open window has switched the radiator thermostat off.
 
 Its attribute `error_c` shows the gap the sensor follows: the target minus the room
 temperature, the same value as on the climate entity. It is empty while the
@@ -371,9 +376,11 @@ sensor**:
 The switch-on value must be higher than the switch-off value. Changes apply right
 away.
 
-Do not set the switch-off value above 0. The boiler would then stop while the room is
-still below its target, and the room would never quite get there. A value below 0
-keeps the boiler running until the room is that much above its target.
+A switch-off value above 0 turns the sensor off a little before the room reaches its
+target. This can suit a heavy radiator, for example a cast-iron one, that keeps
+heating for a while after the boiler stops. Its stored heat brings the room the rest
+of the way. If you set the value too high, the room stays below its target. A value
+below 0 keeps the boiler running until the room is that much above its target.
 
 ---
 

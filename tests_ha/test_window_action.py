@@ -13,6 +13,7 @@ from homeassistant.const import STATE_OFF
 from homeassistant.data_entry_flow import FlowResultType
 
 from .helpers import (
+    CONTROL_INTERVAL_S,
     PRESENCE_AWAY_DELAY_S,
     PRESENCE_SENSOR,
     PRESET_FROST_PROTECTION,
@@ -22,12 +23,11 @@ from .helpers import (
     async_open_window,
     async_set_state,
     async_setup_proxy,
+    async_submit_options,
     trv_rejects,
 )
 
 OFF_ACTION = {"window_action": "off"}
-# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
-CONTROL_INTERVAL_S = 60
 
 
 async def test_open_window_switches_the_trv_off(hass, freezer):
@@ -175,20 +175,9 @@ async def test_frost_protection_stays_the_default(hass, freezer):
 async def test_window_action_is_set_in_the_options(hass):
     proxy = await async_setup_proxy(hass)
 
-    result = await hass.config_entries.options.async_init(proxy.entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_action": "off"},
-            "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
-            "needs_heat": {},
-            "pi_controller": {},
-            "gain_scheduling": {},
-            "trv_communication": {},
-            "behaviour": {},
-        },
+    result = await async_submit_options(
+        hass, proxy.entry, window_sensor={"window_action": "off"}
     )
-    await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert proxy.entry.options["window_action"] == "off"

@@ -119,12 +119,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 7. Load the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # 8. Reload integration when options change via the options flow.
-    # This listener fires AFTER HA has persisted the new options, so the
-    # reload always sees the up-to-date values.  Options written at runtime
-    # by number/switch entities (LIVE_OPTION_KEYS) are applied live by the
-    # climate entity and must not reload – compare against a snapshot of the
-    # reload-relevant options taken at setup.
+    # 8. Reload the integration when an option changes that the climate
+    # entity does not apply live.  The live ones are LIVE_OPTION_KEYS
+    # (const.py): they come from the number/switch entities and, for the
+    # needs-heat thresholds, from the options dialog – so a dialog save that
+    # changes only those does not reload.  This listener fires AFTER HA has
+    # persisted the new options, so the reload always sees the up-to-date
+    # values.  Compare against a snapshot of the other options taken at setup.
     reload_snapshot = _reload_relevant_options(entry.options)
 
     async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -18,6 +18,7 @@ from pytest_homeassistant_custom_component.common import mock_restore_cache
 
 from .helpers import (
     CLIMATE,
+    CONTROL_INTERVAL_S,
     PRESENCE_HOME_DELAY_S,
     PRESENCE_SENSOR,
     PRESET_FROST_PROTECTION,
@@ -26,6 +27,7 @@ from .helpers import (
     async_advance,
     async_set_state,
     async_setup_proxy,
+    async_submit_options,
 )
 
 # PresetConfig.comfort_target_c – used when no comfort_target option is stored.
@@ -34,8 +36,6 @@ DEFAULT_COMFORT_C = 20.0
 FROST_C = 7.0
 # window_close_delay_s as set in BASE_OPTIONS
 WINDOW_CLOSE_DELAY_S = 120
-# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
-CONTROL_INTERVAL_S = 60
 
 
 def _window_frost_state(restore_preset: str, restore_target_c: float, **extra: Any) -> State:
@@ -275,20 +275,7 @@ async def test_user_choice_survives_an_options_reload_with_an_open_window(hass, 
     await async_set_state(hass, WINDOW_SENSOR, STATE_ON)
     await async_advance(hass, freezer, WINDOW_DELAY_S + 1)
 
-    result = await hass.config_entries.options.async_init(proxy.entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
-            "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
-            "needs_heat": {},
-            "pi_controller": {},
-            "gain_scheduling": {},
-            "trv_communication": {},
-            "behaviour": {},
-        },
-    )
-    await hass.async_block_till_done()
+    result = await async_submit_options(hass, proxy.entry)
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
     assert proxy.preset == PRESET_FROST_PROTECTION

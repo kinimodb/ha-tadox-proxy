@@ -166,8 +166,10 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
             merged.update(cleaned)
             errors = {**_validate_sensor_loss(merged), **_validate_needs_heat(merged)}
             if not errors:
-                # Reload is triggered by the update_listener in __init__.py
-                # AFTER HA has persisted the new options, avoiding stale data.
+                # A reload, when one is needed, is triggered by the
+                # update_listener in __init__.py AFTER HA has persisted the
+                # new options, avoiding stale data.  Options in
+                # LIVE_OPTION_KEYS (const.py) apply without one.
                 return self.async_create_entry(title="", data=merged)
             # Show the form again with the values just entered.
             return self.async_show_form(

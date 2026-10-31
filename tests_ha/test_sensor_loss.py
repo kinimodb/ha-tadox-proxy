@@ -8,19 +8,19 @@ from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.data_entry_flow import FlowResultType
 
 from .helpers import (
+    CONTROL_INTERVAL_S,
     DOMAIN,
-    PRESENCE_SENSOR,
     ROOM_SENSOR,
+    TEMPERATURE,
     TRV,
     WINDOW_DELAY_S,
     WINDOW_SENSOR,
     async_advance,
     async_set_state,
     async_setup_proxy,
+    async_submit_options,
 )
 
-# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
-CONTROL_INTERVAL_S = 60
 # DEFAULT_SENSOR_GRACE_S – how long the last valid room reading is used.
 SENSOR_GRACE_S = 300
 # PresetConfig defaults
@@ -32,7 +32,6 @@ WINDOW_CLOSE_DELAY_S = 120
 MIN_COMMAND_INTERVAL_S = 180
 
 BACKUP_SENSOR = "sensor.backup"
-TEMPERATURE = {"device_class": "temperature", "unit_of_measurement": "°C"}
 
 REGULATION_ATTRS = ("error_c", "target_for_tado_c")
 
@@ -221,28 +220,11 @@ async def test_new_entry_lets_trv_regulate(hass):
     assert result["data"]["sensor_loss_action"] == "trv"
 
 
-async def _async_submit_sensor_loss_options(hass, entry, **top_level: Any):
-    """Save the options dialog with the given top-level fields."""
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
-    user_input: dict[str, Any] = {
-        **top_level,
-        "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
-        "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
-        "needs_heat": {},
-        "pi_controller": {},
-        "gain_scheduling": {},
-        "trv_communication": {},
-        "behaviour": {},
-    }
-    return await hass.config_entries.options.async_configure(result["flow_id"], user_input)
-
-
 async def test_backup_action_requires_backup_sensor(hass):
     proxy = await async_setup_proxy(hass)
 
-    result = await _async_submit_sensor_loss_options(
-        hass, proxy.entry, sensor_loss_action="backup_sensor"
+    result = await async_submit_options(
+        hass, proxy.entry, top_level={"sensor_loss_action": "backup_sensor"}
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -253,11 +235,13 @@ async def test_backup_action_requires_backup_sensor(hass):
 async def test_backup_sensor_must_differ_from_room_sensor(hass):
     proxy = await async_setup_proxy(hass)
 
-    result = await _async_submit_sensor_loss_options(
+    result = await async_submit_options(
         hass,
         proxy.entry,
-        sensor_loss_action="backup_sensor",
-        backup_temperature_entity_id=ROOM_SENSOR,
+        top_level={
+            "sensor_loss_action": "backup_sensor",
+            "backup_temperature_entity_id": ROOM_SENSOR,
+        },
     )
 
     assert result["type"] is FlowResultType.FORM
@@ -268,13 +252,14 @@ async def test_backup_action_is_saved(hass):
     hass.states.async_set(BACKUP_SENSOR, "18.0", TEMPERATURE)
     proxy = await async_setup_proxy(hass)
 
-    result = await _async_submit_sensor_loss_options(
+    result = await async_submit_options(
         hass,
         proxy.entry,
-        sensor_loss_action="backup_sensor",
-        backup_temperature_entity_id=BACKUP_SENSOR,
+        top_level={
+            "sensor_loss_action": "backup_sensor",
+            "backup_temperature_entity_id": BACKUP_SENSOR,
+        },
     )
-    await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert proxy.entry.options["sensor_loss_action"] == "backup_sensor"

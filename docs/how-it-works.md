@@ -376,7 +376,7 @@ Assistant dependencies so it can be read and tested on its own:
 | `custom_components/tadox_proxy/regulation.py` | The entire control loop, ~200 lines |
 | `custom_components/tadox_proxy/parameters.py` | Every default value, with rationale |
 | `custom_components/tadox_proxy/preset_layers.py` | Which preset the room runs: the user choice, the window, nobody-home and boost layers, their delays, restart and the window's "off" action |
-| `custom_components/tadox_proxy/climate_controllers.py` | Follow detection; sensor grace period and sensor-loss action; when a command is sent (rate limiting); preset targets |
+| `custom_components/tadox_proxy/climate_controllers.py` | Follow detection; sensor grace period and sensor-loss action; when a command is sent (rate limiting); preset targets; needs heat for a boiler (hysteresis on `error_c`) |
 | `tests/` | Test suite, runnable without Home Assistant |
 | `tests_ha/` | Integration tests against a real Home Assistant core (Linux/macOS) |
 

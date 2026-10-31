@@ -1,31 +1,24 @@
-"""Option changes: number entities apply live, the options flow reloads."""
+"""Option changes: number entities apply live, other options-flow changes reload.
+
+The needs-heat thresholds apply live from the options flow too; see
+test_needs_heat.py.
+"""
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import patch
 
 from homeassistant.components.climate import PRESET_BOOST
 from homeassistant.data_entry_flow import FlowResultType
 
-from .helpers import PRESENCE_SENSOR, WINDOW_DELAY_S, WINDOW_SENSOR, async_setup_proxy
+from .helpers import WINDOW_DELAY_S, async_setup_proxy, async_submit_options
 
 
 async def _async_submit_options_flow(hass, entry, *, window_delay_s: int) -> None:
     """Save the options dialog, changing only the window delay."""
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
-    user_input: dict[str, Any] = {
-        "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_delay_s": window_delay_s},
-        "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
-        "needs_heat": {},
-        "pi_controller": {},
-        "gain_scheduling": {},
-        "trv_communication": {},
-        "behaviour": {},
-    }
-    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input)
+    result = await async_submit_options(
+        hass, entry, window_sensor={"window_delay_s": window_delay_s}
+    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    await hass.async_block_till_done()
 
 
 async def test_number_change_during_boost_does_not_reload(hass):

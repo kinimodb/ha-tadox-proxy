@@ -11,6 +11,7 @@ from unittest.mock import patch
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import EVENT_CALL_SERVICE, STATE_ON
 from homeassistant.core import Event, HomeAssistant, ServiceRegistry, State, callback
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
@@ -38,6 +39,23 @@ PRESENCE_AWAY_DELAY_S = 60
 PRESENCE_HOME_DELAY_S = 30
 WINDOW_DELAY_S = 30
 WINDOW_CLOSE_DELAY_S = 120
+
+# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
+CONTROL_INTERVAL_S = 60
+
+# Attributes of a room temperature sensor.
+TEMPERATURE: dict[str, Any] = {"device_class": "temperature", "unit_of_measurement": "°C"}
+
+# The sections of the options dialog; the form requires every one.
+OPTIONS_SECTIONS = (
+    "window_sensor",
+    "presence_sensor",
+    "needs_heat",
+    "pi_controller",
+    "gain_scheduling",
+    "trv_communication",
+    "behaviour",
+)
 
 BASE_OPTIONS: dict[str, Any] = {
     "presence_sensor_id": PRESENCE_SENSOR,
@@ -131,9 +149,7 @@ async def async_setup_proxy(
     ``trv_adopts_setpoints`` for why a TRV that does not is a trap.
     """
     hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
-    hass.states.async_set(
-        ROOM_SENSOR, room_state, {"device_class": "temperature", "unit_of_measurement": "°C"}
-    )
+    hass.states.async_set(ROOM_SENSOR, room_state, TEMPERATURE)
     hass.states.async_set(PRESENCE_SENSOR, presence)
     hass.states.async_set(WINDOW_SENSOR, window)
 
@@ -157,6 +173,44 @@ async def async_setup_proxy(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return Proxy(hass, entry, service_calls)
+
+
+async def async_submit_options(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    *,
+    top_level: dict[str, Any] | None = None,
+    **sections: dict[str, Any],
+) -> dict[str, Any]:
+    """Save the options dialog with the given fields, wait until HA is idle.
+
+    Pass a section's fields under its name, e.g.
+    ``needs_heat={"needs_heat_on_c": 0.1}``, and fields outside every section
+    in *top_level*.  Every section is sent, as the form requires: a field not
+    given keeps the value the dialog shows.  The window and presence sensors
+    are always sent, since the dialog removes a sensor left empty.
+
+    Returns the flow result: a form with errors, or the saved entry.
+    """
+    unknown = sections.keys() - set(OPTIONS_SECTIONS)
+    assert not unknown, f"no options section {sorted(unknown)}"
+    kept_sensors: dict[str, dict[str, Any]] = {
+        "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
+        "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
+    }
+    user_input: dict[str, Any] = {
+        **(top_level or {}),
+        **{
+            name: {**kept_sensors.get(name, {}), **sections.get(name, {})}
+            for name in OPTIONS_SECTIONS
+        },
+    }
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input)
+    await hass.async_block_till_done()
+    return result
 
 
 async def async_set_state(

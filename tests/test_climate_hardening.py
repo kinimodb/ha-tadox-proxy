@@ -732,7 +732,7 @@ def _literal_option_defaults(file_path: str, keys: set[str]) -> list[tuple[int, 
     return offenders
 
 
-class TestTimingDefaultsCentralised:
+class TestOptionDefaultsCentralised:
     """Window/presence/overlay/needs-heat defaults come from parameters.py only."""
 
     _KEYS = {

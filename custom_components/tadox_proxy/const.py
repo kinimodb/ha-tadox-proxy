@@ -77,9 +77,11 @@ CONF_INTEGRAL_DEADBAND_C = "integral_deadband_c"
 
 # Options the climate entity applies live via its update listener: those
 # written at runtime by the number/switch entities, and the needs-heat
-# thresholds, which only change what the needs-heat sensor shows.  They must
-# NOT trigger a full integration reload (that would wipe boost timers,
-# window/presence automation state and the PI integral).
+# thresholds from the options dialog, which only change what the needs-heat
+# sensor shows.  They must NOT trigger a full integration reload: that would
+# end a running boost, restart or cut short a running delay of the window or
+# nobody-home layer, and reset the PI integral (a layer that holds the room
+# keeps holding it).  A change to any other option reloads (__init__.py).
 LIVE_OPTION_KEYS = frozenset({
     CONF_COMFORT_TARGET,
     CONF_ECO_TARGET,

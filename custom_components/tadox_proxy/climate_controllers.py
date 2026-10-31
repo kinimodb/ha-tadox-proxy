@@ -454,8 +454,10 @@ class NeedsHeat:
 
     Follows the regulator's ``error_c`` (target minus room temperature) with
     hysteresis: on once it rises above ``on_above_c``, off once it falls to
-    ``off_at_c`` or below, unchanged in between.  So the boiler neither
-    starts for a tiny gap nor stops before the room has reached its target.
+    ``off_at_c`` or below, unchanged in between.  With the default thresholds
+    the boiler neither starts for a tiny gap nor stops before the room has
+    reached its target; a positive ``off_at_c`` stops it a little earlier,
+    for radiators whose stored heat finishes the job.
 
     Off without an ``error_c`` (the proxy is not regulating), while the
     heating is off and while the room sensor is degraded; the next decision

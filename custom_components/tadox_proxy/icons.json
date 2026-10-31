@@ -70,9 +70,9 @@
         "default": "mdi:alert-circle"
       },
       "needs_heat": {
-        "default": "mdi:radiator-off",
+        "default": "mdi:water-boiler-off",
         "state": {
-          "on": "mdi:radiator"
+          "on": "mdi:water-boiler"
         }
       }
     },

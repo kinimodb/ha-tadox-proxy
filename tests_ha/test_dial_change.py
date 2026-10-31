@@ -5,6 +5,7 @@ from homeassistant.components.climate import PRESET_NONE
 from homeassistant.const import STATE_UNAVAILABLE
 
 from .helpers import (
+    CONTROL_INTERVAL_S,
     PRESET_FROST_PROTECTION,
     ROOM_SENSOR,
     TRV,
@@ -14,8 +15,6 @@ from .helpers import (
     async_setup_proxy,
 )
 
-# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
-CONTROL_INTERVAL_S = 60
 # RegulationConfig.min_command_interval_s
 MIN_COMMAND_INTERVAL_S = 180
 # BehaviourConfig.follow_grace_s – our own command's echo is ignored this long.

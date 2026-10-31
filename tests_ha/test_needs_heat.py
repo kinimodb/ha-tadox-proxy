@@ -1,7 +1,6 @@
 """The needs-heat sensor: the signal for a boiler that runs on demand."""
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import patch
 
 from homeassistant.components.climate import HVACMode
@@ -10,18 +9,14 @@ from homeassistant.core import State
 from homeassistant.data_entry_flow import FlowResultType
 
 from .helpers import (
-    PRESENCE_SENSOR,
+    CONTROL_INTERVAL_S,
     ROOM_SENSOR,
-    WINDOW_SENSOR,
+    TEMPERATURE,
     async_advance,
     async_set_state,
     async_setup_proxy,
+    async_submit_options,
 )
-
-# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
-CONTROL_INTERVAL_S = 60
-
-TEMPERATURE = {"device_class": "temperature", "unit_of_measurement": "°C"}
 
 
 def _needs_heat(proxy) -> State:
@@ -37,24 +32,6 @@ async def _async_set_target(proxy, target_c: float) -> None:
     gap: 20.5 °C makes error_c 0.5.
     """
     await proxy.call("climate", "set_temperature", proxy.climate, temperature=target_c)
-
-
-async def _async_save_options(hass, entry, **needs_heat: float) -> dict[str, Any]:
-    """Save the options dialog with the given needs-heat values."""
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] is FlowResultType.FORM
-    user_input: dict[str, Any] = {
-        "window_sensor": {"window_sensor_id": WINDOW_SENSOR},
-        "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
-        "needs_heat": needs_heat,
-        "pi_controller": {},
-        "gain_scheduling": {},
-        "trv_communication": {},
-        "behaviour": {},
-    }
-    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input)
-    await hass.async_block_till_done()
-    return result
 
 
 async def test_sensor_is_named_after_the_proxy(hass):
@@ -140,17 +117,17 @@ async def test_off_while_the_room_sensor_is_missing(hass, freezer):
 async def test_new_values_apply_at_once_without_a_reload(hass):
     proxy = await async_setup_proxy(hass, trv_adopts=True)
     # The first save adds every option the dialog shows; let that reload pass.
-    result = await _async_save_options(hass, proxy.entry)
+    result = await async_submit_options(hass, proxy.entry)
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await _async_set_target(proxy, 20.2)
     assert _needs_heat(proxy).state == STATE_OFF
 
     with patch.object(hass.config_entries, "async_reload") as reload:
-        await _async_save_options(hass, proxy.entry, needs_heat_on_c=0.1)
+        await async_submit_options(hass, proxy.entry, needs_heat={"needs_heat_on_c": 0.1})
         assert _needs_heat(proxy).state == STATE_ON
 
-        await _async_save_options(
-            hass, proxy.entry, needs_heat_on_c=0.5, needs_heat_off_c=0.2
+        await async_submit_options(
+            hass, proxy.entry, needs_heat={"needs_heat_on_c": 0.5, "needs_heat_off_c": 0.2}
         )
         assert _needs_heat(proxy).state == STATE_OFF
 
@@ -163,8 +140,8 @@ async def test_new_values_apply_at_once_without_a_reload(hass):
 async def test_switch_on_value_must_be_above_the_switch_off_value(hass):
     proxy = await async_setup_proxy(hass)
 
-    result = await _async_save_options(
-        hass, proxy.entry, needs_heat_on_c=0.2, needs_heat_off_c=0.2
+    result = await async_submit_options(
+        hass, proxy.entry, needs_heat={"needs_heat_on_c": 0.2, "needs_heat_off_c": 0.2}
     )
 
     assert result["type"] is FlowResultType.FORM
