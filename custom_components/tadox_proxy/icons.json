@@ -5,6 +5,7 @@
         "sections": {
           "window_sensor": "mdi:window-open-variant",
           "presence_sensor": "mdi:motion-sensor",
+          "needs_heat": "mdi:water-boiler",
           "pi_controller": "mdi:chart-bell-curve-cumulative",
           "gain_scheduling": "mdi:tune-vertical",
           "trv_communication": "mdi:radiator",
@@ -67,6 +68,12 @@
     "binary_sensor": {
       "sensor_degraded": {
         "default": "mdi:alert-circle"
+      },
+      "needs_heat": {
+        "default": "mdi:radiator-off",
+        "state": {
+          "on": "mdi:radiator"
+        }
       }
     },
     "switch": {

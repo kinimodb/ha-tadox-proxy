@@ -73,6 +73,18 @@
               "presence_home_delay_s": "Wait after someone comes home before your own choice comes back."
             }
           },
+          "needs_heat": {
+            "name": "Needs heat sensor",
+            "description": "For a boiler that should only run while a room needs heat. The sensor turns on when the room is clearly below its target, and off once the room has reached it.",
+            "data": {
+              "needs_heat_on_c": "Switch on above",
+              "needs_heat_off_c": "Switch off at"
+            },
+            "data_description": {
+              "needs_heat_on_c": "The sensor turns on once the room is more than this much below its target.",
+              "needs_heat_off_c": "The sensor turns off once the room is no more than this much below its target. 0 means: when the room has reached its target. Must be lower than the switch-on value."
+            }
+          },
           "pi_controller": {
             "name": "PI Controller",
             "description": "Proportional-integral controller tuning parameters.",
@@ -141,6 +153,7 @@
     "error": {
       "backup_sensor_required": "Choose a backup room sensor for this action.",
       "backup_sensor_same": "The backup room sensor must differ from the external temperature sensor.",
+      "needs_heat_thresholds": "Needs heat sensor: the switch-off value must be lower than the switch-on value.",
       "temp_entity_not_found": "External temperature sensor not found.",
       "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."
     }
@@ -229,6 +242,9 @@
             }
           }
         }
+      },
+      "needs_heat": {
+        "name": "Needs heat"
       }
     },
     "switch": {

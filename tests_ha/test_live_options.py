@@ -17,6 +17,7 @@ async def _async_submit_options_flow(hass, entry, *, window_delay_s: int) -> Non
     user_input: dict[str, Any] = {
         "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_delay_s": window_delay_s},
         "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
+        "needs_heat": {},
         "pi_controller": {},
         "gain_scheduling": {},
         "trv_communication": {},

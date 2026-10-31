@@ -23,9 +23,32 @@ class RegulationMixin:
     # the climate entity can push its state changes to them.
     _LINKED_ENTITY_ATTRS = (
         "binary_sensor_entity",
+        "needs_heat_entity",
         "sensor_entity",
         "guest_mode_switch_entity",
     )
+
+    @property
+    def error_c(self) -> float | None:
+        """The regulator's error_c (target minus room) of the last cycle.
+
+        None while the proxy does not regulate: heating off, waiting for the
+        sensors, the TRV regulating on its own or switched off by a window.
+        """
+        return self._last_result.error_c if self._last_result is not None else None
+
+    @property
+    def needs_heat(self) -> bool:
+        """Return True while the room needs heat (the needs-heat sensor)."""
+        return self._needs_heat.is_on
+
+    def _update_needs_heat(self) -> None:
+        """Let NeedsHeat decide on the values this entity publishes now."""
+        self._needs_heat.update(
+            self.error_c,
+            heating=self._hvac_mode == HVACMode.HEAT,
+            degraded=self._control.degraded,
+        )
 
     def _write_state_with_linked_entities(self) -> None:
         """Write HA state for this entity and linked sub-entities."""
@@ -33,7 +56,14 @@ class RegulationMixin:
         self._write_linked_entities()
 
     def _write_linked_entities(self) -> None:
-        """Write HA state for linked sub-entities that are already added."""
+        """Write HA state for linked sub-entities that are already added.
+
+        Needs heat is decided first, on the regulation values, HVAC mode and
+        sensor state as published right now – every path that shows a new
+        state to the sub-entities passes here, so its sensor cannot fall
+        behind.  Deciding again on unchanged values changes nothing.
+        """
+        self._update_needs_heat()
         for attr in self._LINKED_ENTITY_ATTRS:
             entity = getattr(self.coordinator, attr, None)
             if entity is not None and entity.hass is not None:

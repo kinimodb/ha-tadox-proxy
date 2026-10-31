@@ -1,4 +1,4 @@
-"""Binary sensor entity for Tado X Proxy sensor degradation."""
+"""Binary sensor entities for Tado X Proxy: sensor degradation and needs heat."""
 from __future__ import annotations
 
 import time
@@ -25,9 +25,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up Tado X Proxy binary sensor entities."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
-    entity = TadoXProxySensorDegradedBinarySensor(coordinator, entry)
-    coordinator.binary_sensor_entity = entity
-    async_add_entities([entity])
+    degraded = TadoXProxySensorDegradedBinarySensor(coordinator, entry)
+    needs_heat = TadoXProxyNeedsHeatBinarySensor(coordinator, entry)
+    # The climate entity pushes its state changes to both.
+    coordinator.binary_sensor_entity = degraded
+    coordinator.needs_heat_entity = needs_heat
+    async_add_entities([degraded, needs_heat])
 
 
 class TadoXProxySensorDegradedBinarySensor(CoordinatorEntity, BinarySensorEntity):
@@ -80,3 +83,42 @@ class TadoXProxySensorDegradedBinarySensor(CoordinatorEntity, BinarySensorEntity
             attrs["last_valid_reading"], attrs["last_valid_age_s"] = missing
 
         return attrs
+
+
+class TadoXProxyNeedsHeatBinarySensor(CoordinatorEntity, BinarySensorEntity):
+    """Binary sensor that is on while the room needs heat.
+
+    The signal for a boiler that only runs on demand.  The climate entity
+    decides (``NeedsHeat`` in climate_controllers: hysteresis on error_c, off
+    while the heating is off or the room sensor is degraded); this entity
+    only shows the decision.  No device class: ``heat`` would show "Hot"
+    for a room that is cold.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "needs_heat"
+
+    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        """Initialize the needs-heat binary sensor."""
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_needs_heat"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info so this entity appears on the same device."""
+        return proxy_device_info(self._entry)
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True while the room needs heat."""
+        climate = getattr(self.coordinator, "climate_entity", None)
+        if climate is None:
+            return None
+        return climate.needs_heat
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Return the gap the decision follows (None while not regulating)."""
+        climate = getattr(self.coordinator, "climate_entity", None)
+        return {"error_c": climate.error_c if climate is not None else None}

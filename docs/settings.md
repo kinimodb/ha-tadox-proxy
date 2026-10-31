@@ -18,9 +18,10 @@ Everything you can see, switch, and adjust — looked up rather than read start 
 5. [Turning the thermostat off](#turning-the-thermostat-off)
 6. [Following the physical thermostat](#following-the-physical-thermostat)
 7. [When the sensor drops out](#when-the-sensor-drops-out)
-8. [Adjustable settings](#adjustable-settings)
-9. [Diagnostic attributes](#diagnostic-attributes)
-10. [Supported radiators](#supported-radiators)
+8. [Needs heat for a boiler](#needs-heat-for-a-boiler)
+9. [Adjustable settings](#adjustable-settings)
+10. [Diagnostic attributes](#diagnostic-attributes)
+11. [Supported radiators](#supported-radiators)
 
 ---
 
@@ -109,6 +110,7 @@ Each entry creates:
 | `number.<name>_comfort_temperature` | What Comfort means, and one of these per preset |
 | `sensor.<name>_boost_remaining` | Minutes of boost left. Stands still while the boost is paused, 0 without a boost |
 | `binary_sensor.<name>_sensor_degraded` | Turns on when your room sensor stops reporting |
+| `binary_sensor.<name>_needs_heat` | On while the room needs heat. For a boiler that only runs on demand, see [needs heat for a boiler](#needs-heat-for-a-boiler) |
 | `switch.<name>_follow_physical_thermostat` | Off by default, see [below](#following-the-physical-thermostat) |
 | `switch.<name>_guest_mode` | Off by default, see [guest mode](#guest-mode) |
 
@@ -326,6 +328,55 @@ glitchy reading cannot flip your room into Away.
 
 ---
 
+## Needs heat for a boiler
+
+`binary_sensor.<name>_needs_heat`, one for each entry.
+
+Some boilers only run when a room asks for heat – for example an OpenTherm boiler
+that an automation switches on and off. This sensor gives you that signal. It is
+**on** while the room needs heat.
+
+- It turns **on** once the room is more than 0.3 °C below its target.
+- It turns **off** once the room has reached its target.
+- In between, it stays as it is. So it does not start the boiler for a tiny gap,
+  and it does not stop the boiler before the room is warm.
+- It is always **off** while the thermostat is off, and while
+  `binary_sensor.<name>_sensor_degraded` is on. A missing room sensor should not
+  keep your boiler running.
+
+Its attribute `error_c` shows the gap the sensor follows: the target minus the room
+temperature, the same value as on the climate entity. It is empty while the
+integration does not regulate, for example while the thermostat is off.
+
+**Switching the boiler.** The boiler should run while at least one room needs heat.
+Collect the sensors of all rooms in a group:
+
+1. Go to **Settings → Devices & Services → Helpers**.
+2. Click **Create helper** and choose **Group → Binary sensor group**.
+3. Add the needs heat sensor of every room. Leave **All entities** off.
+
+The group is on while at least one room needs heat. Let your boiler automation follow
+the group.
+
+### Changing when it switches
+
+Under **Settings → Devices & Services → Tado X Proxy → Configure → Needs heat
+sensor**:
+
+| Setting | Default | Range | What it does |
+|---|---|---|---|
+| Switch on above | 0.3 °C | 0.0–2.0 °C | The sensor turns on once the room is more than this much below its target |
+| Switch off at | 0.0 °C | -1.0–1.0 °C | The sensor turns off once the room is no more than this much below its target. 0 means: at the target |
+
+The switch-on value must be higher than the switch-off value. Changes apply right
+away.
+
+Do not set the switch-off value above 0. The boiler would then stop while the room is
+still below its target, and the room would never quite get there. A value below 0
+keeps the boiler running until the room is that much above its target.
+
+---
+
 ## Adjustable settings
 
 All of these live under
@@ -438,12 +489,11 @@ show Heating. After a slow final approach it can even stay on for a while once t
 room is slightly above its target (see
 [Integral windup](how-it-works.md#integral-windup)).
 
-To decide whether a boiler should run, use `error_c` instead (target minus room
-temperature). Leave out rooms that are off or have `sensor_degraded` on. Add some
-hysteresis so the boiler does not start for tiny gaps — for example, start when
-`error_c` rises above 0.3 °C and keep running until it reaches 0, which is when the
-room is at its target. Do not stop earlier: a boiler that stops while `error_c` is
-still above 0 leaves the room short of its target.
+To decide whether a boiler should run, use the
+[needs heat sensor](#needs-heat-for-a-boiler) instead. It follows `error_c` (target
+minus room temperature), not the valve. It starts at a clear gap, keeps running until
+the room has reached its target, and leaves out rooms that are off or have a missing
+sensor.
 
 The [tuning guide](../TUNING.md#diagnostics-what-the-attributes-tell-you) shows what
 healthy and unhealthy values look like side by side.

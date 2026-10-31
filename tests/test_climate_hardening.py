@@ -474,6 +474,14 @@ class TestDecisionLogicRoutedThroughControllers:
             "_async_switch_trv_for_window",
         )
 
+    def test_sub_entities_show_the_needs_heat_decision(self):
+        """Every write of the sub-entities lets NeedsHeat decide on what the
+        climate entity publishes, so the needs-heat sensor cannot fall behind."""
+        assert _method_calls(
+            _CLIMATE_REGULATION_PY, "_write_linked_entities", "_update_needs_heat"
+        )
+        assert _method_calls(_CLIMATE_REGULATION_PY, "_update_needs_heat", "update")
+
 
 # ---------------------------------------------------------------------------
 # HVAC mode change must hold the regulation lock (AST-based guard)
@@ -702,7 +710,7 @@ class TestRoomSensorTimestamp:
 
 
 # ---------------------------------------------------------------------------
-# Window/presence/overlay defaults live in parameters.py only (AST guard)
+# Window/presence/overlay/needs-heat defaults live in parameters.py only (AST)
 # ---------------------------------------------------------------------------
 
 def _literal_option_defaults(file_path: str, keys: set[str]) -> list[tuple[int, str]]:
@@ -725,7 +733,7 @@ def _literal_option_defaults(file_path: str, keys: set[str]) -> list[tuple[int, 
 
 
 class TestTimingDefaultsCentralised:
-    """Window/presence/overlay defaults come from parameters.py only."""
+    """Window/presence/overlay/needs-heat defaults come from parameters.py only."""
 
     _KEYS = {
         "CONF_WINDOW_DELAY_S",
@@ -733,6 +741,8 @@ class TestTimingDefaultsCentralised:
         "CONF_PRESENCE_AWAY_DELAY_S",
         "CONF_PRESENCE_HOME_DELAY_S",
         "CONF_OVERLAY_REFRESH_S",
+        "CONF_NEEDS_HEAT_ON_C",
+        "CONF_NEEDS_HEAT_OFF_C",
     }
 
     def test_default_values(self):
@@ -741,6 +751,8 @@ class TestTimingDefaultsCentralised:
         assert _params.DEFAULT_PRESENCE_AWAY_DELAY_S == 600
         assert _params.DEFAULT_PRESENCE_HOME_DELAY_S == 30
         assert _params.DEFAULT_OVERLAY_REFRESH_S == 0
+        assert _params.DEFAULT_NEEDS_HEAT_ON_C == 0.3
+        assert _params.DEFAULT_NEEDS_HEAT_OFF_C == 0.0
 
     def test_no_literal_defaults_in_climate(self):
         assert _literal_option_defaults(_CLIMATE_PY, self._KEYS) == []

@@ -42,6 +42,7 @@ from .climate_controllers import (
     DEFAULT_SENSOR_LOSS_ACTION,
     ControlModeResolver,
     FollowPhysicalController,
+    NeedsHeat,
     safe_float,
 )
 from .climate_presets import PresetMixin
@@ -65,6 +66,8 @@ from .const import (
     CONF_INTEGRAL_DEADBAND_C,
     CONF_MIN_CHANGE_THRESHOLD_C,
     CONF_MIN_COMMAND_INTERVAL_S,
+    CONF_NEEDS_HEAT_OFF_C,
+    CONF_NEEDS_HEAT_ON_C,
     CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_SENSOR_ID,
     CONF_SENSOR_GRACE_S,
@@ -78,6 +81,8 @@ from .const import (
 from .device import proxy_device_info
 from .parameters import (
     DEFAULT_CONTROL_INTERVAL_S,
+    DEFAULT_NEEDS_HEAT_OFF_C,
+    DEFAULT_NEEDS_HEAT_ON_C,
     DEFAULT_OVERLAY_REFRESH_S,
     DEFAULT_SENSOR_GRACE_S,
     BehaviourConfig,
@@ -167,6 +172,13 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # Value of 0 means disabled (default, correct for Matter/Thread).
         self._overlay_refresh_s: int = config_entry.options.get(
             CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S
+        )
+
+        # Needs heat (for a boiler that runs on demand): follows error_c with
+        # hysteresis; the needs-heat binary sensor shows it.
+        self._needs_heat = NeedsHeat(
+            on_above_c=config_entry.options.get(CONF_NEEDS_HEAT_ON_C, DEFAULT_NEEDS_HEAT_ON_C),
+            off_at_c=config_entry.options.get(CONF_NEEDS_HEAT_OFF_C, DEFAULT_NEEDS_HEAT_OFF_C),
         )
 
         # Which preset the room runs: the user choice plus the window,
@@ -360,10 +372,16 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._overlay_refresh_s = entry.options.get(
             CONF_OVERLAY_REFRESH_S, DEFAULT_OVERLAY_REFRESH_S
         )
+        self._needs_heat.on_above_c = entry.options.get(
+            CONF_NEEDS_HEAT_ON_C, DEFAULT_NEEDS_HEAT_ON_C
+        )
+        self._needs_heat.off_at_c = entry.options.get(
+            CONF_NEEDS_HEAT_OFF_C, DEFAULT_NEEDS_HEAT_OFF_C
+        )
         # New preset targets (e.g. the comfort target from its number entity)
-        # apply right away.
+        # apply right away, and so do new needs-heat thresholds.
         effects = self._layers.options_changed(self._layers_config(), time.time())
-        self.async_write_ha_state()
+        self._write_state_with_linked_entities()
         await self._async_handle_layer_effects(effects)
 
     # ------------------------------------------------------------------
@@ -452,7 +470,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 # presence detection keep following their sensors.
                 self._apply_layer_effects(self._layers.heating_off(time.time()))
                 self._last_reason = "sent(hvac_off)"
-                self.async_write_ha_state()
+                # With the sub-entities: the room no longer needs heat.
+                self._write_state_with_linked_entities()
             elif hvac_mode == HVACMode.HEAT and previous_mode == HVACMode.OFF:
                 # Returning from OFF → reset timestamp so the first HEAT cycle uses
                 # dt=0 and avoids an integral spike from the long OFF period.

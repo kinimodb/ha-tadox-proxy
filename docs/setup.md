@@ -220,6 +220,8 @@ optional and you can ignore them until you need them.
   in automations.
 - **A boost timer sensor** showing how many minutes of boost are left.
 - **A warning sensor** that turns on if your room sensor stops reporting.
+- **A "needs heat" sensor** that is on while the room needs heat. You only need it
+  if your boiler should run only when a room asks for heat.
 - **A "follow physical thermostat" switch**, off by default. Turn it on if you want
   turning the dial on the radiator thermostat to override the proxy.
 

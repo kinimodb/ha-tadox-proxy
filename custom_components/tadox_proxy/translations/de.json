@@ -73,6 +73,18 @@
               "presence_home_delay_s": "Wartezeit nach der Heimkehr, bevor die eigene Wahl zurückkommt."
             }
           },
+          "needs_heat": {
+            "name": "Sensor „Braucht Wärme“",
+            "description": "Für einen Heizkessel, der nur laufen soll, solange ein Raum Wärme braucht. Der Sensor schaltet ein, wenn der Raum deutlich unter seinem Ziel liegt, und aus, sobald der Raum sein Ziel erreicht hat.",
+            "data": {
+              "needs_heat_on_c": "Einschalten über",
+              "needs_heat_off_c": "Ausschalten bei"
+            },
+            "data_description": {
+              "needs_heat_on_c": "Der Sensor schaltet ein, sobald der Raum mehr als so viel unter seinem Ziel liegt.",
+              "needs_heat_off_c": "Der Sensor schaltet aus, sobald der Raum höchstens noch so viel unter seinem Ziel liegt. 0 heißt: sobald der Raum sein Ziel erreicht hat. Muss kleiner sein als der Einschaltwert."
+            }
+          },
           "pi_controller": {
             "name": "PI-Regler",
             "description": "Parameter für den Proportional-Integral-Regler.",
@@ -141,6 +153,7 @@
     "error": {
       "backup_sensor_required": "Für diese Aktion einen Ersatz-Raumsensor auswählen.",
       "backup_sensor_same": "Der Ersatz-Raumsensor muss sich vom externen Temperatursensor unterscheiden.",
+      "needs_heat_thresholds": "Sensor „Braucht Wärme“: Der Ausschaltwert muss kleiner sein als der Einschaltwert.",
       "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
       "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."
     }
@@ -229,6 +242,9 @@
             }
           }
         }
+      },
+      "needs_heat": {
+        "name": "Braucht Wärme"
       }
     },
     "switch": {

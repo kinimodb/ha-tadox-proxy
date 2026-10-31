@@ -8,6 +8,7 @@ rest of the climate entity's decisions:
 - ``trv_drifted_setpoint``       – setpoint the TRV left our command for (pure function)
 - ``decide_send``                 – send / rate-limit decision (pure function)
 - ``preset_target_c``             – preset → room target mapping (pure function)
+- ``NeedsHeat``                   – needs heat for a boiler: hysteresis on error_c
 - ``safe_float``                  – tolerant number parsing for HA state values
 """
 from __future__ import annotations
@@ -433,3 +434,51 @@ def preset_target_c(
         PRESET_FROST_PROTECTION: presets.frost_protection_target_c,
     }
     return fixed.get(preset, presets.frost_protection_target_c)
+
+
+# ---------------------------------------------------------------------------
+# Needs heat: hysteresis on error_c, for a boiler that runs on demand
+# ---------------------------------------------------------------------------
+
+def _above(value_c: float, threshold_c: float) -> bool:
+    """True if *value_c* lies above *threshold_c*, compared in hundredths.
+
+    error_c comes in hundredths; binary floats would put a gap of exactly the
+    threshold (target 20.3, room 20.0: 0.3000...07) above it.
+    """
+    return round(value_c - threshold_c, 2) > 0
+
+
+class NeedsHeat:
+    """Whether the room needs heat – the signal for a boiler that runs on demand.
+
+    Follows the regulator's ``error_c`` (target minus room temperature) with
+    hysteresis: on once it rises above ``on_above_c``, off once it falls to
+    ``off_at_c`` or below, unchanged in between.  So the boiler neither
+    starts for a tiny gap nor stops before the room has reached its target.
+
+    Off without an ``error_c`` (the proxy is not regulating), while the
+    heating is off and while the room sensor is degraded; the next decision
+    then starts from off.  The thresholds may change between updates (the
+    options apply live); the options flow keeps ``on_above_c`` above
+    ``off_at_c``.
+    """
+
+    def __init__(self, *, on_above_c: float, off_at_c: float) -> None:
+        self.on_above_c = on_above_c
+        self.off_at_c = off_at_c
+        self.is_on = False
+
+    def update(self, error_c: float | None, *, heating: bool, degraded: bool) -> bool:
+        """Decide from the latest published error_c and return the new state.
+
+        Repeating an update with the same values changes nothing, so it may
+        run on every state write.
+        """
+        if error_c is None or not heating or degraded:
+            self.is_on = False
+        elif _above(error_c, self.on_above_c):
+            self.is_on = True
+        elif not _above(error_c, self.off_at_c):
+            self.is_on = False
+        return self.is_on

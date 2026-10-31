@@ -40,6 +40,12 @@ _Avoid_: window mode
 A switch that keeps nobody home from holding the room, so guests get normal heating while the presence sensor reports the house empty.
 _Avoid_: party mode, presence override
 
+### Boiler
+
+**Needs heat**:
+The room is far enough below its target that a boiler which only runs on demand should fire for it. It switches on above one gap and off at a smaller one, so it does not flicker around the target, and it is off while the heating is off or the room sensor is degraded.
+_Avoid_: heat demand, heating (that is the valve's action)
+
 ### Tado
 
 **Overlay**:

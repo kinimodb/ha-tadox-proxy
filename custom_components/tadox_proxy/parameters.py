@@ -47,6 +47,12 @@ DEFAULT_PRESENCE_HOME_DELAY_S: int = 30     # somebody home → restore previous
 # timer-based overlays (s).  0 = disabled (correct for Matter/Thread).
 DEFAULT_OVERLAY_REFRESH_S: int = 0
 
+# Needs-heat sensor (a boiler that runs on demand), overridable via options:
+# on once error_c rises above the first value, off once it falls to the
+# second one or below (°C).
+DEFAULT_NEEDS_HEAT_ON_C: float = 0.3
+DEFAULT_NEEDS_HEAT_OFF_C: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Correction tuning  (PI layer on top of feedforward)
