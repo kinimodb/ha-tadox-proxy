@@ -44,6 +44,12 @@ or an away phase.
 Moving the temperature slider without picking a preset switches to **Manual**. Your
 stored Comfort temperature is left alone, so you can always get back to it.
 
+In the **Manual mode** options, you can keep Manual until you pick another preset
+(the default), or return to the preset selected before Manual after a timer. The timer
+defaults to 15 minutes, restarts whenever you change the manual temperature, and
+survives a Home Assistant restart. Window and presence protection keep their priority
+while the timer continues to run.
+
 ### Your choice, and what can take over
 
 The preset you pick (or the temperature you set) is **your choice**. The room
@@ -250,6 +256,11 @@ running:
 
 If the radiator thermostat does not respond when you turn it back on, the proxy stays
 on and tries again with its next temperature command.
+
+If the source radiator thermostat becomes `unavailable` or `unknown`, the proxy
+climate entity becomes unavailable too. Its requested mode and preset are retained;
+regulation pauses until the source returns. This is different from turning the
+heating off.
 
 ---
 

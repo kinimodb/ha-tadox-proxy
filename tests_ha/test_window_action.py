@@ -181,6 +181,7 @@ async def test_window_action_is_set_in_the_options(hass):
         {
             "window_sensor": {"window_sensor_id": WINDOW_SENSOR, "window_action": "off"},
             "presence_sensor": {"presence_sensor_id": PRESENCE_SENSOR},
+            "manual_mode": {},
             "pi_controller": {},
             "gain_scheduling": {},
             "trv_communication": {},

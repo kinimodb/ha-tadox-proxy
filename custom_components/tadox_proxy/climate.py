@@ -7,6 +7,7 @@ import logging
 import math
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -26,7 +27,7 @@ from homeassistant.const import (
     PRECISION_TENTHS,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -34,7 +35,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
 )
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .climate_controllers import (
@@ -89,6 +90,21 @@ from .preset_layers import PresetLayers, StartSnapshot
 from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _source_state_available(state: State | None) -> bool:
+    """Return whether the source thermostat can currently be reached."""
+    return state is not None and state.state not in ("unavailable", "unknown")
+
+
+@dataclass
+class _ProxyRestoreData(ExtraStoredData):
+    """Keep the desired climate state when HA hides unavailable attributes."""
+
+    _values: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return self._values
 
 
 async def async_setup_entry(
@@ -270,11 +286,17 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # the sensors now.  The comfort target comes from the options (it may
         # have changed via the number entity while HA was down).
         last_state = await self.async_get_last_state()
-        if last_state and last_state.state in (HVACMode.HEAT, HVACMode.OFF):
-            self._hvac_mode = HVACMode(last_state.state)
+        restored_attributes = dict(last_state.attributes) if last_state else {}
+        if extra_data := await self.async_get_last_extra_data():
+            restored_attributes.update(extra_data.as_dict())
+        restored_hvac_mode = restored_attributes.get(
+            "desired_hvac_mode", last_state.state if last_state else None
+        )
+        if restored_hvac_mode in (HVACMode.HEAT, HVACMode.OFF):
+            self._hvac_mode = HVACMode(restored_hvac_mode)
         snapshot = StartSnapshot.from_state(
-            last_state.state if last_state else None,
-            last_state.attributes if last_state else {},
+            restored_hvac_mode or (last_state.state if last_state else None),
+            restored_attributes,
             window_state=self._sensor_state(window_sensor),
             presence_state=self._sensor_state(presence_sensor),
         )
@@ -372,12 +394,15 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
 
     @callback
     def _async_tado_state_changed(self, event) -> None:
-        """Detect physical thermostat changes and follow them if enabled."""
-        if not self._config_entry.options.get(CONF_FOLLOW_TADO_INPUT, False):
-            return
-
+        """Track source availability and optionally follow physical changes."""
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
+        if _source_state_available(new_state) != _source_state_available(old_state):
+            self.async_write_ha_state()
+            self.hass.async_create_task(self._async_source_availability_changed())
+
+        if not self._config_entry.options.get(CONF_FOLLOW_TADO_INPUT, False):
+            return
         if new_state is None or new_state.state in ("unavailable", "unknown"):
             return
 
@@ -409,6 +434,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._handle_layer_effects(
             self._layers.valve_changed(tado_setpoint, time.time())
         )
+
+    async def _async_source_availability_changed(self) -> None:
+        """Refresh source readings and resume regulation after reconnection."""
+        await self.coordinator.async_refresh()
+        await self._async_regulation_cycle(trigger="source_availability")
 
     # ------------------------------------------------------------------
     # Standard climate controls
@@ -501,6 +531,26 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
     # ------------------------------------------------------------------
 
     @property
+    def _source_available(self) -> bool:
+        """Whether the configured source climate entity is available."""
+        source_entity = self._config_entry.data.get("source_entity_id")
+        source_state = self.hass.states.get(source_entity) if source_entity else None
+        return _source_state_available(source_state)
+
+    @property
+    def available(self) -> bool:
+        """The proxy cannot control an unavailable source thermostat."""
+        return super().available and self._source_available
+
+    @property
+    def extra_restore_state_data(self) -> ExtraStoredData:
+        """Persist requested mode and layers while HA hides state attributes."""
+        return _ProxyRestoreData({
+            "desired_hvac_mode": self._hvac_mode,
+            **self._layers.attributes(),
+        })
+
+    @property
     def current_temperature(self) -> float | None:
         """Return the room temperature the proxy regulates on.
 
@@ -523,8 +573,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         return self._hvac_mode
 
     @property
-    def hvac_action(self) -> HVACAction:
+    def hvac_action(self) -> HVACAction | None:
         """Infer heating/idle from the Tado entity state."""
+        if not self._source_available:
+            return None
         if self._hvac_mode == HVACMode.OFF or self._layers.valve_off_by_window:
             return HVACAction.OFF
 

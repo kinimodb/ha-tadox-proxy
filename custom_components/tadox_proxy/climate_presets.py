@@ -17,6 +17,8 @@ from homeassistant.helpers.event import async_call_later
 from .climate_controllers import DEFAULT_WINDOW_ACTION, safe_float
 from .const import (
     CONF_COMFORT_TARGET,
+    CONF_MANUAL_MODE_ACTION,
+    CONF_MANUAL_MODE_DURATION_MIN,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -24,6 +26,8 @@ from .const import (
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
+    DEFAULT_MANUAL_MODE_ACTION,
+    DEFAULT_MANUAL_MODE_DURATION_MIN,
 )
 from .parameters import (
     DEFAULT_PRESENCE_AWAY_DELAY_S,
@@ -112,6 +116,10 @@ class PresetMixin:
             window_action=opts.get(CONF_WINDOW_ACTION, DEFAULT_WINDOW_ACTION),
             has_window_sensor=bool(opts.get(CONF_WINDOW_SENSOR_ID)),
             has_presence_sensor=bool(opts.get(CONF_PRESENCE_SENSOR_ID)),
+            manual_mode_action=opts.get(CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION),
+            manual_mode_duration_min=opts.get(
+                CONF_MANUAL_MODE_DURATION_MIN, DEFAULT_MANUAL_MODE_DURATION_MIN
+            ),
         )
 
     # ------------------------------------------------------------------
