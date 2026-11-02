@@ -307,10 +307,11 @@ class TestAntiWindup:
 SETPOINT_C = 20.0
 
 # The Tado sensor on the radiator reads a constant 2.04 K above the room
-# sensor.  The odd hundredth keeps tado_internal halfway between two 0.1 K
-# steps in the checks below: the command is rounded to 0.1 K, which would
-# otherwise swallow a margin of a few hundredths and turn "a little above
-# tado_internal" into "equal to it".
+# sensor.  The odd hundredth puts tado_internal exactly halfway between two
+# 0.1 K steps (21.75) when the room is 0.29 K below the target.  The command
+# is rounded to 0.1 K, which would otherwise swallow the 0.02 K by which the
+# valve is open there and turn "a little above tado_internal" into "equal
+# to it".
 OFFSET_C = 2.04
 
 
