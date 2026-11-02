@@ -170,6 +170,14 @@ Use a normal web browser to set it up.
 
 ---
 
+## Thanks
+
+Thanks to [Nick Altmann](https://github.com/nikbyte): the proxy now shows when its
+thermostat has dropped out and gets through that cleanly, and a Manual change can end
+by itself after a timer.
+
+---
+
 ## License
 
 MIT License — see [LICENSE](LICENSE)
