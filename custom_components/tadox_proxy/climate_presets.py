@@ -14,9 +14,15 @@ from homeassistant.components.climate import HVACMode
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_call_later
 
-from .climate_controllers import DEFAULT_WINDOW_ACTION, safe_float
+from .climate_controllers import (
+    DEFAULT_MANUAL_MODE_ACTION,
+    DEFAULT_WINDOW_ACTION,
+    safe_float,
+)
 from .const import (
     CONF_COMFORT_TARGET,
+    CONF_MANUAL_MODE_ACTION,
+    CONF_MANUAL_MODE_DURATION_MIN,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
     CONF_PRESENCE_SENSOR_ID,
@@ -26,6 +32,7 @@ from .const import (
     CONF_WINDOW_SENSOR_ID,
 )
 from .parameters import (
+    DEFAULT_MANUAL_MODE_DURATION_MIN,
     DEFAULT_PRESENCE_AWAY_DELAY_S,
     DEFAULT_PRESENCE_HOME_DELAY_S,
     DEFAULT_WINDOW_CLOSE_DELAY_S,
@@ -112,6 +119,10 @@ class PresetMixin:
             window_action=opts.get(CONF_WINDOW_ACTION, DEFAULT_WINDOW_ACTION),
             has_window_sensor=bool(opts.get(CONF_WINDOW_SENSOR_ID)),
             has_presence_sensor=bool(opts.get(CONF_PRESENCE_SENSOR_ID)),
+            manual_mode_action=opts.get(CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION),
+            manual_mode_duration_min=opts.get(
+                CONF_MANUAL_MODE_DURATION_MIN, DEFAULT_MANUAL_MODE_DURATION_MIN
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -162,9 +173,14 @@ class PresetMixin:
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Pick a preset (Home Assistant has checked it against the list)."""
-        _LOGGER.debug("Preset picked: %s", preset_mode)
+        # HA set the context of this service call right before calling.  Only
+        # user_id tells a person apart: a time-triggered automation has neither
+        # user_id nor parent_id.
+        context = self._context
+        by_person = context is not None and context.user_id is not None
+        _LOGGER.debug("Preset picked: %s (by a person: %s)", preset_mode, by_person)
         await self._async_handle_layer_effects(
-            self._layers.pick_preset(preset_mode, time.time())
+            self._layers.pick_preset(preset_mode, time.time(), by_person=by_person)
         )
 
     def _comfort_target(self) -> float:

@@ -11,12 +11,20 @@ The preset the room runs on right now. It follows from the active layers and the
 _Avoid_: current preset, effective preset
 
 **User choice**:
-The preset a person last picked for the room – in the app or on the valve, and for Manual together with its temperature. It comes back as soon as no layer holds the room.
+The preset a person last picked for the room – in the app or on the valve, and for Manual together with its temperature. It comes back as soon as no layer holds the room. A command without a person (a schedule, an automation) counts the same, except while the manual timer runs: then it only changes the return preset. The end of the manual timer is the only thing that changes the user choice by itself.
 _Avoid_: saved state, previous preset, restore preset, base preset
 
 **Manual**:
 The preset without a name that a person gets by setting a temperature directly. The only preset that carries its own temperature.
 _Avoid_: none preset
+
+**Manual timer**:
+An option that ends Manual after a set time. A person setting a new temperature starts it again; a person picking another preset ends it. It holds nothing, so it is no layer: it runs on while a layer holds the room.
+_Avoid_: manual timeout, timed return
+
+**Return preset**:
+The preset that becomes the user choice when the manual timer ends: the one picked before Manual, or the one a command without a person has set since.
+_Avoid_: previous preset, restore preset
 
 ### Layers
 

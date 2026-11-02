@@ -41,6 +41,13 @@ WINDOW_ACTION_OFF = "off"
 WINDOW_ACTIONS = (WINDOW_ACTION_FROST, WINDOW_ACTION_OFF)
 DEFAULT_WINDOW_ACTION = WINDOW_ACTION_FROST
 
+# What Manual does over time (option ``manual_mode_action``): stay until
+# another preset is picked, or end after a timer.
+MANUAL_MODE_KEEP = "keep"
+MANUAL_MODE_TIMER = "timer"
+MANUAL_MODE_ACTIONS = (MANUAL_MODE_KEEP, MANUAL_MODE_TIMER)
+DEFAULT_MANUAL_MODE_ACTION = MANUAL_MODE_KEEP
+
 
 def safe_float(value: Any) -> float | None:
     """Convert value to float, returning None for non-finite or unparseable values."""

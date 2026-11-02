@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import EVENT_CALL_SERVICE, STATE_ON
-from homeassistant.core import Event, HomeAssistant, ServiceRegistry, State, callback
+from homeassistant.core import Context, Event, HomeAssistant, ServiceRegistry, State, callback
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -57,6 +57,7 @@ OPTIONS_SECTIONS = (
     "window_sensor",
     "presence_sensor",
     "needs_heat",
+    "manual_mode",
     "pi_controller",
     "gain_scheduling",
     "trv_communication",
@@ -126,10 +127,22 @@ class Proxy:
             )
         ]
 
-    async def call(self, domain: str, service: str, entity_id: str, **data: Any) -> None:
-        """Call a service on one entity and wait until HA is idle."""
+    async def call(
+        self,
+        domain: str,
+        service: str,
+        entity_id: str,
+        *,
+        context: Context | None = None,
+        **data: Any,
+    ) -> None:
+        """Call a service on one entity and wait until HA is idle.
+
+        Without *context* HA uses a bare ``Context()``, so the call comes from
+        no person; pass ``Context(user_id=...)`` with a real user for one.
+        """
         await self.hass.services.async_call(
-            domain, service, {"entity_id": entity_id, **data}, blocking=True
+            domain, service, {"entity_id": entity_id, **data}, blocking=True, context=context
         )
         await self.hass.async_block_till_done()
 
@@ -141,6 +154,7 @@ async def async_setup_proxy(
     presence: str = "on",
     window: str = "off",
     room_state: str = "20.0",
+    source_state: str = "heat",
     entry_id: str | None = None,
     trv_adopts: bool = False,
     minor_version: int = CURRENT_ENTRY_MINOR_VERSION,
@@ -156,7 +170,12 @@ async def async_setup_proxy(
     the TRV then holds what it is sent, as a real one does.  See
     ``trv_adopts_setpoints`` for why a TRV that does not is a trap.
     """
-    hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
+    source_attributes = (
+        {"current_temperature": 22.0, "temperature": 20.0}
+        if source_state not in ("unavailable", "unknown")
+        else {}
+    )
+    hass.states.async_set(TRV, source_state, source_attributes)
     hass.states.async_set(ROOM_SENSOR, room_state, TEMPERATURE)
     hass.states.async_set(PRESENCE_SENSOR, presence)
     hass.states.async_set(WINDOW_SENSOR, window)

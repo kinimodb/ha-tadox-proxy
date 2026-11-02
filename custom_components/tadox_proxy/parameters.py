@@ -44,6 +44,7 @@ DEFAULT_WINDOW_DELAY_S: int = 30            # window open → frost protection
 DEFAULT_WINDOW_CLOSE_DELAY_S: int = 120     # window closed → restore previous preset
 DEFAULT_PRESENCE_AWAY_DELAY_S: int = 600    # nobody home → AWAY
 DEFAULT_PRESENCE_HOME_DELAY_S: int = 30     # somebody home → restore previous preset
+DEFAULT_MANUAL_MODE_DURATION_MIN: int = 15  # how long Manual lasts with the timer option
 
 # Periodic resend of an unchanged setpoint for cloud integrations with
 # timer-based overlays (s).  0 = disabled (correct for Matter/Thread).

@@ -34,6 +34,16 @@ async def test_number_change_during_boost_does_not_reload(hass):
     assert proxy.preset == PRESET_BOOST
 
 
+async def test_manual_options_are_in_their_collapsed_section(hass):
+    proxy = await async_setup_proxy(hass)
+    result = await hass.config_entries.options.async_init(proxy.entry.entry_id)
+    names = {str(key) for key in result["data_schema"].schema}
+
+    assert "manual_mode" in names
+    assert "manual_mode_action" not in names
+    assert "manual_mode_duration_min" not in names
+
+
 async def test_comfort_number_change_applies_live(hass):
     proxy = await async_setup_proxy(hass)
 
