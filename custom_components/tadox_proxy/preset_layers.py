@@ -452,8 +452,6 @@ class PresetLayers:
             return PRESET_AWAY
         if self._boost_left_s is not None:
             return PRESET_BOOST
-        if self._user.preset == PRESET_NONE:
-            return PRESET_NONE
         return self._user.preset
 
     @property
@@ -558,18 +556,12 @@ class PresetLayers:
         self._begin(now)
         self._change_by_person()
         self._end_boost()
-        if self._config.manual_mode_action == MANUAL_MODE_TIMER:
-            previous = self._manual_return_preset or self._user.preset
-            if previous in _CHOOSABLE:
-                delay_s = self._config.manual_mode_duration_min * 60
-                if delay_s > 0:
-                    self._manual_return_preset = previous
-                    self._manual_return_at_ts = now + delay_s
-                    self._arm(TIMER_MANUAL_RETURN, delay_s)
-                else:
-                    self._cancel_manual_return()
-            else:
-                self._cancel_manual_return()
+        previous = self._manual_return_preset or self._user.preset
+        if self._config.manual_mode_action == MANUAL_MODE_TIMER and previous in _CHOOSABLE:
+            delay_s = self._config.manual_mode_duration_min * 60
+            self._manual_return_preset = previous
+            self._manual_return_at_ts = now + delay_s
+            self._arm(TIMER_MANUAL_RETURN, delay_s)
         else:
             self._cancel_manual_return()
         limited = max(self._config.min_target_c, min(self._config.max_target_c, temp_c))
