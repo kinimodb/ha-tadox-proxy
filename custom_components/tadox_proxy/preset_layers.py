@@ -163,9 +163,7 @@ class StartSnapshot:
             heating_on=state != _HVAC_OFF,
             preset_mode=attributes.get(_HA_ATTR_PRESET_MODE),
             user_preset=attributes.get(ATTR_USER_PRESET),
-            manual_c=safe_float(
-                attributes.get(ATTR_MANUAL_TARGET, attributes.get("manual_return_target_c"))
-            ),
+            manual_c=safe_float(attributes.get(ATTR_MANUAL_TARGET)),
             manual_return_preset=attributes.get(ATTR_MANUAL_RETURN_PRESET),
             manual_return_at_ts=safe_float(attributes.get(ATTR_MANUAL_RETURN_AT_TS)),
             window_held=attributes.get(ATTR_WINDOW_OPEN_ACTIVE) is True,
@@ -390,14 +388,6 @@ class PresetLayers:
         self._valve_off_by_window = snapshot.valve_off_by_window
         if snapshot.user_preset is None:
             self._user, window_held, nobody_home_held = self._upgrade_from_v14(snapshot)
-            # The earlier timer patch kept Manual's target separately while
-            # window/presence protection was shown. Preserve that user choice.
-            if (
-                snapshot.manual_return_preset in _CHOOSABLE
-                and snapshot.manual_return_at_ts is not None
-                and snapshot.manual_c is not None
-            ):
-                self._user = UserChoice(PRESET_NONE, snapshot.manual_c)
         else:
             self._user = _user_choice(snapshot.user_preset, snapshot.manual_c)
             window_held = snapshot.window_held
