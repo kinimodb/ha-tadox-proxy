@@ -381,6 +381,8 @@ that an automation switches on and off. This sensor gives you that signal. It is
 - It is always **off** while the thermostat is off, and while
   `binary_sensor.<name>_sensor_degraded` is on. A missing room sensor should not
   keep your boiler running.
+- It is **off** while the source radiator thermostat is `unavailable` or `unknown`,
+  and it can turn on again once the thermostat returns and the room still needs heat.
 - It is also **off** while the integration does not regulate the room. Its
   attribute `error_c` is then empty. This happens for up to a minute after Home
   Assistant starts or the integration reloads. It also happens while the radiator

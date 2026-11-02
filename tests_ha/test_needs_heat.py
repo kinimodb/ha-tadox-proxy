@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from homeassistant.components.climate import HVACMode
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import State
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -12,6 +13,7 @@ from .helpers import (
     CONTROL_INTERVAL_S,
     ROOM_SENSOR,
     TEMPERATURE,
+    TRV,
     async_advance,
     async_set_state,
     async_setup_proxy,
@@ -112,6 +114,37 @@ async def test_off_while_the_room_sensor_is_missing(hass, freezer):
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
 
     assert _needs_heat(proxy).state == STATE_ON
+
+
+@pytest.mark.parametrize("lost_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])
+async def test_off_during_a_source_outage_and_on_again_after_its_return(hass, freezer, lost_state):
+    """The proxy regulates nothing while its source thermostat is gone (#125).
+
+    A boiler must not keep running for a room whose valve cannot be reached,
+    and it must start again when the valve is back and the room is still cold.
+    """
+    proxy = await async_setup_proxy(hass, trv_adopts=True)
+    await _async_set_target(proxy, 20.5)
+    assert _needs_heat(proxy).state == STATE_ON
+
+    held = dict(hass.states.get(TRV).attributes)
+    await async_set_state(hass, TRV, lost_state)
+
+    assert proxy.state.state == STATE_UNAVAILABLE
+    assert _needs_heat(proxy).state == STATE_OFF
+    assert _needs_heat(proxy).attributes["error_c"] is None
+
+    # The regulation timer goes on through the outage; it must not bring the sensor back.
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    assert _needs_heat(proxy).state == STATE_OFF
+
+    # The TRV reports what it held before, and the room is still 0.5 °C below
+    # its target: the sensor decides afresh.
+    await async_set_state(hass, TRV, HVACMode.HEAT, held)
+
+    assert _needs_heat(proxy).state == STATE_ON
+    assert _needs_heat(proxy).attributes["error_c"] == 0.5
 
 
 async def test_new_values_apply_at_once_without_a_reload(hass):
