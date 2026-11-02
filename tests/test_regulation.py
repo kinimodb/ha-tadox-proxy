@@ -299,20 +299,16 @@ class TestAntiWindup:
 # Integral windup in both directions (#124)
 # -----------------------------------------------------------------------
 #
-# The radiator thermostat acts on the command minus its own reading:
-# u = (1 + Kp) * error + integral.  The valve is open while u > 0.  These
-# tests run the real regulator with its default config against a room that
-# drifts or is held, and look at that margin.
+# The model behind these tests (docs/adr/0002): the thermostat's valve is
+# open while the command is above the thermostat's own reading, that is
+# while u = (1 + Kp) * error + integral is above zero.  The Tado X does not
+# report its valve, so the tests look at that margin.  They run the real
+# regulator with its default config against a room that drifts or is held.
 
 SETPOINT_C = 20.0
 
-# The Tado sensor on the radiator reads a constant 2.04 K above the room
-# sensor.  The odd hundredth puts tado_internal exactly halfway between two
-# 0.1 K steps (21.75) when the room is 0.29 K below the target.  The command
-# is rounded to 0.1 K, which would otherwise swallow the 0.02 K by which the
-# valve is open there and turn "a little above tado_internal" into "equal
-# to it".
-OFFSET_C = 2.04
+# The Tado sensor on the radiator reads this much above the room sensor.
+TRV_OFFSET_C = 2.0
 
 
 def _cycle(reg, state, room_c, time_delta_s=60.0):
@@ -320,7 +316,7 @@ def _cycle(reg, state, room_c, time_delta_s=60.0):
     return reg.compute(
         setpoint_c=SETPOINT_C,
         room_temp_c=room_c,
-        tado_internal_c=room_c + OFFSET_C,
+        tado_internal_c=room_c + TRV_OFFSET_C,
         time_delta_s=time_delta_s,
         state=state,
     )
@@ -364,7 +360,7 @@ class TestSlowApproach:
         result = _cycle(reg, state, room_c)
 
         # A command at or below the thermostat's own reading shuts the valve.
-        assert result.target_for_tado_c <= room_c + OFFSET_C
+        assert result.target_for_tado_c <= room_c + TRV_OFFSET_C
 
 
 class TestWarmRoom:
@@ -379,25 +375,31 @@ class TestWarmRoom:
         # It does wind down that far, so this is not met by an idle integral.
         assert integrals[-1] == pytest.approx(-0.5)
 
-    def test_valve_reopens_just_below_the_target(self):
+    def test_valve_reopens_four_tenths_below_the_target(self):
         reg = make_regulator()
         state, _ = _hold_room(reg, RegulationState(), SETPOINT_C + 0.1, minutes=8 * 60)
-        room_c = SETPOINT_C - 0.29
+        room_c = SETPOINT_C - 0.4
 
         result = _cycle(reg, state, room_c)
 
-        assert result.target_for_tado_c > room_c + OFFSET_C
+        # A command above the thermostat's own reading opens the valve.  With
+        # the integral at -0.5 the push is 1.8 * 0.4 - 0.5 = 0.22 K; at the
+        # old floor of -2.0 it would still be shut here.
+        assert result.target_for_tado_c > room_c + TRV_OFFSET_C
 
 
 class TestColdRoom:
-    """A room that stays a little below its target keeps its positive reserve."""
+    """A room that stays a little below its target climbs to the ceiling, no further."""
 
-    def test_integral_climbs_above_one_degree(self):
-        state, _ = _hold_room(
+    def test_integral_climbs_to_the_ceiling_and_stops_there(self):
+        _, integrals = _hold_room(
             make_regulator(), RegulationState(), SETPOINT_C - 0.1, minutes=10 * 60
         )
 
-        assert state.integral_c > 1.0
+        # 0.1 K for 10 h would add 3.6 K; the ceiling holds it at +2.0, not
+        # lower (1.5) and not higher (3.0).
+        assert integrals[-1] == pytest.approx(2.0)
+        assert max(integrals) == pytest.approx(2.0)
 
 
 # -----------------------------------------------------------------------
@@ -1122,11 +1124,11 @@ class TestTemperatureRangeLimits:
 
 
 # ---------------------------------------------------------------------------
-# Config entries saved at the former Ki default (#124)
+# Config entries saved at the previous Ki default (#124)
 # ---------------------------------------------------------------------------
 
 class TestKiDefaultMigration:
-    """An entry whose Ki is the former default follows the new default.
+    """An entry whose Ki is the previous default follows the new default.
 
     The options dialog stores every field it shows, so an entry that was
     saved once holds Ki 0.003 without anyone having chosen it.  Any other
@@ -1138,10 +1140,10 @@ class TestKiDefaultMigration:
     def _migrate(self, options):
         return _params.options_without_previous_ki_default(options, self.KI_KEY)
 
-    def test_ki_at_the_former_default_is_dropped(self):
+    def test_ki_at_the_previous_default_is_dropped(self):
         assert self._migrate({self.KI_KEY: 0.003}) == {}
 
-    def test_float_noise_does_not_hide_the_former_default(self):
+    def test_float_noise_does_not_hide_the_previous_default(self):
         assert self._migrate({self.KI_KEY: 0.003 + 1e-12}) == {}
         assert self._migrate({self.KI_KEY: 0.003 - 1e-12}) == {}
 

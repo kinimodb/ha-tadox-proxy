@@ -1,7 +1,7 @@
 """Config entries saved by an earlier release are migrated when they are set up.
 
 Minor version 2 came with the new Ki default (#124): an entry saved at the
-former default 0.003 follows the new one, every other Ki stays.
+previous default 0.003 follows the new one, every other Ki stays.
 """
 from __future__ import annotations
 
@@ -20,16 +20,16 @@ from .helpers import (
 
 # CorrectionTuning.ki, and the default before it.
 KI_DEFAULT = 0.001
-FORMER_KI_DEFAULT = 0.003
+PREVIOUS_KI_DEFAULT = 0.003
 
 # The minor version of an entry saved by v1.5.0 and earlier.
 MINOR_VERSION_BEFORE_NEW_KI = 1
 
 
-async def test_ki_at_the_former_default_follows_the_new_default(hass):
+async def test_ki_at_the_previous_default_follows_the_new_default(hass):
     proxy = await async_setup_proxy(
         hass,
-        options={"correction_ki": FORMER_KI_DEFAULT, "eco_target": 16.0},
+        options={"correction_ki": PREVIOUS_KI_DEFAULT, "eco_target": 16.0},
         minor_version=MINOR_VERSION_BEFORE_NEW_KI,
     )
 
@@ -50,17 +50,17 @@ async def test_a_ki_chosen_before_the_change_stays(hass):
     assert proxy.state.attributes["correction_ki"] == 0.005
 
 
-async def test_the_former_default_chosen_after_the_change_stays(hass):
+async def test_the_previous_default_chosen_after_the_change_stays(hass):
     """From this version on a stored 0.003 is a person's choice, not the old default."""
     proxy = await async_setup_proxy(
         hass,
-        options={"correction_ki": FORMER_KI_DEFAULT},
+        options={"correction_ki": PREVIOUS_KI_DEFAULT},
         minor_version=CURRENT_ENTRY_MINOR_VERSION,
     )
 
     assert proxy.entry.minor_version == CURRENT_ENTRY_MINOR_VERSION
-    assert proxy.entry.options["correction_ki"] == FORMER_KI_DEFAULT
-    assert proxy.state.attributes["correction_ki"] == FORMER_KI_DEFAULT
+    assert proxy.entry.options["correction_ki"] == PREVIOUS_KI_DEFAULT
+    assert proxy.state.attributes["correction_ki"] == PREVIOUS_KI_DEFAULT
 
 
 async def test_entry_without_a_stored_ki_only_gets_the_new_version(hass):
@@ -77,12 +77,12 @@ async def test_entry_from_a_later_minor_version_is_left_alone(hass):
 
     proxy = await async_setup_proxy(
         hass,
-        options={"correction_ki": FORMER_KI_DEFAULT},
+        options={"correction_ki": PREVIOUS_KI_DEFAULT},
         minor_version=later_minor_version,
     )
 
     assert proxy.entry.minor_version == later_minor_version
-    assert proxy.entry.options["correction_ki"] == FORMER_KI_DEFAULT
+    assert proxy.entry.options["correction_ki"] == PREVIOUS_KI_DEFAULT
 
 
 async def test_entry_from_a_newer_major_version_is_not_set_up(hass):
@@ -93,7 +93,7 @@ async def test_entry_from_a_newer_major_version_is_not_set_up(hass):
         domain=DOMAIN,
         title="Living",
         data={"source_entity_id": TRV, "external_temperature_entity_id": ROOM_SENSOR, "name": "Living"},
-        options={"correction_ki": FORMER_KI_DEFAULT},
+        options={"correction_ki": PREVIOUS_KI_DEFAULT},
         unique_id=TRV,
         version=2,
     )
@@ -104,7 +104,7 @@ async def test_entry_from_a_newer_major_version_is_not_set_up(hass):
 
     assert entry.state is ConfigEntryState.MIGRATION_ERROR
     assert entry.version == 2
-    assert entry.options["correction_ki"] == FORMER_KI_DEFAULT
+    assert entry.options["correction_ki"] == PREVIOUS_KI_DEFAULT
 
 
 async def test_new_entry_starts_at_the_current_version(hass):
