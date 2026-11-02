@@ -18,9 +18,12 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .climate_controllers import (
+    DEFAULT_MANUAL_MODE_ACTION,
+    MANUAL_MODE_KEEP,
+    MANUAL_MODE_TIMER,
     PRESET_AWAY,
     PRESET_BOOST,
     PRESET_COMFORT,
@@ -31,9 +34,7 @@ from .climate_controllers import (
     preset_target_c,
     safe_float,
 )
-
-if TYPE_CHECKING:
-    from .parameters import PresetConfig
+from .parameters import DEFAULT_MANUAL_MODE_DURATION_MIN, PresetConfig
 
 # Timer ids.  The caller schedules them and reports them back as elapsed.
 TIMER_WINDOW_OPEN = "window_open"
@@ -91,8 +92,8 @@ class LayersConfig:
     # Whether a window / presence sensor is configured at all.
     has_window_sensor: bool
     has_presence_sensor: bool
-    manual_mode_action: str = "keep"
-    manual_mode_duration_min: int = 15
+    manual_mode_action: str = DEFAULT_MANUAL_MODE_ACTION
+    manual_mode_duration_min: int = DEFAULT_MANUAL_MODE_DURATION_MIN
 
 
 @dataclass(frozen=True)
@@ -322,7 +323,7 @@ class PresetLayers:
         """
         self._begin(now)
         self._config = config
-        if config.manual_mode_action == "keep":
+        if config.manual_mode_action == MANUAL_MODE_KEEP:
             self._cancel_manual_return()
         return self._effects("options_changed")
 
@@ -415,7 +416,7 @@ class PresetLayers:
             elif snapshot.presence_state == _OFF:
                 self._start_away_delay()
         if (
-            self._config.manual_mode_action == "timer"
+            self._config.manual_mode_action == MANUAL_MODE_TIMER
             and self._user.preset == PRESET_NONE
             and snapshot.manual_return_preset in _CHOOSABLE
             and snapshot.manual_return_at_ts is not None
@@ -557,7 +558,7 @@ class PresetLayers:
         self._begin(now)
         self._change_by_person()
         self._end_boost()
-        if self._config.manual_mode_action == "timer":
+        if self._config.manual_mode_action == MANUAL_MODE_TIMER:
             previous = self._manual_return_preset or self._user.preset
             if previous in _CHOOSABLE:
                 delay_s = self._config.manual_mode_duration_min * 60

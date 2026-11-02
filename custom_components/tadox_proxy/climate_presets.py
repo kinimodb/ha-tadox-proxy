@@ -14,7 +14,11 @@ from homeassistant.components.climate import HVACMode
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_call_later
 
-from .climate_controllers import DEFAULT_WINDOW_ACTION, safe_float
+from .climate_controllers import (
+    DEFAULT_MANUAL_MODE_ACTION,
+    DEFAULT_WINDOW_ACTION,
+    safe_float,
+)
 from .const import (
     CONF_COMFORT_TARGET,
     CONF_MANUAL_MODE_ACTION,
@@ -26,10 +30,9 @@ from .const import (
     CONF_WINDOW_CLOSE_DELAY_S,
     CONF_WINDOW_DELAY_S,
     CONF_WINDOW_SENSOR_ID,
-    DEFAULT_MANUAL_MODE_ACTION,
-    DEFAULT_MANUAL_MODE_DURATION_MIN,
 )
 from .parameters import (
+    DEFAULT_MANUAL_MODE_DURATION_MIN,
     DEFAULT_PRESENCE_AWAY_DELAY_S,
     DEFAULT_PRESENCE_HOME_DELAY_S,
     DEFAULT_WINDOW_CLOSE_DELAY_S,
