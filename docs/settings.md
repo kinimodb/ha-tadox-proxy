@@ -256,6 +256,11 @@ climate entity becomes unavailable too. Its requested mode and preset are retain
 regulation pauses until the source returns. This is different from turning the
 heating off.
 
+While the proxy climate entity is unavailable, Home Assistant ignores service calls
+to it. That also goes for automations and schedules: a call made during the outage is
+not queued and not carried out later. Only the climate entity is affected. The
+comfort temperature number and the guest mode switch stay available and keep working.
+
 ---
 
 ## Following the physical thermostat
