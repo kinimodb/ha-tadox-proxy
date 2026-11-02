@@ -66,6 +66,10 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """UI setup for the integration (initial setup)."""
 
     VERSION = 1
+    # Raise it with every change to stored options or data that older entries
+    # need, and add the step to async_migrate_entry (__init__.py).
+    # 1.2: the Ki default went from 0.003 to 0.001 (#124).
+    MINOR_VERSION = 2
 
     async def async_step_user(self, user_input=None):
         errors: dict[str, str] = {}

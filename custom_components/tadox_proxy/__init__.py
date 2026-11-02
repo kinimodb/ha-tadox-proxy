@@ -12,15 +12,45 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CONF_BACKUP_TEMPERATURE_ENTITY_ID,
+    CONF_CORRECTION_KI,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
     DOMAIN,
     LIVE_OPTION_KEYS,
 )
+from .parameters import options_without_previous_ki_default
 
 _LOGGER = logging.getLogger(__name__)
 
 # List the platforms that you want to support.
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.CLIMATE, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Bring an entry saved by an earlier release up to the current version.
+
+    Home Assistant calls this before setup whenever the entry's version differs
+    from the config flow's.  Each step below belongs to one minor version; the
+    config flow's MINOR_VERSION is the last of them.
+    """
+    if entry.version > 1:
+        # Saved by a newer release and downgraded over a breaking change.
+        _LOGGER.error(
+            "%s was saved by a newer version of Tado X Proxy (entry version %s.%s) "
+            "and cannot be loaded by this one",
+            entry.title, entry.version, entry.minor_version,
+        )
+        return False
+
+    if entry.minor_version < 2:
+        # 1.2: the Ki default went from 0.003 to 0.001 (#124).  Entries that
+        # hold the former default follow the new one.
+        hass.config_entries.async_update_entry(
+            entry,
+            options=options_without_previous_ki_default(entry.options, CONF_CORRECTION_KI),
+            minor_version=2,
+        )
+
+    return True
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tado X Proxy from a config entry."""

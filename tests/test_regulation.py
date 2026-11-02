@@ -153,7 +153,8 @@ class TestPiCorrection:
 
     def test_integral_accumulates_near_target(self):
         """Integral should grow when error is within deadband (near target)."""
-        reg = make_regulator()
+        # The sum below is worked out for Ki 0.003, so the test sets it.
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
         state = RegulationState()
 
         # Simulate 5 cycles of 60s each with 0.2°C persistent undershoot
@@ -192,7 +193,8 @@ class TestPiCorrection:
 
     def test_integral_decays_on_overshoot(self):
         """Integral should decrease when room overshoots."""
-        reg = make_regulator()
+        # The step below is worked out for Ki 0.003, so the test sets it.
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
         # Start with some integral built up
         state = RegulationState(integral_c=1.0)
 
@@ -291,6 +293,110 @@ class TestAntiWindup:
             state = result.new_state
 
         assert result.i_correction_c <= 1.0
+
+
+# -----------------------------------------------------------------------
+# Integral windup in both directions (#124)
+# -----------------------------------------------------------------------
+#
+# The radiator thermostat acts on the command minus its own reading:
+# u = (1 + Kp) * error + integral.  The valve is open while u > 0.  These
+# tests run the real regulator with its default config against a room that
+# drifts or is held, and look at that margin.
+
+SETPOINT_C = 20.0
+
+# The Tado sensor on the radiator reads a constant 2.04 K above the room
+# sensor.  The odd hundredth keeps tado_internal halfway between two 0.1 K
+# steps in the checks below: the command is rounded to 0.1 K, which would
+# otherwise swallow a margin of a few hundredths and turn "a little above
+# tado_internal" into "equal to it".
+OFFSET_C = 2.04
+
+
+def _cycle(reg, state, room_c, time_delta_s=60.0):
+    """Run one regulation cycle with the room at *room_c*."""
+    return reg.compute(
+        setpoint_c=SETPOINT_C,
+        room_temp_c=room_c,
+        tado_internal_c=room_c + OFFSET_C,
+        time_delta_s=time_delta_s,
+        state=state,
+    )
+
+
+def _hold_room(reg, state, room_c, minutes):
+    """Hold the room at *room_c*; return the last state and every integral on the way."""
+    integrals = []
+    for _ in range(minutes):
+        state = _cycle(reg, state, room_c).new_state
+        integrals.append(state.integral_c)
+    return state, integrals
+
+
+def _slow_approach(reg):
+    """The room rises evenly from 19.7 to 20.0 °C in 45 minutes.
+
+    Returns the state at the crossing, when the room reaches the setpoint.
+    """
+    state = RegulationState()
+    for minute in range(46):
+        room_c = 19.7 + 0.3 * minute / 45
+        first = minute == 0
+        state = _cycle(reg, state, room_c, time_delta_s=0.0 if first else 60.0).new_state
+    return state
+
+
+class TestSlowApproach:
+    """A room that creeps up the last 0.3 °C stays inside the integral zone."""
+
+    def test_integral_at_the_crossing_stays_small(self):
+        state = _slow_approach(make_regulator())
+
+        assert state.integral_c <= 0.45
+
+    def test_valve_shuts_when_the_room_goes_a_quarter_degree_over(self):
+        reg = make_regulator()
+        state = _slow_approach(reg)
+        room_c = SETPOINT_C + 0.25
+
+        result = _cycle(reg, state, room_c)
+
+        # A command at or below the thermostat's own reading shuts the valve.
+        assert result.target_for_tado_c <= room_c + OFFSET_C
+
+
+class TestWarmRoom:
+    """A room that stays above its target winds the integral down."""
+
+    def test_integral_stops_at_minus_half_a_degree(self):
+        _, integrals = _hold_room(
+            make_regulator(), RegulationState(), SETPOINT_C + 0.1, minutes=8 * 60
+        )
+
+        assert min(integrals) >= -0.5
+        # It does wind down that far, so this is not met by an idle integral.
+        assert integrals[-1] == pytest.approx(-0.5)
+
+    def test_valve_reopens_just_below_the_target(self):
+        reg = make_regulator()
+        state, _ = _hold_room(reg, RegulationState(), SETPOINT_C + 0.1, minutes=8 * 60)
+        room_c = SETPOINT_C - 0.29
+
+        result = _cycle(reg, state, room_c)
+
+        assert result.target_for_tado_c > room_c + OFFSET_C
+
+
+class TestColdRoom:
+    """A room that stays a little below its target keeps its positive reserve."""
+
+    def test_integral_climbs_above_one_degree(self):
+        state, _ = _hold_room(
+            make_regulator(), RegulationState(), SETPOINT_C - 0.1, minutes=10 * 60
+        )
+
+        assert state.integral_c > 1.0
 
 
 # -----------------------------------------------------------------------
@@ -664,9 +770,11 @@ class TestTimeDeltaEdgeCases:
         """Skipped cycles (sensor outage) must not integrate the whole gap.
 
         After a 40-minute outage dt is ~2400s.  Without a cap a single
-        near-target cycle would add 0.2 * 0.003 * 2400 = 1.44°C at once.
+        near-target cycle would add 0.2 * 0.003 * 2400 = 1.44°C at once
+        (Ki 0.003, which the test sets).
         """
-        reg = make_regulator()
+        cfg = RegulationConfig(tuning=CorrectionTuning(ki=0.003))
+        reg = FeedforwardPiRegulator(cfg)
         result = reg.compute(
             setpoint_c=21.0,
             room_temp_c=20.8,   # error = 0.2 < deadband (0.3)
@@ -674,12 +782,11 @@ class TestTimeDeltaEdgeCases:
             time_delta_s=2400.0,
             state=RegulationState(integral_c=0.0),
         )
-        cfg = RegulationConfig()
         max_step = 0.2 * cfg.tuning.ki * cfg.max_integration_dt_s
         assert result.new_state.integral_c == pytest.approx(max_step)
 
     def test_normal_time_delta_is_not_capped(self):
-        reg = make_regulator()
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
         result = reg.compute(
             setpoint_c=21.0,
             room_temp_c=20.8,
@@ -1011,3 +1118,70 @@ class TestTemperatureRangeLimits:
             state=state,
         )
         assert result.target_for_tado_c <= cfg.max_target_c
+
+
+# ---------------------------------------------------------------------------
+# Config entries saved at the former Ki default (#124)
+# ---------------------------------------------------------------------------
+
+class TestKiDefaultMigration:
+    """An entry whose Ki is the former default follows the new default.
+
+    The options dialog stores every field it shows, so an entry that was
+    saved once holds Ki 0.003 without anyone having chosen it.  Any other
+    value is a choice and stays.
+    """
+
+    KI_KEY = "correction_ki"   # CONF_CORRECTION_KI; const.py needs Home Assistant
+
+    def _migrate(self, options):
+        return _params.options_without_previous_ki_default(options, self.KI_KEY)
+
+    def test_ki_at_the_former_default_is_dropped(self):
+        assert self._migrate({self.KI_KEY: 0.003}) == {}
+
+    def test_float_noise_does_not_hide_the_former_default(self):
+        assert self._migrate({self.KI_KEY: 0.003 + 1e-12}) == {}
+        assert self._migrate({self.KI_KEY: 0.003 - 1e-12}) == {}
+
+    @pytest.mark.parametrize("ki", [0.005, 0.002, 0.001, 0.0, 0.0031])
+    def test_any_other_ki_stays(self, ki):
+        assert self._migrate({self.KI_KEY: ki}) == {self.KI_KEY: ki}
+
+    @pytest.mark.parametrize("stored", [None, "0.003"])
+    def test_a_value_that_is_not_a_number_stays(self, stored):
+        assert self._migrate({self.KI_KEY: stored}) == {self.KI_KEY: stored}
+
+    def test_missing_ki_is_fine(self):
+        assert self._migrate({}) == {}
+        assert self._migrate({"eco_target": 16.5}) == {"eco_target": 16.5}
+
+    def test_other_options_are_untouched(self):
+        options = {
+            self.KI_KEY: 0.003,
+            "correction_kp": 0.8,
+            "eco_target": 16.5,
+            "gain_scheduling_enabled": False,
+            "window_sensor_id": "binary_sensor.window",
+        }
+
+        assert self._migrate(options) == {
+            "correction_kp": 0.8,
+            "eco_target": 16.5,
+            "gain_scheduling_enabled": False,
+            "window_sensor_id": "binary_sensor.window",
+        }
+
+    def test_input_is_not_changed(self):
+        options = {self.KI_KEY: 0.003, "eco_target": 16.5}
+
+        migrated = self._migrate(options)
+
+        assert options == {self.KI_KEY: 0.003, "eco_target": 16.5}
+        assert migrated is not options
+
+    def test_read_only_options_work(self):
+        """``ConfigEntry.options`` is a read-only mapping."""
+        options = types.MappingProxyType({self.KI_KEY: 0.003, "eco_target": 16.5})
+
+        assert self._migrate(options) == {"eco_target": 16.5}

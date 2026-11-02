@@ -20,6 +20,9 @@ Anti-windup (two mechanisms):
 2. The integral only accumulates when |error| < deadband (near target).
    Outside this zone the integral *decays* toward zero, preventing buildup
    during gross heating transients that would cause overshoot.
+The integral limits are asymmetric (integral_min_c -0.5, integral_max_c +2.0):
+a shut valve cannot be shut further, so a deeper negative integral would only
+delay the next heating (see parameters.py and docs/adr/0002).
 """
 from __future__ import annotations
 

@@ -43,6 +43,12 @@ WINDOW_CLOSE_DELAY_S = 120
 # DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
 CONTROL_INTERVAL_S = 60
 
+# The config-entry minor version of an entry the config flow creates today
+# (TadoxProxyConfigFlow.MINOR_VERSION; test_entry_migration.py checks that
+# they agree).  async_setup_proxy sets entries up at this version, so only
+# the tests about older entries go through the migration.
+CURRENT_ENTRY_MINOR_VERSION = 2
+
 # Attributes of a room temperature sensor.
 TEMPERATURE: dict[str, Any] = {"device_class": "temperature", "unit_of_measurement": "°C"}
 
@@ -137,12 +143,14 @@ async def async_setup_proxy(
     room_state: str = "20.0",
     entry_id: str | None = None,
     trv_adopts: bool = False,
+    minor_version: int = CURRENT_ENTRY_MINOR_VERSION,
 ) -> Proxy:
     """Create the source TRV and sensors, then set up one proxy entry.
 
     Pass ``room_state`` to start with a room sensor that has not reported
     yet, and ``entry_id`` to prepare registry entries for the entry before
-    setup.
+    setup.  Pass an older ``minor_version`` for an entry saved by an earlier
+    release: setup then migrates it.
 
     Pass ``trv_adopts`` whenever the test runs regulation cycles over time:
     the TRV then holds what it is sent, as a real one does.  See
@@ -165,6 +173,7 @@ async def async_setup_proxy(
         options={**BASE_OPTIONS, **(options or {})},
         unique_id=TRV,
         entry_id=entry_id,
+        minor_version=minor_version,
     )
     entry.add_to_hass(hass)
     if trv_adopts:
