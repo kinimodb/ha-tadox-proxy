@@ -173,9 +173,14 @@ class PresetMixin:
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Pick a preset (Home Assistant has checked it against the list)."""
-        _LOGGER.debug("Preset picked: %s", preset_mode)
+        # HA set the context of this service call right before calling.  Only
+        # user_id tells a person apart: a time-triggered automation has neither
+        # user_id nor parent_id.
+        context = self._context
+        by_person = context is not None and context.user_id is not None
+        _LOGGER.debug("Preset picked: %s (by a person: %s)", preset_mode, by_person)
         await self._async_handle_layer_effects(
-            self._layers.pick_preset(preset_mode, time.time())
+            self._layers.pick_preset(preset_mode, time.time(), by_person=by_person)
         )
 
     def _comfort_target(self) -> float:

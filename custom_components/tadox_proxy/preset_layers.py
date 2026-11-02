@@ -227,16 +227,25 @@ class PresetLayers:
     # Events
     # ------------------------------------------------------------------
 
-    def pick_preset(self, preset: str, now: float) -> Effects:
-        """A person picked *preset*.
+    def pick_preset(self, preset: str, now: float, *, by_person: bool = True) -> Effects:
+        """A person picked *preset*, or a command without one sent it.
 
         Picking the preset an active layer forces right now does not become
         the user choice: confirming what is shown must not leave the room
         cold later.  It is still a change by a person, so a running close
         delay ends and a boost does not outlive the tap.
+
+        While Manual's timer runs, a command without a person (a schedule, an
+        automation) only changes the return preset: Manual runs its full time,
+        and neither a close delay nor a boost ends.  A boost it starts is no
+        user choice and goes the normal way.
         """
         self._begin(now)
         if preset not in (*_CHOOSABLE, PRESET_BOOST):
+            return self._effects("preset_change")
+        if not by_person and self._manual_return_preset is not None and preset in _CHOOSABLE:
+            if not self._layer_forces(preset):
+                self._manual_return_preset = preset
             return self._effects("preset_change")
         self._change_by_person()
         if preset == PRESET_BOOST:

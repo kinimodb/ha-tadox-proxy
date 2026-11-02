@@ -1737,6 +1737,153 @@ class TestManualTimer:
         assert room.active_preset == COMFORT
         assert "manual_return_preset" not in room.attributes()
 
+    def test_a_command_without_a_person_only_changes_the_return_preset(self):
+        room = _timed_manual()
+
+        effects = room.pick_preset(COMFORT, T0 + 10, by_person=False)
+
+        assert room.active_preset == MANUAL
+        assert room.room_target_c == 21.5
+        assert room.user_choice.preset == MANUAL
+        assert room.attributes()["manual_return_preset"] == COMFORT
+        assert room.attributes()["manual_return_at_ts"] == T0 + 60
+        assert MANUAL_RETURN not in effects.timers
+        assert effects.cycle is None
+        assert effects.changed is True
+
+        room.timer_elapsed(MANUAL_RETURN, T0 + 60)
+
+        assert room.active_preset == COMFORT
+
+    def test_the_changed_return_preset_survives_a_restart(self):
+        room = _timed_manual()
+        room.pick_preset(COMFORT, T0 + 10, by_person=False)
+        snapshot = StartSnapshot.from_state(
+            "heat", room.attributes(), window_state=OFF, presence_state=ON
+        )
+
+        restarted = _room(manual_mode_action="timer", manual_mode_duration_min=1)
+        effects = restarted.start(snapshot, T0 + 20)
+
+        assert restarted.active_preset == MANUAL
+        assert restarted.room_target_c == 21.5
+        assert effects.timers[MANUAL_RETURN] == 40
+
+        restarted.timer_elapsed(MANUAL_RETURN, T0 + 60)
+
+        assert restarted.active_preset == COMFORT
+
+    def test_the_changed_return_preset_applies_if_the_timer_ended_during_a_restart(self):
+        room = _timed_manual()
+        room.pick_preset(COMFORT, T0 + 10, by_person=False)
+        snapshot = StartSnapshot.from_state(
+            "heat", room.attributes(), window_state=OFF, presence_state=ON
+        )
+
+        restarted = _room(manual_mode_action="timer", manual_mode_duration_min=1)
+        restarted.start(snapshot, T0 + 90)
+
+        assert restarted.active_preset == COMFORT
+
+    def test_a_person_still_ends_the_timer_after_a_command_without_one(self):
+        room = _timed_manual()
+        room.pick_preset(COMFORT, T0 + 10, by_person=False)
+
+        effects = room.pick_preset(ECO, T0 + 20)
+
+        assert effects.timers[MANUAL_RETURN] is None
+        assert room.active_preset == ECO
+        assert "manual_return_preset" not in room.attributes()
+
+    def test_a_new_manual_temperature_keeps_the_changed_return_preset(self):
+        room = _timed_manual()
+        room.pick_preset(COMFORT, T0 + 10, by_person=False)
+
+        room.set_temperature(22.0, T0 + 20)
+
+        assert room.attributes()["manual_return_preset"] == COMFORT
+        assert room.attributes()["manual_return_at_ts"] == T0 + 80
+
+    def test_a_command_without_a_person_does_not_end_the_close_delay(self):
+        room = _timed_manual()
+        _open_window(room, T0 + 1)
+        room.window_reported(OFF, T0 + 40)
+
+        room.pick_preset(COMFORT, T0 + 41, by_person=False)
+
+        assert room.close_delay_running is True
+        assert room.active_preset == FROST
+        assert room.attributes()["manual_return_preset"] == COMFORT
+
+    def test_a_command_without_a_person_does_not_end_a_boost(self):
+        room = _timed_manual()
+        room.pick_preset(BOOST_PRESET, T0 + 10)
+
+        room.pick_preset(COMFORT, T0 + 20, by_person=False)
+
+        assert room.active_preset == BOOST_PRESET
+        assert room.attributes()["manual_return_preset"] == COMFORT
+
+    def test_a_forced_preset_without_a_person_is_no_return_preset(self):
+        room = _timed_manual()
+        _open_window(room, T0 + 1)
+
+        room.pick_preset(FROST, T0 + 40, by_person=False)
+
+        assert room.attributes()["manual_return_preset"] == ECO
+
+        room.window_reported(OFF, T0 + 41)
+        room.pick_preset(FROST, T0 + 42, by_person=False)
+
+        assert room.close_delay_running is True
+        assert room.attributes()["manual_return_preset"] == ECO
+
+    def test_a_boost_without_a_person_goes_the_normal_way(self):
+        room = _timed_manual()
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 10, by_person=False)
+
+        assert room.active_preset == BOOST_PRESET
+        assert MANUAL_RETURN not in effects.timers
+        assert room.attributes()["manual_return_preset"] == ECO
+
+    def test_without_a_running_timer_a_command_without_a_person_is_a_choice(self):
+        room = _room()
+        room.set_temperature(21.5, T0)
+
+        room.pick_preset(ECO, T0 + 10, by_person=False)
+
+        assert room.active_preset == ECO
+        assert room.user_choice.preset == ECO
+
+    def test_without_a_running_timer_a_command_without_a_person_ends_close_delay_and_boost(self):
+        room = _room()
+        room.pick_preset(BOOST_PRESET, T0)
+        _open_window(room, T0 + 1)
+        room.window_reported(OFF, T0 + 40)
+
+        room.pick_preset(ECO, T0 + 41, by_person=False)
+
+        assert room.close_delay_running is False
+        assert room.active_preset == ECO
+
+    def test_manual_set_before_the_timer_option_has_no_timer_until_a_preset_is_picked(self):
+        """Manual from the "keep" option has no preset to return to."""
+        room = _room()
+        room.set_temperature(21.5, T0)
+
+        room.options_changed(_config(manual_mode_action="timer"), T0 + 1)
+        effects = room.set_temperature(22.0, T0 + 2)
+
+        assert MANUAL_RETURN not in effects.timers
+        assert "manual_return_at_ts" not in room.attributes()
+
+        room.pick_preset(ECO, T0 + 3, by_person=False)
+        effects = room.set_temperature(22.5, T0 + 4)
+
+        assert effects.timers[MANUAL_RETURN] == 15 * 60
+        assert room.attributes()["manual_return_preset"] == ECO
+
     def test_keep_cancels_a_running_timer_and_does_not_restore_it(self):
         room = _room(manual_mode_action="timer", manual_mode_duration_min=1)
         room.pick_preset(ECO, T0)

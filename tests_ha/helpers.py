@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import EVENT_CALL_SERVICE, STATE_ON
-from homeassistant.core import Event, HomeAssistant, ServiceRegistry, State, callback
+from homeassistant.core import Context, Event, HomeAssistant, ServiceRegistry, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
@@ -102,10 +102,22 @@ class Proxy:
             )
         ]
 
-    async def call(self, domain: str, service: str, entity_id: str, **data: Any) -> None:
-        """Call a service on one entity and wait until HA is idle."""
+    async def call(
+        self,
+        domain: str,
+        service: str,
+        entity_id: str,
+        *,
+        context: Context | None = None,
+        **data: Any,
+    ) -> None:
+        """Call a service on one entity and wait until HA is idle.
+
+        Without *context* HA uses a bare ``Context()``, so the call comes from
+        no person; pass ``Context(user_id=...)`` with a real user for one.
+        """
         await self.hass.services.async_call(
-            domain, service, {"entity_id": entity_id, **data}, blocking=True
+            domain, service, {"entity_id": entity_id, **data}, blocking=True, context=context
         )
         await self.hass.async_block_till_done()
 
