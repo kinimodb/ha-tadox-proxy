@@ -42,7 +42,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if entry.minor_version < 2:
         # 1.2: the Ki default went from 0.003 to 0.001 (#124).  Entries that
-        # hold the former default follow the new one.
+        # hold the previous default follow the new one.
         hass.config_entries.async_update_entry(
             entry,
             options=options_without_previous_ki_default(entry.options, CONF_CORRECTION_KI),

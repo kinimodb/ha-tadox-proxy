@@ -71,7 +71,7 @@ class CorrectionTuning:
     # Integral gain for slow steady-state error correction.  The integral time
     # (1 + kp) / ki is 30 min: for a gap that stays, the integral needs that
     # long to add as much push as the gap itself already gives, and rooms
-    # respond in hours (#124).  Entries saved at the former default 0.003
+    # respond in hours (#124).  Entries saved at the previous default 0.003
     # follow this one after the migration below.
     ki: float = 0.001
 

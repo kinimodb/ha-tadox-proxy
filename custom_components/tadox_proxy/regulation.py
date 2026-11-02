@@ -14,15 +14,15 @@ correction handles any remaining steady-state error.
                     + kp * error             (proportional correction)
                     + integral               (integral correction)
 
-Anti-windup (two mechanisms):
+Anti-windup (three mechanisms):
 1. The integral freezes whenever the output is saturated (clamped at max or
    min target) in the same direction as the error.
 2. The integral only accumulates when |error| < deadband (near target).
    Outside this zone the integral *decays* toward zero, preventing buildup
    during gross heating transients that would cause overshoot.
-The integral limits are asymmetric (integral_min_c -0.5, integral_max_c +2.0):
-a shut valve cannot be shut further, so a deeper negative integral would only
-delay the next heating (see parameters.py and docs/adr/0002).
+3. The integral limits are asymmetric (integral_min_c -0.5, integral_max_c
+   +2.0): a shut valve cannot be shut further, so a deeper negative integral
+   would only delay the next heating (see parameters.py and docs/adr/0002).
 """
 from __future__ import annotations
 
@@ -178,7 +178,7 @@ class FeedforwardPiRegulator:
         )
         is_saturated = abs(final_command - raw_command) > _SATURATION_TOLERANCE_C
 
-        # 7. Anti-windup (two mechanisms)
+        # 7. Anti-windup
         new_integral = state.integral_c
         if time_delta_s > 0:
             saturated_high = raw_command > self.cfg.max_target_c
@@ -199,6 +199,7 @@ class FeedforwardPiRegulator:
                 # Cap dt so a long gap (skipped cycles) cannot spike it.
                 dt = min(time_delta_s, self.cfg.max_integration_dt_s)
                 new_integral += error * self.cfg.tuning.ki * dt
+                # Mechanism C: asymmetric limits (docstring, point 3)
                 new_integral = max(
                     self.cfg.integral_min_c,
                     min(self.cfg.integral_max_c, new_integral),
