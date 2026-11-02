@@ -31,7 +31,8 @@ did what.
 |---|---|---|
 | Room sails past the target, then drifts back down | Correction too strong | [Strong overshoot](#strong-overshoot--1c) |
 | Temperature cycles up and down repeatedly | Correction too strong, or commands too frequent | [Oscillation](#temperature-oscillates-strongly) |
-| Room stays a little below target for hours | Long-term correction too weak (the default is slow on purpose) | Raise [Ki](#ki-integral-correction) to 0.002 or 0.003 |
+| Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak: the default is slow on purpose, and some thermostats need a lasting positive correction | Raise [Ki](#ki-integral-correction) to 0.002 or 0.003 (a bit more overshoot) |
+| A room at its target still takes some heat while another room keeps a shared boiler running | Mostly the shared boiler, not the settings. The proxy reduces it, it cannot remove it | [Still not right?](#still-not-right) |
 | Room takes very long to warm from cold | Cold-start boost too low — or the radiator is simply undersized | [Kp](#kp-proportional-correction) and the [radiator table](#tuning-by-radiator-type) |
 | Room feels fine but the reading is always off | Sensor placement, not tuning | [Sensor placement](docs/setup.md#step-1-place-the-sensor-properly) |
 
@@ -138,7 +139,7 @@ If you want to understand *why* a value has the effect it does, see
 | 0.0 | No long-term correction (P + feedforward only) |
 | **0.001** | Default – slow. While the room stays 0.2°C off, the correction grows by about 0.72°C per hour |
 | **0.002** | Twice as fast – for a room that stays a little below target |
-| **0.003** | The default up to v1.5.0 – three times as fast, but more overshoot after a slow approach |
+| **0.003** | Three times as fast as the default, but more overshoot after a slow approach |
 | **0.005** | Faster still, higher overshoot risk |
 | 0.01+ | Aggressive – only for systematic offset |
 
@@ -147,9 +148,12 @@ correction: at half the gap, half the speed.
 
 **Rule of thumb:** Higher Ki = a lasting shortfall is closed sooner, but overshoot risk increases.
 
-**Room stays a little below target for hours?** Raise Ki to 0.002, and to 0.003 if
-that is still too slow. With the default the long-term correction deliberately takes
-its time.
+**Room creeps the last tenth slowly, or stays a little below target for hours?** Raise
+Ki to 0.002, and to 0.003 if that is still too slow. With the default the long-term
+correction deliberately takes its time. This happens most with a thermostat that
+opens its valve in proportion to the gap: it needs a lasting positive correction to
+close the last tenth, and the default builds that up slowly. The price of a higher Ki
+is a bit more overshoot after a slow approach.
 
 ### Adaptive Gain Scheduling
 
@@ -340,6 +344,11 @@ resists every adjustment, the cause is usually physical rather than numerical:
 - **A schedule is still active in the Tado app.** It will quietly fight every
   command this integration sends.
 - **The radiator needs bleeding, or the valve is stuck.**
+- **Another room keeps a shared boiler running.** A room that is already at its
+  target still takes some heat while the boiler runs for another room, because its
+  valve stays open a crack to hold the room. The lower Ki and the tighter integral
+  floor reduce this a little, they do not remove it: it mostly follows from sharing
+  one boiler, so tuning will change little here.
 
 If none of those apply, please open an
 [issue](https://github.com/kinimodb/ha-tadox-proxy/issues) with your radiator type,
