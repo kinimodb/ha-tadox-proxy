@@ -1773,6 +1773,28 @@ class TestManualTimer:
 
         assert restarted.active_preset == COMFORT
 
+    def test_the_changed_return_preset_survives_a_restart_during_an_outage(self):
+        """HA reduced the state to a bare "unavailable"; the extra data has the timer."""
+        room = _timed_manual()
+        room.pick_preset(COMFORT, T0 + 10, by_person=False)
+        snapshot = StartSnapshot.from_state(
+            "unavailable",
+            {},
+            window_state=OFF,
+            presence_state=ON,
+            extra={"desired_hvac_mode": "heat", **room.attributes()},
+        )
+
+        restarted = _room(manual_mode_action="timer", manual_mode_duration_min=1)
+        effects = restarted.start(snapshot, T0 + 20)
+
+        assert restarted.room_target_c == 21.5
+        assert effects.timers[MANUAL_RETURN] == 40
+
+        restarted.timer_elapsed(MANUAL_RETURN, T0 + 60)
+
+        assert restarted.active_preset == COMFORT
+
     def test_the_changed_return_preset_applies_if_the_timer_ended_during_a_restart(self):
         room = _timed_manual()
         room.pick_preset(COMFORT, T0 + 10, by_person=False)
