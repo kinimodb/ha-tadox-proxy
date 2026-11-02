@@ -401,6 +401,11 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             return
         if new_state is None or new_state.state in ("unavailable", "unknown"):
             return
+        # A source coming back reports its setpoint again.  That is no dial
+        # change and must not replace the user choice.  A dial turned during
+        # the outage is not taken over either: the drift correction handles it.
+        if not _source_state_available(old_state):
+            return
 
         new_temp_attr = new_state.attributes.get("temperature")
         old_temp_attr = old_state.attributes.get("temperature") if old_state else None
