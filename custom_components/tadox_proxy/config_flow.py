@@ -9,8 +9,10 @@ from homeassistant.helpers import selector
 
 from .climate_controllers import (
     CONTROL_BACKUP_SENSOR,
+    DEFAULT_MANUAL_MODE_ACTION,
     DEFAULT_SENSOR_LOSS_ACTION,
     DEFAULT_WINDOW_ACTION,
+    MANUAL_MODE_ACTIONS,
     NEW_ENTRY_SENSOR_LOSS_ACTION,
     SENSOR_LOSS_ACTIONS,
     WINDOW_ACTIONS,
@@ -29,6 +31,8 @@ from .const import (
     CONF_GAIN_STARTUP_MULTIPLIER,
     CONF_GAIN_STARTUP_THRESHOLD_C,
     CONF_INTEGRAL_DEADBAND_C,
+    CONF_MANUAL_MODE_ACTION,
+    CONF_MANUAL_MODE_DURATION_MIN,
     CONF_MIN_CHANGE_THRESHOLD_C,
     CONF_MIN_COMMAND_INTERVAL_S,
     CONF_NAME,
@@ -47,6 +51,7 @@ from .const import (
     DOMAIN,
 )
 from .parameters import (
+    DEFAULT_MANUAL_MODE_DURATION_MIN,
     DEFAULT_OVERLAY_REFRESH_S,
     DEFAULT_PRESENCE_AWAY_DELAY_S,
     DEFAULT_PRESENCE_HOME_DELAY_S,
@@ -250,6 +255,32 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 presence_section_schema, {CONF_PRESENCE_SENSOR_ID: presence_sensor}
             )
 
+        manual_section_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_MANUAL_MODE_ACTION,
+                    default=opts.get(CONF_MANUAL_MODE_ACTION, DEFAULT_MANUAL_MODE_ACTION),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(MANUAL_MODE_ACTIONS),
+                        translation_key=CONF_MANUAL_MODE_ACTION,
+                    )
+                ),
+                vol.Required(
+                    CONF_MANUAL_MODE_DURATION_MIN,
+                    default=opts.get(
+                        CONF_MANUAL_MODE_DURATION_MIN, DEFAULT_MANUAL_MODE_DURATION_MIN
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=1440, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="min",
+                    )
+                ),
+            }
+        )
+
         # --- Main options schema with sections ---
         options_schema = vol.Schema(
             {
@@ -295,6 +326,11 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 # Section: Presence sensor
                 vol.Required("presence_sensor"): section(
                     presence_section_schema,
+                    {"collapsed": True},
+                ),
+
+                vol.Required("manual_mode"): section(
+                    manual_section_schema,
                     {"collapsed": True},
                 ),
 

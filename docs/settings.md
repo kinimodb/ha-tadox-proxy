@@ -44,6 +44,34 @@ or an away phase.
 Moving the temperature slider without picking a preset switches to **Manual**. Your
 stored Comfort temperature is left alone, so you can always get back to it.
 
+In the **Manual mode** options, you can keep Manual until you pick another preset
+(the default), or end Manual after a timer. The timer takes 1 to 1440 minutes (default
+15), restarts whenever you change the manual temperature, and survives a Home Assistant
+restart. Window and presence protection keep their priority while the timer continues
+to run.
+
+When the timer ends, the preset you picked before Manual applies, or the one a schedule
+or automation has set since.
+
+| While the timer runs | What happens |
+|---|---|
+| **You tap a preset** | The timer ends. That preset is your new choice |
+| **You start a boost** | The timer keeps running. If it ends during the boost, the preset applies once the boost is over |
+| **You tap the preset that is forced right now** | The timer keeps running. Tapping Frost Protection during the close delay is a real choice, though, and ends it |
+| **A schedule or automation sets a preset** | The timer keeps running and Manual lasts its full time. The new preset only applies afterwards, also after a restart |
+
+Two limits, because Home Assistant only tells whether a logged-in user is behind a
+command:
+
+- A **button that sets the preset through an automation** counts as no person, so it
+  does not end the timer. A button that calls the service or a script directly counts
+  as you.
+- **Tools that connect with an access token** (Node-RED, AppDaemon) count as a person,
+  so their preset command ends the timer.
+
+Manual that was already set when you switch the option to the timer has no preset to
+go back to. It stays without an end until a preset has been picked once.
+
 ### Your choice, and what can take over
 
 The preset you pick (or the temperature you set) is **your choice**. The room
@@ -419,6 +447,8 @@ something is wrong or when you are curious what the integration is thinking.
 | `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
 | `user_preset` | Your own choice – what comes back once nothing else holds the room. `none` means Manual |
 | `manual_target_c` | The temperature of Manual. Shown whenever your choice is Manual, also while something else holds the room |
+| `manual_return_preset` | The preset that applies when the Manual timer ends. Only while the timer runs |
+| `manual_return_at_ts` | When the Manual timer ends, as a Unix timestamp. Only while the timer runs |
 | `window_open_active` | An open window holds the room, including the close delay. Also while the heating is off |
 | `window_close_delay_active` | Waiting after a window closed |
 | `window_trv_off` | The window action switched the TRV off, and it has not heated since. True while the window holds the room, including the close delay; gone once the TRV is switched on again |
