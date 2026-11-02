@@ -60,6 +60,9 @@ or automation has set since.
 | **You start a boost** | The timer keeps running. If it ends during the boost, the preset applies once the boost is over |
 | **You tap the preset that is forced right now** | The timer keeps running. Tapping Frost Protection during the close delay is a real choice, though, and ends it |
 | **A schedule or automation sets a preset** | The timer keeps running and Manual lasts its full time. The new preset only applies afterwards, also after a restart |
+| **A schedule or automation sets the preset that is forced right now** | The command is ignored. The timer, the preset that applies afterwards and a running close delay stay as they were |
+| **A schedule or automation starts a boost** | The boost starts as it does when you start it. The timer keeps running |
+| **A schedule or automation sets a temperature** (`climate.set_temperature`) | It counts as a new Manual change, as if you had made it. The timer starts over |
 
 Two limits, because Home Assistant only tells whether a logged-in user is behind a
 command:
@@ -314,6 +317,11 @@ period at the latest (**Min command interval**, 180 s by default). So a dial
 turned up while a window is open no longer heats into the open window. The
 attribute `regulation_reason` shows `sent(trv_drift)` for such a correction.
 
+A dial turned while the radiator thermostat is `unavailable` or `unknown` is not
+taken over, not even with the switch **on**. When the thermostat comes back, the
+setpoint it reports is not read as a turned dial. The correction described above
+puts the proxy's own value back once the room is regulated again.
+
 ---
 
 ## When the sensor drops out
@@ -378,15 +386,20 @@ that an automation switches on and off. This sensor gives you that signal. It is
 - It turns **off** once the room has reached its target.
 - In between, it stays as it is. So it does not start the boiler for a tiny gap,
   and it does not stop the boiler before the room is warm.
-- It is always **off** while the thermostat is off, and while
-  `binary_sensor.<name>_sensor_degraded` is on. A missing room sensor should not
-  keep your boiler running.
+- It is always **off** while the thermostat is off.
+- It is also **off** while `binary_sensor.<name>_sensor_degraded` is on. A missing
+  room sensor should not keep your boiler running. This holds even while the
+  integration keeps regulating the room on the last good reading or on the backup
+  room sensor. When the room sensor reports again, the sensor starts from off: it
+  turns on once the room is more than the **Switch on above** value below its
+  target. A room whose boiler starts only on this sensor gets no heat during the
+  sensor outage.
 - It is **off** while the source radiator thermostat is `unavailable` or `unknown`,
   and it can turn on again once the thermostat returns and the room still needs heat.
 - It is also **off** while the integration does not regulate the room. Its
   attribute `error_c` is then empty. This happens for up to a minute after Home
-  Assistant starts or the integration reloads. It also happens while the radiator
-  thermostat does not report, before the room sensor reports for the first time,
+  Assistant starts or the integration reloads, before the room sensor reports for
+  the first time, while the radiator thermostat reports no temperature of its own,
   and while an open window has switched the radiator thermostat off.
 
 Its attribute `error_c` shows the gap the sensor follows: the target minus the room
