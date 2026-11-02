@@ -13,7 +13,7 @@ The ceiling stays at +2: caps of +0.5 and +1 left thermostats with a proportiona
 
 ## Evidence
 
-All numbers come from a throwaway simulation of the closed loop (it is not in the repository) and from replays of recorded inputs through the same code. None was measured on a valve. The simulation runs the real regulator and `decide_send` against three stand-ins for the valve (proportional band, PI, on/off) and three sensors (0.1 K, 0.2 K, a 300 s poll) in 18 scenarios, 162 runs in all. A second simulator, written independently of the first, was used to check the rejected option and the bias of the adopted one. Unless a line says otherwise, "valve open" means the model from Context: the command is above the thermostat's reading.
+All numbers come from a throwaway simulation of the closed loop (it is not in the repository) and from replays of recorded inputs through the same code. None was measured on a valve. The simulation runs the real regulator and `decide_send` against three stand-ins for the valve (proportional band, PI, on/off) and three sensors (0.1 K, 0.2 K, a 300 s poll) in 18 scenarios, 162 runs in all. A second simulator, written independently of the first, was used to check the rejected option and the bias of the adopted one; it came from an adversarial check of the recommendation that a usage limit cut off before it reached a verdict, so only its interim results were used, while the two-axis review (standards and spec) of the change ran to completion. Unless a line says otherwise, "valve open" means the model from Context: the command is above the thermostat's reading.
 
 Old regulator → new regulator (`Ki` 0.003 and floor -2.0 → `Ki` 0.001 and floor -0.5):
 
