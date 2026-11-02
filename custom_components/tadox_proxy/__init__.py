@@ -153,9 +153,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # entity does not apply live.  The live ones are LIVE_OPTION_KEYS
     # (const.py): they come from the number/switch entities and, for the
     # needs-heat thresholds, from the options dialog – so a dialog save that
-    # changes only those does not reload.  This listener fires AFTER HA has
-    # persisted the new options, so the reload always sees the up-to-date
-    # values.  Compare against a snapshot of the other options taken at setup.
+    # changes only those does not reload.  That holds from the second save on:
+    # the first save stores every option the dialog shows that is not stored
+    # yet (all of them for a new entry, correction_ki for an entry whose Ki the
+    # migration dropped), and those are not live, so that save does reload.
+    # This listener fires AFTER HA has persisted the new options, so the reload
+    # always sees the up-to-date values.  Compare against a snapshot of the
+    # other options taken at setup.
     reload_snapshot = _reload_relevant_options(entry.options)
 
     async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
