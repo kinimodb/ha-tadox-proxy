@@ -31,7 +31,7 @@ did what.
 |---|---|---|
 | Room sails past the target, then drifts back down | Correction too strong | [Strong overshoot](#strong-overshoot--1c) |
 | Temperature cycles up and down repeatedly | Correction too strong, or commands too frequent | [Oscillation](#temperature-oscillates-strongly) |
-| Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak: the default is slow on purpose, and some thermostats need a lasting positive correction | Raise [Ki](#ki-integral-correction) to 0.002 or 0.003 (a bit more overshoot) |
+| Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak: the default is slow on purpose, and some thermostats need a lasting positive correction | Less than about 0.3°C below target: raise [Ki](#ki-integral-correction) to 0.002 or 0.003 (a bit more overshoot). From about 0.3°C below target Ki does not help: the correction only builds up inside the band `integral_deadband_c` (0.3°C by default) and decays outside it. Widening that band might help; this has not been tested |
 | A room at its target still takes some heat while another room keeps a shared boiler running | Mostly the shared boiler, not the settings. The proxy reduces it, it cannot remove it | [Still not right?](#still-not-right) |
 | Room takes very long to warm from cold | Cold-start boost too low — or the radiator is simply undersized | [Kp](#kp-proportional-correction) and the [radiator table](#tuning-by-radiator-type) |
 | Room feels fine but the reading is always off | Sensor placement, not tuning | [Sensor placement](docs/setup.md#step-1-place-the-sensor-properly) |
@@ -154,6 +154,11 @@ correction deliberately takes its time. This happens most with a thermostat that
 opens its valve in proportion to the gap: it needs a lasting positive correction to
 close the last tenth, and the default builds that up slowly. The price of a higher Ki
 is a bit more overshoot after a slow approach.
+
+This works while the room is less than about 0.3°C below target. Further below, the
+correction does not build up at all, whatever Ki is: it decays, and the band
+`integral_deadband_c` is what matters. A wider band might help there; this has not
+been tested.
 
 ### Adaptive Gain Scheduling
 
