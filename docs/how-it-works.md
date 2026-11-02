@@ -111,8 +111,9 @@ If your room sits 0.2 °C too cold for an hour, the integral quietly grows and p
 the target up until the shortfall is gone. It is what turns "close enough" into
 "actually right".
 
-`Ki` is deliberately tiny — 0.003. This part is meant to work over tens of minutes,
-not seconds.
+`Ki` is deliberately tiny — 0.001. While the room stays 0.2 °C off, the integral
+grows by about 0.72 °C per hour. This part is meant to work over hours, not minutes,
+because rooms respond that slowly.
 
 ### Putting it together
 
@@ -126,6 +127,14 @@ target_sent_to_tado = your_target
 The result is clamped to 5–30 °C so a strange sensor reading can never send an absurd
 command.
 
+Take the thermostat's own reading away from that sum and what is left is
+`(1 + Kp) × error + integral`. That is the push the valve actually receives: above
+zero it opens, at zero or below it stays shut. The `1` comes from feedforward, which
+already moves the target along with the gap. With `Kp = 0.8` a room 0.5 °C too cold
+gives a push of 0.9 °C before the integral adds anything. If the gap stays the same,
+the integral needs `(1 + Kp) / Ki` seconds to add as much push as the gap itself
+gives. That is the *integral time* of the controller: 30 minutes with the defaults.
+
 You can watch all four numbers live in **Developer Tools → States** on your proxy
 entity. They are listed in the
 [settings reference](settings.md#diagnostic-attributes).
@@ -134,7 +143,7 @@ entity. They are listed in the
 
 ## Why the numbers are so small
 
-`Kp = 0.8` and `Ki = 0.003` look timid next to textbook controller values. That is
+`Kp = 0.8` and `Ki = 0.001` look timid next to textbook controller values. That is
 intentional, and it is a consequence of what is being controlled.
 
 A radiator is slow. Open the valve and nothing happens for several minutes: the water
@@ -171,7 +180,7 @@ The room overshoots badly and takes an hour to come back down.
 This is called *windup*, and it is the classic way a PI controller ruins a heating
 system.
 
-Two defences are used here:
+Three defences are used here:
 
 1. **Only accumulate near the target.** The integral grows only when the error is
    inside a narrow band (default 0.3 °C). Outside that band it does not just stop —
@@ -183,17 +192,39 @@ Two defences are used here:
    integral would achieve nothing except a debt to be paid off later. So while the
    output is pinned at a limit and the error still points that way, accumulation stops.
 
-The accumulated value is also hard-limited to ±2 °C, as a last line of defence.
+3. **Limits that differ on the two sides.** The integral stays between −0.5 °C and
+   +2 °C, and the two limits do different jobs. A shut valve cannot be shut any
+   further. Say the sun keeps a room above its target for hours: the integral winds
+   down, and once the valve is shut every further step down achieves nothing except a
+   delay, because all of it has to unwind again before the valve opens. With a floor
+   of −2 °C the valve came back only when the room was about 1.1 °C below target, or
+   hours later. With −0.5 °C it comes back at the latest 0.28 °C below target
+   (0.5 divided by the 1.8 of `1 + Kp`). The ceiling is another matter. A thermostat
+   whose valve opens in proportion to the gap can need a lasting positive integral to
+   reach the target at all. Simulations with a ceiling of +0.5 or +1 °C left such
+   thermostats too cold, so it stays at +2 °C.
 
 One case slips through the first defence. When a room creeps up the last 0.3 °C
 slowly — a large room, a small radiator — it spends that whole time inside the band,
-and the integral builds up anyway, to 1 °C or more. Once the room arrives, it unwinds
-just as slowly: the 5 % decay only applies outside the band, and just above the
-target the error is small. So the valve stays open for a while, the room ends up a
-little above its target, and `hvac_action` keeps showing `heating`. The overshoot
-itself is usually small, but anything that reads `hvac_action` as "this room wants
-heat" keeps firing — one reason a boiler should follow `error_c` instead (see
-[What "heating" means](settings.md#what-heating-means)).
+and the integral builds up anyway. If those last 0.3 °C take 45 minutes, it reaches
+about 0.4 °C by the time the room arrives (1.2 °C with the former `Ki` of 0.003).
+Once the room arrives, it unwinds just as slowly: the 5 % decay only applies outside
+the band, and just above the target the error is small. So the valve stays open for a
+while, the room ends up a little above its target, and `hvac_action` keeps showing
+`heating`. The overshoot itself is usually small, but anything that reads
+`hvac_action` as "this room wants heat" keeps firing — one reason a boiler should
+follow `error_c` instead (see [What "heating" means](settings.md#what-heating-means)).
+
+This matters most for a boiler that only runs on demand. While the room is less than
+the needs-heat switch-on gap below its target, the valve can be open with no hot water
+behind it, and the integral keeps building up for nothing. The lower `Ki` slows that
+down, it does not remove it. A lower switch-on gap for the needs-heat sensor helps
+more: in a simulated house, 0.1 °C instead of 0.3 °C cut the time with an open valve
+and no hot water by a lot, for a few more boiler starts a day (see
+[Changing when it switches](settings.md#changing-when-it-switches)).
+
+The decision, the numbers behind it and the alternatives that were tried and rejected
+are recorded in [ADR 0002](adr/0002-integral-windup-low-gain-and-tight-floor.md).
 
 ### One setting, two conflicting jobs
 
@@ -374,7 +405,7 @@ Assistant dependencies so it can be read and tested on its own:
 | File | Contains |
 |---|---|
 | `custom_components/tadox_proxy/regulation.py` | The entire control loop, ~200 lines |
-| `custom_components/tadox_proxy/parameters.py` | Every default value, with rationale |
+| `custom_components/tadox_proxy/parameters.py` | Every default value, with rationale, and the rule that moves entries saved at the former Ki default to the new one |
 | `custom_components/tadox_proxy/preset_layers.py` | Which preset the room runs: the user choice, the window, nobody-home and boost layers, their delays, restart and the window's "off" action |
 | `custom_components/tadox_proxy/climate_controllers.py` | Follow detection; sensor grace period and sensor-loss action; when a command is sent (rate limiting); preset targets; needs heat for a boiler (hysteresis on `error_c`) |
 | `tests/` | Test suite, runnable without Home Assistant |

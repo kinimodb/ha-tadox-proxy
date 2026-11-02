@@ -376,6 +376,11 @@ sensor**:
 The switch-on value must be higher than the switch-off value. Changes apply right
 away.
 
+A lower switch-on value, for example 0.1 °C, starts the boiler for smaller gaps. You
+get more boiler starts, but the valve spends less time open with no hot water behind
+it. While that lasts, the long-term correction keeps building up for nothing (see
+[Integral windup](how-it-works.md#integral-windup)).
+
 A switch-off value above 0 turns the sensor off a little before the room reaches its
 target. This can suit a heavy radiator, for example a cast-iron one, that keeps
 heating for a while after the boiler stops. Its stored heat brings the room the rest
@@ -401,8 +406,11 @@ the temperature you have.
 | Setting | Default | Range | What it does |
 |---|---|---|---|
 | Kp (Proportional) | 0.8 | 0.0–5.0 | How hard it reacts to the current gap |
-| Ki (Integral) | 0.003 | 0.0–0.1 | How fast it corrects a long-standing offset |
+| Ki (Integral) | 0.001 | 0.0–0.1 | How fast it corrects a long-standing offset |
 | Integral precision zone | 0.3 °C | 0.1–1.0 °C | Long-term correction only builds up inside this band |
+
+Up to v1.5.0 the default for Ki was 0.003. A room that still had that value moves to
+the new default with the update. A Ki you chose yourself stays.
 
 ### Gain Scheduling
 

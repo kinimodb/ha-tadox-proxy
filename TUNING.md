@@ -31,7 +31,7 @@ did what.
 |---|---|---|
 | Room sails past the target, then drifts back down | Correction too strong | [Strong overshoot](#strong-overshoot--1c) |
 | Temperature cycles up and down repeatedly | Correction too strong, or commands too frequent | [Oscillation](#temperature-oscillates-strongly) |
-| Room settles slightly below target and stays there | Long-term correction too weak | [Ki](#ki-integral-correction) |
+| Room stays a little below target for hours | Long-term correction too weak (the default is slow on purpose) | Raise [Ki](#ki-integral-correction) to 0.002 or 0.003 |
 | Room takes very long to warm from cold | Cold-start boost too low — or the radiator is simply undersized | [Kp](#kp-proportional-correction) and the [radiator table](#tuning-by-radiator-type) |
 | Room feels fine but the reading is always off | Sensor placement, not tuning | [Sensor placement](docs/setup.md#step-1-place-the-sensor-properly) |
 
@@ -69,13 +69,13 @@ If you want to understand *why* a value has the effect it does, see
 |-----------|-----------|---------|
 | `feedforward_offset_c` | 1.0–5.0°C | < 0 indicates wrong sensor |
 | `error_c` | Trending towards 0 | Stays > 1°C after 30 min → Kp too low |
-| `i_correction_c` | < 0.3 during heat-up | > 1.0 when the room arrives → built up during a slow final approach, expect a small overshoot |
+| `i_correction_c` | < 0.3 during heat-up | > 0.5 when the room arrives → built up during a slow final approach, expect a small overshoot |
 | `target_for_tado_c` | Decreases as room warms | Stuck at max (30°C) → room too large or Kp too low |
 
 **Evaluate results:**
 - **Overshoot < 0.5°C:** All good → proceed to Phase 2.
 - **Overshoot 0.5–1.0°C:** Reduce Kp by 0.1–0.2, retest.
-- **Overshoot > 1.0°C:** Reduce Kp to 0.5, optionally reduce Ki to 0.001.
+- **Overshoot > 1.0°C:** Reduce Kp to 0.5. If you raised Ki, set it back to 0.001 (the default).
 - **Room doesn't get warm enough:** Increase Kp by 0.2.
 
 ### Phase 2: Hold Test (4–8 Hours)
@@ -91,9 +91,9 @@ If you want to understand *why* a value has the effect it does, see
 | Metric | Good Value | Action if Deviating |
 |--------|-----------|---------------------|
 | Fluctuation around setpoint | ±0.3–0.5°C | ±0.5°C is normal for TRV control |
-| Mean deviation | < 0.2°C | If consistently too cold: slightly increase Ki (0.004–0.005) |
+| Mean deviation | < 0.2°C | If consistently too cold: raise Ki to 0.002 or 0.003 |
 | Cycle duration (heating→idle→heating) | 30–90 min | < 15 min = too much oscillation → reduce Kp |
-| `i_correction_c` during operation | −0.5 to +0.5 | If > 1.0 or < −1.0: possible systematic error |
+| `i_correction_c` during operation | −0.5 to +0.5 | Above +1.0 for hours: possible systematic error. At −0.5 for hours: the valve is already as shut as it gets, so something else warms the room (sun, a neighbouring room) |
 
 **Evaluate results:**
 - **Stable ±0.5°C:** Perfect → proceed to Phase 3.
@@ -111,7 +111,7 @@ If you want to understand *why* a value has the effect it does, see
 **What to look for:**
 - No drift overnight (temperature stays within ±0.5°C band).
 - After setpoint change: new target is reached within 30–60 min.
-- `i_correction_c` stays in the range −0.5 to +0.5.
+- `i_correction_c` stays in the range −0.5 to +0.5 (−0.5 is the lowest value it can take).
 
 **If Phase 3 passes:** The room is production-ready. You can set up the next room.
 
@@ -136,12 +136,20 @@ If you want to understand *why* a value has the effect it does, see
 | Value | Behavior |
 |-------|----------|
 | 0.0 | No long-term correction (P + feedforward only) |
-| **0.001** | Very slow, correction over hours |
-| **0.003** | Default – correction over ~30 min |
-| **0.005** | Faster, higher overshoot risk |
+| **0.001** | Default – slow. While the room stays 0.2°C off, the correction grows by about 0.72°C per hour |
+| **0.002** | Twice as fast – for a room that stays a little below target |
+| **0.003** | The default up to v1.5.0 – three times as fast, but more overshoot after a slow approach |
+| **0.005** | Faster still, higher overshoot risk |
 | 0.01+ | Aggressive – only for systematic offset |
 
-**Rule of thumb:** Higher Ki = target temperature is reached more accurately, but overshoot risk increases.
+The correction changes by Ki × gap every second, so a smaller gap means a slower
+correction: at half the gap, half the speed.
+
+**Rule of thumb:** Higher Ki = a lasting shortfall is closed sooner, but overshoot risk increases.
+
+**Room stays a little below target for hours?** Raise Ki to 0.002, and to 0.003 if
+that is still too slow. With the default the long-term correction deliberately takes
+its time.
 
 ### Adaptive Gain Scheduling
 
@@ -169,7 +177,7 @@ These parameters can be adjusted in the options flow under "PI Controller":
 | Parameter | Default | Range | Meaning |
 |-----------|---------|-------|---------|
 | `correction_kp` | 0.8 | 0.0–5.0 | Proportional gain of the PI controller |
-| `correction_ki` | 0.003 | 0.0–0.1 | Integral gain of the PI controller |
+| `correction_ki` | 0.001 | 0.0–0.1 | Integral gain of the PI controller |
 | `integral_deadband_c` | 0.3°C | 0.1–1.0°C | Integral only accumulates when error is within this zone |
 
 ### Configurable Parameters (Options → Gain Scheduling)
@@ -211,7 +219,7 @@ These values are defined in `parameters.py` and optimized for Tado X:
 | Parameter | Value | Meaning |
 |-----------|-------|---------|
 | `integral_decay` | 0.95 | Integral loses 5% per cycle when error > deadband |
-| `integral_min_c / max_c` | ±2.0°C | Absolute limit for integral accumulation |
+| `integral_min_c / max_c` | −0.5 / +2.0°C | Absolute limits for the integral. The lower one is tight on purpose: a shut valve cannot be shut further, so a lower value would only delay the next heating |
 | `max_integration_dt_s` | 120s | Max time step per integration – prevents an integral jump after a sensor outage |
 | `min_target_c / max_target_c` | 5 / 30°C | Safety limits for Tado commands |
 
@@ -254,7 +262,7 @@ regulation_reason: sent(normal_update)
 
 ```
 feedforward_offset_c: 8.5       ← unusually high – radiator extremely hot
-i_correction_c: 1.8             ← integral very high = possible overshoot
+i_correction_c: 1.8             ← integral near its upper limit (2.0) = possible overshoot
 error_c: -0.8                   ← room 0.8°C above target
 target_for_tado_c: 30.0         ← clamped at maximum
 is_saturated: true
@@ -287,8 +295,9 @@ commands (check the Tado integration and whether the zone is in manual mode).
 
 1. Reduce Kp (e.g., from 0.8 to 0.5).
 2. If gain scheduling is enabled, reduce the near-target strength (e.g., 0.7).
-3. Check `i_correction_c` when the room arrives: above 1.0 means the integral built up while the room crept up the last few tenths of a degree, and it unwinds only slowly ([why](docs/how-it-works.md#integral-windup)). Step 4 narrows the zone where it can build up.
-4. Reduce `integral_deadband_c` (Options → PI Controller) to tighten the precision zone.
+3. Check `i_correction_c` when the room arrives: above 0.5 means the integral built up while the room crept up the last few tenths of a degree, and it unwinds only slowly ([why](docs/how-it-works.md#integral-windup)). Steps 4 and 5 keep it small.
+4. If you raised Ki above its default of 0.001, set it back.
+5. Reduce `integral_deadband_c` (Options → PI Controller) to tighten the precision zone.
 
 ### Temperature Oscillates Strongly
 
