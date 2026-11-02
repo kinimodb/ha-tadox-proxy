@@ -251,6 +251,16 @@ running:
 If the radiator thermostat does not respond when you turn it back on, the proxy stays
 on and tries again with its next temperature command.
 
+If the source radiator thermostat becomes `unavailable` or `unknown`, the proxy
+climate entity becomes unavailable too. Its requested mode and preset are retained;
+regulation pauses until the source returns. This is different from turning the
+heating off.
+
+While the proxy climate entity is unavailable, Home Assistant ignores service calls
+to it. That also goes for automations and schedules: a call made during the outage is
+not queued and not carried out later. Only the climate entity is affected. The
+comfort temperature number and the guest mode switch stay available and keep working.
+
 ---
 
 ## Following the physical thermostat

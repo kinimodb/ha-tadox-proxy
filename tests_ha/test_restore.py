@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from homeassistant.components.climate import (
     PRESET_AWAY,
     PRESET_BOOST,
@@ -14,13 +15,17 @@ from homeassistant.components.climate import (
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import State
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import mock_restore_cache
+from pytest_homeassistant_custom_component.common import (
+    mock_restore_cache,
+    mock_restore_cache_with_extra_data,
+)
 
 from .helpers import (
     CLIMATE,
     PRESENCE_HOME_DELAY_S,
     PRESENCE_SENSOR,
     PRESET_FROST_PROTECTION,
+    TRV,
     WINDOW_DELAY_S,
     WINDOW_SENSOR,
     async_advance,
@@ -68,6 +73,60 @@ async def test_manual_target_survives_restart_while_off(hass):
 
     assert proxy.preset == PRESET_NONE
     assert proxy.target == 21.5
+
+
+@pytest.mark.parametrize("requested_mode", [HVACMode.HEAT, HVACMode.OFF])
+async def test_requested_mode_and_manual_target_survive_unavailable_reload(hass, requested_mode):
+    proxy = await async_setup_proxy(hass)
+    await proxy.call("climate", "set_temperature", proxy.climate, temperature=21.5)
+    if requested_mode == HVACMode.OFF:
+        await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+    await async_set_state(hass, TRV, STATE_UNAVAILABLE)
+    assert proxy.state.state == STATE_UNAVAILABLE
+
+    assert await hass.config_entries.async_reload(proxy.entry.entry_id)
+    await hass.async_block_till_done()
+    assert proxy.state.state == STATE_UNAVAILABLE
+
+    await async_set_state(
+        hass, TRV, requested_mode,
+        {"current_temperature": 22.0, "temperature": 20.0},
+    )
+
+    assert proxy.state.state == requested_mode
+    assert proxy.preset == PRESET_NONE
+    assert proxy.state.attributes["manual_target_c"] == 21.5
+
+
+async def test_requested_mode_and_layers_survive_a_restart_during_an_outage(hass):
+    """Unlike a reload nothing lives on: HA stored a bare state plus the extra data."""
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State(CLIMATE, STATE_UNAVAILABLE),
+                {
+                    "desired_hvac_mode": "off",
+                    "user_preset": PRESET_NONE,
+                    "manual_target_c": 21.5,
+                    "presence_away_active": True,
+                },
+            )
+        ],
+    )
+    proxy = await async_setup_proxy(hass, presence=STATE_OFF, source_state=STATE_UNAVAILABLE)
+    assert proxy.state.state == STATE_UNAVAILABLE
+
+    await async_set_state(
+        hass, TRV, HVACMode.OFF,
+        {"current_temperature": 22.0, "temperature": 20.0},
+    )
+
+    assert proxy.state.state == HVACMode.OFF
+    assert proxy.preset == PRESET_AWAY
+    assert proxy.state.attributes["presence_away_active"] is True
+    assert proxy.state.attributes["user_preset"] == PRESET_NONE
+    assert proxy.state.attributes["manual_target_c"] == 21.5
 
 
 async def test_comfort_default_after_restart_in_eco(hass):

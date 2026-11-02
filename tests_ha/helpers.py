@@ -117,6 +117,7 @@ async def async_setup_proxy(
     presence: str = "on",
     window: str = "off",
     room_state: str = "20.0",
+    source_state: str = "heat",
     entry_id: str | None = None,
     trv_adopts: bool = False,
 ) -> Proxy:
@@ -130,7 +131,12 @@ async def async_setup_proxy(
     the TRV then holds what it is sent, as a real one does.  See
     ``trv_adopts_setpoints`` for why a TRV that does not is a trap.
     """
-    hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
+    source_attributes = (
+        {"current_temperature": 22.0, "temperature": 20.0}
+        if source_state not in ("unavailable", "unknown")
+        else {}
+    )
+    hass.states.async_set(TRV, source_state, source_attributes)
     hass.states.async_set(
         ROOM_SENSOR, room_state, {"device_class": "temperature", "unit_of_measurement": "°C"}
     )
