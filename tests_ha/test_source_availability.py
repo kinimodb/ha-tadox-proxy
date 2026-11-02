@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import pytest
-from homeassistant.components.climate import PRESET_ECO, HVACMode
+from homeassistant.components.climate import PRESET_ECO, PRESET_NONE, HVACMode
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 
 from .helpers import (
+    ROOM_SENSOR,
     TRV,
     WINDOW_DELAY_S,
     WINDOW_SENSOR,
@@ -14,8 +15,16 @@ from .helpers import (
     async_setup_proxy,
 )
 
+# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
+CONTROL_INTERVAL_S = 60
 # BehaviourConfig.follow_grace_s
 FOLLOW_GRACE_S = 20
+# DEFAULT_SENSOR_GRACE_S
+SENSOR_GRACE_S = 300
+# Setpoints the TRV reports in the Eco test: far above every Eco command (17 °C
+# in a 20 °C room), so each one differs from it by more than the follow threshold.
+RETURNED_C = 25.0
+DIALLED_C = 23.0
 
 
 @pytest.mark.parametrize("lost_state", [STATE_UNAVAILABLE, STATE_UNKNOWN, None])
@@ -76,28 +85,47 @@ async def test_window_action_does_not_command_unavailable_source(hass, freezer):
 
 @pytest.mark.parametrize("lost_state", [STATE_UNAVAILABLE, STATE_UNKNOWN])
 async def test_source_coming_back_is_not_a_dial_change(hass, freezer, lost_state):
-    """Heating off, so no command after the return shields it by the follow grace."""
-    proxy = await async_setup_proxy(hass, options={"follow_tado_input": True})
+    """The source reports its setpoint again on its return: nobody turned a dial.
+
+    The guard is only needed with a baseline (a command the proxy sent) and no
+    command at the return: a command there is already shielded by the follow
+    grace.  With the room sensor gone for longer than its grace period the
+    proxy holds its last command and sends nothing, which is exactly that.
+    Turning the proxy Off would not do: that clears the baseline, and without
+    one no dial is followed at all, return or not.
+    """
+    proxy = await async_setup_proxy(
+        hass, options={"follow_tado_input": True}, trv_adopts=True
+    )
     await proxy.call("climate", "set_preset_mode", proxy.climate, preset_mode=PRESET_ECO)
-    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    await async_set_state(hass, ROOM_SENSOR, STATE_UNAVAILABLE)
+    for _ in range(SENSOR_GRACE_S // CONTROL_INTERVAL_S + 2):
+        await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    assert proxy.state.attributes["active_control_mode"] == "hold"
+
     await async_set_state(hass, TRV, lost_state)
     await async_advance(hass, freezer, FOLLOW_GRACE_S + 1)
+    sent_before = len(proxy.trv_commands("set_temperature"))
 
     await async_set_state(
-        hass, TRV, HVACMode.OFF,
-        {"current_temperature": 22.0, "temperature": 25.0},
+        hass, TRV, HVACMode.HEAT,
+        {"current_temperature": 22.0, "temperature": RETURNED_C},
     )
 
-    assert proxy.state.state == HVACMode.OFF
+    assert proxy.state.state == HVACMode.HEAT
+    # The premise: the cycle at the return held back, no command shields the report.
+    assert proxy.state.attributes["regulation_reason"] == "waiting_for_sensors"
+    assert len(proxy.trv_commands("set_temperature")) == sent_before
     assert proxy.preset == PRESET_ECO
     assert proxy.state.attributes["user_preset"] == PRESET_ECO
 
     # A dial turned after the return still counts.
     await async_advance(hass, freezer, FOLLOW_GRACE_S + 1)
     await async_set_state(
-        hass, TRV, HVACMode.OFF,
-        {"current_temperature": 22.0, "temperature": 23.0},
+        hass, TRV, HVACMode.HEAT,
+        {"current_temperature": 22.0, "temperature": DIALLED_C},
     )
 
-    assert proxy.state.attributes["user_preset"] == "none"
-    assert proxy.state.attributes["manual_target_c"] == 23.0
+    assert proxy.state.attributes["user_preset"] == PRESET_NONE
+    assert proxy.state.attributes["manual_target_c"] == DIALLED_C
