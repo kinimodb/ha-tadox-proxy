@@ -54,6 +54,7 @@ WINDOW_CLOSE = _layers.TIMER_WINDOW_CLOSE
 AWAY = _layers.TIMER_AWAY
 HOME = _layers.TIMER_HOME
 BOOST = _layers.TIMER_BOOST
+MANUAL_RETURN = _layers.TIMER_MANUAL_RETURN
 
 T0 = 1_000_000.0
 
@@ -1649,7 +1650,93 @@ class TestStateRoundTrip:
         assert effects.timers == {WINDOW_OPEN: 30}
 
 
-class TestTimedManualRestore:
+def _timed_manual(minutes: int = 1) -> PresetLayers:
+    """A room in Eco that a person put in Manual at T0, with a timer of *minutes*."""
+    room = _room(manual_mode_action="timer", manual_mode_duration_min=minutes)
+    room.pick_preset(ECO, T0 - 1)
+    room.set_temperature(21.5, T0)
+    return room
+
+
+class TestManualTimer:
+    def test_a_boost_does_not_end_the_timer(self):
+        room = _timed_manual()
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 10)
+
+        assert room.active_preset == BOOST_PRESET
+        assert MANUAL_RETURN not in effects.timers
+        assert room.attributes()["manual_return_preset"] == ECO
+        assert room.attributes()["manual_return_at_ts"] == T0 + 60
+
+    def test_the_timer_ending_during_a_boost_shows_after_the_boost(self):
+        room = _timed_manual()
+        room.pick_preset(BOOST_PRESET, T0 + 10)
+
+        room.timer_elapsed(MANUAL_RETURN, T0 + 60)
+
+        assert room.active_preset == BOOST_PRESET
+        assert room.user_choice.preset == ECO
+        assert "manual_return_preset" not in room.attributes()
+
+        room.timer_elapsed(BOOST, T0 + 10 + 30 * 60)
+
+        assert room.active_preset == ECO
+
+    def test_a_boost_ending_before_the_timer_brings_manual_back(self):
+        room = _timed_manual(minutes=60)
+        room.pick_preset(BOOST_PRESET, T0 + 10)
+
+        room.timer_elapsed(BOOST, T0 + 10 + 30 * 60)
+
+        assert room.active_preset == MANUAL
+        assert room.room_target_c == 21.5
+        assert room.attributes()["manual_return_at_ts"] == T0 + 3600
+
+    def test_confirming_frost_protection_during_an_open_window_leaves_the_timer(self):
+        room = _timed_manual()
+        _open_window(room, T0 + 1)
+
+        effects = room.pick_preset(FROST, T0 + 40)
+
+        assert MANUAL_RETURN not in effects.timers
+        assert room.user_choice.preset == MANUAL
+        assert room.attributes()["manual_return_preset"] == ECO
+
+        room.timer_elapsed(MANUAL_RETURN, T0 + 60)
+        _close_window(room, T0 + 70)
+
+        assert room.active_preset == ECO
+
+    def test_confirming_away_while_nobody_is_home_leaves_the_timer(self):
+        room = _timed_manual(minutes=60)
+        _leave(room, T0 + 1)
+
+        room.pick_preset(AWAY_PRESET, T0 + 700)
+
+        assert room.user_choice.preset == MANUAL
+        assert room.attributes()["manual_return_preset"] == ECO
+
+    def test_a_tap_during_the_close_delay_is_a_real_choice_and_ends_the_timer(self):
+        room = _timed_manual()
+        _open_window(room, T0 + 1)
+        room.window_reported(OFF, T0 + 40)
+
+        effects = room.pick_preset(FROST, T0 + 41)
+
+        assert effects.timers[MANUAL_RETURN] is None
+        assert room.user_choice.preset == FROST
+        assert "manual_return_preset" not in room.attributes()
+
+    def test_a_picked_preset_ends_the_timer(self):
+        room = _timed_manual()
+
+        effects = room.pick_preset(COMFORT, T0 + 10)
+
+        assert effects.timers[MANUAL_RETURN] is None
+        assert room.active_preset == COMFORT
+        assert "manual_return_preset" not in room.attributes()
+
     def test_keep_cancels_a_running_timer_and_does_not_restore_it(self):
         room = _room(manual_mode_action="timer", manual_mode_duration_min=1)
         room.pick_preset(ECO, T0)

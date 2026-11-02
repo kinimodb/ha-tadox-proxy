@@ -240,12 +240,11 @@ class PresetLayers:
             return self._effects("preset_change")
         self._change_by_person()
         if preset == PRESET_BOOST:
-            self._cancel_manual_return()
             self._start_boost()
             return self._effects("preset_change")
         self._end_boost()
-        self._cancel_manual_return()
         if not self._layer_forces(preset):
+            self._cancel_manual_return()
             self._user = UserChoice(preset)
         return self._effects("preset_change")
 
