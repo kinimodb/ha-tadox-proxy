@@ -86,7 +86,7 @@ from .parameters import (
     PresetConfig,
     RegulationConfig,
 )
-from .preset_layers import PresetLayers, StartSnapshot
+from .preset_layers import ATTR_DESIRED_HVAC_MODE, PresetLayers, StartSnapshot
 from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
@@ -286,20 +286,16 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         # the sensors now.  The comfort target comes from the options (it may
         # have changed via the number entity while HA was down).
         last_state = await self.async_get_last_state()
-        restored_attributes = dict(last_state.attributes) if last_state else {}
-        if extra_data := await self.async_get_last_extra_data():
-            restored_attributes.update(extra_data.as_dict())
-        restored_hvac_mode = restored_attributes.get(
-            "desired_hvac_mode", last_state.state if last_state else None
-        )
-        if restored_hvac_mode in (HVACMode.HEAT, HVACMode.OFF):
-            self._hvac_mode = HVACMode(restored_hvac_mode)
+        extra_data = await self.async_get_last_extra_data()
         snapshot = StartSnapshot.from_state(
-            restored_hvac_mode or (last_state.state if last_state else None),
-            restored_attributes,
+            last_state.state if last_state else None,
+            last_state.attributes if last_state else {},
+            extra=extra_data.as_dict() if extra_data else None,
             window_state=self._sensor_state(window_sensor),
             presence_state=self._sensor_state(presence_sensor),
         )
+        if snapshot.hvac_mode in (HVACMode.HEAT, HVACMode.OFF):
+            self._hvac_mode = HVACMode(snapshot.hvac_mode)
         self._apply_layer_effects(self._layers.start(snapshot, time.time()))
 
         # Initialize baseline for follow-tado from current tado setpoint so
@@ -546,7 +542,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
     def extra_restore_state_data(self) -> ExtraStoredData:
         """Persist requested mode and layers while HA hides state attributes."""
         return _ProxyRestoreData({
-            "desired_hvac_mode": self._hvac_mode,
+            ATTR_DESIRED_HVAC_MODE: self._hvac_mode,
             **self._layers.attributes(),
         })
 
