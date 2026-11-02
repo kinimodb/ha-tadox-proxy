@@ -1540,6 +1540,73 @@ class TestStateRoundTrip:
         _come_home(after, T0 + 3000)
         assert after.boost_remaining_min(T0 + 5000) == 30  # paused: heating is off
 
+    def test_a_state_hidden_by_an_outage_comes_back_from_the_extra_data(self):
+        """While the source is gone HA stores "unavailable" without attributes."""
+        before = _off_action_room()
+        before.set_temperature(21.5, T0)
+        _open_window(before, T0)
+        before.valve_switched_off(T0 + 31)
+        _leave(before, T0 + 40)
+        before.heating_off(T0 + 1000)
+
+        snapshot = StartSnapshot.from_state(
+            "unavailable",
+            {},
+            extra={"desired_hvac_mode": "off", **before.attributes()},
+            window_state=ON,
+            presence_state=OFF,
+        )
+
+        assert snapshot.hvac_mode == "off"
+        assert snapshot.heating_on is False
+        assert snapshot.user_preset == MANUAL
+        assert snapshot.manual_c == 21.5
+        assert snapshot.window_held is True
+        assert snapshot.nobody_home_held is True
+        assert snapshot.valve_off_by_window is True
+
+    def test_the_extra_data_outranks_the_state_and_its_attributes(self):
+        snapshot = StartSnapshot.from_state(
+            "heat",
+            {"user_preset": ECO, "presence_away_active": True},
+            extra={"desired_hvac_mode": "off", "user_preset": COMFORT, "guest_mode": True},
+            window_state=OFF,
+            presence_state=ON,
+        )
+
+        assert snapshot.hvac_mode == "off"
+        assert snapshot.heating_on is False
+        assert snapshot.user_preset == COMFORT
+        assert snapshot.guest_mode is True
+        # A key the extra data does not carry still comes from the attributes.
+        assert snapshot.nobody_home_held is True
+
+    def test_extra_data_without_a_mode_leaves_the_state_in_charge(self):
+        snapshot = StartSnapshot.from_state(
+            "off", {}, extra={"user_preset": ECO}, window_state=None, presence_state=None
+        )
+
+        assert snapshot.hvac_mode == "off"
+        assert snapshot.heating_on is False
+        assert snapshot.user_preset == ECO
+
+    def test_without_extra_data_the_written_state_decides(self):
+        """As v1.5.0 did: states written by it have no extra data."""
+        for state, heating_on in (("heat", True), ("off", False), ("unavailable", True)):
+            snapshot = StartSnapshot.from_state(
+                state, {"user_preset": ECO}, window_state=None, presence_state=None
+            )
+
+            assert snapshot.hvac_mode == state
+            assert snapshot.heating_on is heating_on
+            assert snapshot.user_preset == ECO
+
+    def test_no_state_written_before_has_no_mode(self):
+        snapshot = StartSnapshot.from_state(None, {}, window_state=None, presence_state=None)
+
+        assert snapshot.hvac_mode is None
+        assert snapshot.heating_on is True
+
     def test_a_state_written_by_v14_is_upgraded(self):
         snapshot = StartSnapshot.from_state(
             "heat",

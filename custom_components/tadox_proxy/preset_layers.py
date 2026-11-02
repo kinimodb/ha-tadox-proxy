@@ -53,6 +53,9 @@ ATTR_WINDOW_CLOSE_DELAY_ACTIVE = "window_close_delay_active"
 ATTR_PRESENCE_AWAY_ACTIVE = "presence_away_active"
 ATTR_GUEST_MODE = "guest_mode"
 ATTR_WINDOW_TRV_OFF = "window_trv_off"
+# Only in the extra restore data, which survives when HA hides the attributes
+# of an unavailable entity: the HVAC mode the room is meant to run.
+ATTR_DESIRED_HVAC_MODE = "desired_hvac_mode"
 # Written up to v1.4.x (what an open window kept to restore); read once
 # after the update.
 ATTR_V14_WINDOW_RESTORE_PRESET = "window_restore_preset"
@@ -108,6 +111,9 @@ class StartSnapshot:
     sensor states are raw (None while the entity is missing).
     """
 
+    # The HVAC mode to restore as read, not checked: "unavailable" for a state
+    # without extra data written during an outage, None for no state.
+    hvac_mode: str | None = None
     heating_on: bool = True
     # The active preset shown before the restart.
     preset_mode: str | None = None
@@ -136,15 +142,23 @@ class StartSnapshot:
         *,
         window_state: str | None,
         presence_state: str | None,
+        extra: Mapping[str, Any] | None = None,
     ) -> StartSnapshot:
         """Read the climate state written before the restart.
 
         *state* is the HVAC mode it was written with, None when there is no
-        state to restore.  The sensor states are the raw states now.
+        state to restore.  *extra* is the extra restore data: it outranks both
+        the attributes and *state*, which HA reduces to a bare "unavailable"
+        during an outage of the source.  The sensor states are the raw states
+        now.
         """
+        if extra:
+            attributes = {**attributes, **extra}
+            state = extra.get(ATTR_DESIRED_HVAC_MODE, state)
         if state is None:
             return cls(window_state=window_state, presence_state=presence_state)
         return cls(
+            hvac_mode=state,
             heating_on=state != _HVAC_OFF,
             preset_mode=attributes.get(_HA_ATTR_PRESET_MODE),
             user_preset=attributes.get(ATTR_USER_PRESET),
