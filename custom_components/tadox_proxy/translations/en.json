@@ -52,8 +52,8 @@
               "manual_mode_duration_min": "Manual duration"
             },
             "data_description": {
-              "manual_mode_action": "Keep Manual until another preset is selected, or return to the previous preset after a timer. Each new manual adjustment restarts the timer.",
-              "manual_mode_duration_min": "How long Manual lasts when timed return is selected. Default: 15 minutes."
+              "manual_mode_action": "Keep Manual until another preset is selected, or end it after a timer. The preset picked before Manual then applies, or the one a schedule or automation has set since. Each new manual adjustment restarts the timer.",
+              "manual_mode_duration_min": "How long Manual lasts with the timer. Default: 15 minutes."
             }
           },
           "window_sensor": {
@@ -160,7 +160,7 @@
     "manual_mode_action": {
       "options": {
         "keep": "Stay in Manual",
-        "timer": "Return to the previous preset after a timer"
+        "timer": "End Manual after a timer"
       }
     },
     "sensor_loss_action": {

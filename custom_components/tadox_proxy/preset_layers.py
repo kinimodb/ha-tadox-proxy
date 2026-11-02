@@ -7,7 +7,8 @@ over nobody home over boost over the user choice.  The **active preset** is
 always derived from these; no layer writes into the user choice.  A boost only
 counts down while it heats the room; paused by heating that is off it still
 shows as the active preset – it is what holds the room once the heating is
-back on.
+back on.  The **manual timer** is no layer: when it ends, it writes the return
+preset into the user choice.
 
 The module never schedules anything: every event returns ``Effects`` with the
 timers to start or cancel, which the caller reports back as elapsed.  This
@@ -98,7 +99,10 @@ class LayersConfig:
 
 @dataclass(frozen=True)
 class UserChoice:
-    """The preset a person last picked; *manual_c* only for Manual."""
+    """The preset a person last picked; *manual_c* only for Manual.
+
+    The end of the manual timer writes the return preset here without a person.
+    """
 
     preset: str
     manual_c: float | None = None
@@ -212,6 +216,8 @@ class PresetLayers:
         # paused).
         self._boost_left_s: float | None = None
         self._boost_since: float | None = None
+        # The manual timer: the return preset and when it ends (None: not
+        # running).
         self._manual_return_preset: str | None = None
         self._manual_return_at_ts: float | None = None
         # Timers the caller runs for this module, and what to tell the
@@ -554,10 +560,10 @@ class PresetLayers:
         self._begin(now)
         self._change_by_person()
         self._end_boost()
-        previous = self._manual_return_preset or self._user.preset
-        if self._config.manual_mode_action == MANUAL_MODE_TIMER and previous in _CHOOSABLE:
+        return_preset = self._manual_return_preset or self._user.preset
+        if self._config.manual_mode_action == MANUAL_MODE_TIMER and return_preset in _CHOOSABLE:
             delay_s = self._config.manual_mode_duration_min * 60
-            self._manual_return_preset = previous
+            self._manual_return_preset = return_preset
             self._manual_return_at_ts = now + delay_s
             self._arm(TIMER_MANUAL_RETURN, delay_s)
         else:
@@ -655,10 +661,10 @@ class PresetLayers:
                 self._nobody_home_holds = False
             return "presence_home"
         if timer_id == TIMER_MANUAL_RETURN:
-            previous = self._manual_return_preset
+            return_preset = self._manual_return_preset
             self._cancel_manual_return()
-            if previous in _CHOOSABLE:
-                self._user = UserChoice(previous)
+            if return_preset in _CHOOSABLE:
+                self._user = UserChoice(return_preset)
             return "manual_return"
         self._end_boost()
         return "boost_expired"

@@ -1903,7 +1903,7 @@ class TestManualTimer:
         assert restarted.active_preset == MANUAL
         assert _layers.TIMER_MANUAL_RETURN not in effects.timers
 
-    def test_expired_deadline_restores_the_previous_preset_after_restart(self):
+    def test_expired_deadline_applies_the_return_preset_after_restart(self):
         room = _room(manual_mode_action="timer", manual_mode_duration_min=1)
         room.pick_preset(ECO, T0)
         room.set_temperature(21.5, T0 + 1)

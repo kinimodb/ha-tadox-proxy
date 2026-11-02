@@ -52,8 +52,8 @@
               "manual_mode_duration_min": "Dauer des manuellen Modus"
             },
             "data_description": {
-              "manual_mode_action": "Manuell beibehalten, bis ein anderes Profil gewählt wird, oder nach einem Timer zum vorherigen Profil zurückkehren. Jede neue manuelle Änderung startet den Timer neu.",
-              "manual_mode_duration_min": "Dauer des manuellen Modus bei zeitgesteuerter Rückkehr. Standard: 15 Minuten."
+              "manual_mode_action": "Manuell beibehalten, bis ein anderes Preset gewählt wird, oder nach einem Timer beenden. Danach gilt das zuvor gewählte Preset oder das, das ein Zeitplan oder eine Automation seitdem gesetzt hat. Jede neue manuelle Änderung startet den Timer neu.",
+              "manual_mode_duration_min": "Dauer des manuellen Modus mit Timer. Standard: 15 Minuten."
             }
           },
           "window_sensor": {
@@ -160,7 +160,7 @@
     "manual_mode_action": {
       "options": {
         "keep": "Im manuellen Modus bleiben",
-        "timer": "Nach einem Timer zum vorherigen Profil zurückkehren"
+        "timer": "Manuell nach einem Timer beenden"
       }
     },
     "sensor_loss_action": {
