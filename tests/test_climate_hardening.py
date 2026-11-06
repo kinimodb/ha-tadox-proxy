@@ -710,6 +710,40 @@ class TestRoomSensorTimestamp:
 
 
 # ---------------------------------------------------------------------------
+# An update never changes a stored option (AST guard, #124)
+# ---------------------------------------------------------------------------
+
+class TestMigrationKeepsStoredValues:
+    """async_migrate_entry raises the version and writes no options or data.
+
+    The pre-releases of v1.6.0 dropped a stored Ki there, without notice and
+    also where someone had chosen it.  A later step that has to move a stored
+    value must keep the value, and change this guard on purpose.
+    """
+
+    def test_migration_writes_no_options_or_data(self):
+        with open(_INIT_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="__init__.py")
+        migrate = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_migrate_entry"
+        )
+        updates = [
+            sub
+            for sub in ast.walk(migrate)
+            if isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr == "async_update_entry"
+        ]
+
+        assert updates, "async_migrate_entry no longer raises the version"
+        for call in updates:
+            written = {keyword.arg for keyword in call.keywords}
+            assert not written & {"data", "options"}, f"line {call.lineno} writes {written}"
+
+
+# ---------------------------------------------------------------------------
 # Window/presence/overlay/needs-heat defaults live in parameters.py only (AST)
 # ---------------------------------------------------------------------------
 

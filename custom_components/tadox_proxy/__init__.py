@@ -12,12 +12,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CONF_BACKUP_TEMPERATURE_ENTITY_ID,
-    CONF_CORRECTION_KI,
     CONF_EXTERNAL_TEMPERATURE_ENTITY_ID,
     DOMAIN,
     LIVE_OPTION_KEYS,
 )
-from .parameters import options_without_previous_ki_default
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,11 +26,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Bring an entry saved by an earlier release up to the current version.
 
     Home Assistant calls this before setup whenever the entry's version differs
-    from the config flow's.  Each step below belongs to one minor version; the
-    config flow's MINOR_VERSION is the last of them.
+    from the config flow's, in either direction.  Each step below belongs to
+    one minor version; the config flow's MINOR_VERSION is the last of them.  A
+    step never deletes or changes a value someone has stored (#124).
     """
     if entry.version > 1:
-        # Saved by a newer release and downgraded over a breaking change.
+        # Saved by a newer release that changed the stored format (a new major
+        # version), then downgraded: refused, so this code cannot misread it.
+        # Home Assistant shows the entry as a migration error and leaves its
+        # data alone, so upgrading again brings it back.
         _LOGGER.error(
             "%s was saved by a newer version of Tado X Proxy (entry version %s.%s) "
             "and cannot be loaded by this one",
@@ -41,14 +43,13 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
 
     if entry.minor_version < 2:
-        # 1.2: the Ki default went from 0.003 to 0.001 (#124).  Entries that
-        # hold the previous default follow the new one.
-        hass.config_entries.async_update_entry(
-            entry,
-            options=options_without_previous_ki_default(entry.options, CONF_CORRECTION_KI),
-            minor_version=2,
-        )
+        # 1.2 (v1.6.0): only the version.  The pre-releases v1.6.0-beta.1 and
+        # beta.2 dropped a stored Ki of 0.003 in this step; v1.6.0 keeps every
+        # option.
+        hass.config_entries.async_update_entry(entry, minor_version=2)
 
+    # A later minor version (a downgrade within major version 1) is set up as
+    # it is: minor versions only add what older code can ignore.
     return True
 
 
@@ -155,8 +156,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # needs-heat thresholds, from the options dialog – so a dialog save that
     # changes only those does not reload.  That holds from the second save on:
     # the first save stores every option the dialog shows that is not stored
-    # yet (all of them for a new entry, correction_ki for an entry whose Ki the
-    # migration dropped), and those are not live, so that save does reload.
+    # yet (all of them for a new entry, correction_ki for an entry whose Ki a
+    # pre-release of v1.6.0 dropped), and those are not live, so that save
+    # does reload.
     # This listener fires AFTER HA has persisted the new options, so the reload
     # always sees the up-to-date values.  Compare against a snapshot of the
     # other options taken at setup.

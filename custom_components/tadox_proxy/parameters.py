@@ -1,9 +1,7 @@
 """Central parameter defaults for tadox_proxy."""
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Behavioural thresholds (climate-entity logic, independent of the PI engine)
@@ -72,34 +70,8 @@ class CorrectionTuning:
     # Integral gain for slow steady-state error correction.  The integral time
     # (1 + kp) / ki is 30 min: for a gap that stays, the integral needs that
     # long to add as much push as the gap itself already gives, and rooms
-    # respond in hours (#124).  Entries saved at the previous default 0.003
-    # follow this one after the migration below.
+    # respond in hours (#124).  A stored Ki is never changed by an update.
     ki: float = 0.001
-
-
-# The Ki default up to v1.5.0.  The options dialog stores every field it shows,
-# so an entry that was saved once holds this value without anyone having chosen
-# it.  Such an entry has to follow the new default, or the change would not
-# reach it (config-entry minor version 2, async_migrate_entry in __init__.py).
-PREVIOUS_KI_DEFAULT: float = 0.003
-_KI_TOLERANCE: float = 1e-9   # a stored float is never compared for exact equality
-
-
-def options_without_previous_ki_default(
-    options: Mapping[str, Any], ki_key: str
-) -> dict[str, Any]:
-    """Return the options of an entry saved before the Ki default changed.
-
-    A Ki stored at the previous default (0.003) is dropped, so the entry
-    follows the new default.  Every other value was a choice and stays, as
-    does every other option.  *ki_key* is the option's name (const.py needs
-    Home Assistant, this module must not).  The input is not changed.
-    """
-    migrated = dict(options)
-    stored = migrated.get(ki_key)
-    if isinstance(stored, (int, float)) and abs(stored - PREVIOUS_KI_DEFAULT) <= _KI_TOLERANCE:
-        del migrated[ki_key]
-    return migrated
 
 
 # ---------------------------------------------------------------------------
