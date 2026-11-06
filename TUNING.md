@@ -31,8 +31,9 @@ did what.
 |---|---|---|
 | Room sails past the target, then drifts back down | Correction too strong | [Strong overshoot](#strong-overshoot--1c) |
 | Temperature cycles up and down repeatedly | Correction too strong, or commands too frequent | [Oscillation](#temperature-oscillates-strongly) |
-| Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak: the default is slow on purpose, and some thermostats need a lasting positive correction | Less than about 0.3°C below target: raise [Ki](#ki-integral-correction) to 0.002 or 0.003 (a bit more overshoot). From about 0.3°C below target Ki does not help: the correction only builds up inside the band `integral_deadband_c` (0.3°C by default) and decays outside it. Widening that band might help; this has not been tested |
-| A room at its target still takes some heat while another room keeps a shared boiler running | Mostly the shared boiler, not the settings. The proxy reduces it, it cannot remove it | [Still not right?](#still-not-right) |
+| Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak; some thermostats need a lasting positive correction | Less than about 0.3°C below target: if you lowered [Ki](#ki-integral-correction), set it back to 0.003 (the default), otherwise raise it a little, to 0.004 or 0.005 (a bit more overshoot). From about 0.3°C below target Ki does not help: the correction only builds up inside the band `integral_deadband_c` (0.3°C by default) and decays outside it. Widening that band might help; this has not been tested |
+| The boiler keeps firing, or the valve keeps heating, after the room has reached its target (a boiler that only runs on demand) | After a slow final approach the long-term correction keeps the valve open for a while, and a boiler that follows the valve or `hvac_action` keeps running with it | [Heating goes on after the target](#heating-goes-on-after-the-room-reached-its-target) |
+| A room at its target still takes some heat while another room keeps a shared boiler running | Mostly the shared boiler, not the settings. Tuning changes little here | [Still not right?](#still-not-right) |
 | Room takes very long to warm from cold | Cold-start boost too low — or the radiator is simply undersized | [Kp](#kp-proportional-correction) and the [radiator table](#tuning-by-radiator-type) |
 | Room feels fine but the reading is always off | Sensor placement, not tuning | [Sensor placement](docs/setup.md#step-1-place-the-sensor-properly) |
 
@@ -70,13 +71,13 @@ If you want to understand *why* a value has the effect it does, see
 |-----------|-----------|---------|
 | `feedforward_offset_c` | 1.0–5.0°C | < 0 indicates wrong sensor |
 | `error_c` | Trending towards 0 | Stays > 1°C after 30 min → Kp too low |
-| `i_correction_c` | < 0.3 during heat-up | > 0.5 when the room arrives → built up during a slow final approach, expect a small overshoot |
+| `i_correction_c` | < 0.3 during heat-up | > 1.0 when the room arrives → built up during a slow final approach, expect a small overshoot |
 | `target_for_tado_c` | Decreases as room warms | Stuck at max (30°C) → room too large or Kp too low |
 
 **Evaluate results:**
 - **Overshoot < 0.5°C:** All good → proceed to Phase 2.
 - **Overshoot 0.5–1.0°C:** Reduce Kp by 0.1–0.2, retest.
-- **Overshoot > 1.0°C:** Reduce Kp to 0.5. If you raised Ki, set it back to 0.001 (the default).
+- **Overshoot > 1.0°C:** Reduce Kp to 0.5. If you raised Ki, set it back to 0.003 (the default); otherwise lowering it to 0.001 can help.
 - **Room doesn't get warm enough:** Increase Kp by 0.2.
 
 ### Phase 2: Hold Test (4–8 Hours)
@@ -92,7 +93,7 @@ If you want to understand *why* a value has the effect it does, see
 | Metric | Good Value | Action if Deviating |
 |--------|-----------|---------------------|
 | Fluctuation around setpoint | ±0.3–0.5°C | ±0.5°C is normal for TRV control |
-| Mean deviation | < 0.2°C | If consistently too cold: raise Ki to 0.002 or 0.003 |
+| Mean deviation | < 0.2°C | If consistently too cold: slightly increase Ki (0.004–0.005), or set it back to 0.003 if you lowered it |
 | Cycle duration (heating→idle→heating) | 30–90 min | < 15 min = too much oscillation → reduce Kp |
 | `i_correction_c` during operation | −0.5 to +0.5 | Above +1.0 for hours: possible systematic error. At −0.5 for hours: the valve is already as shut as it gets, so something else warms the room (sun, a neighbouring room) |
 
@@ -137,10 +138,10 @@ If you want to understand *why* a value has the effect it does, see
 | Value | Behavior |
 |-------|----------|
 | 0.0 | No long-term correction (P + feedforward only) |
-| **0.001** | Default – slow. While the room stays 0.2°C off, the correction grows by about 0.72°C per hour |
-| **0.002** | Twice as fast – for a room that stays a little below target |
-| **0.003** | Three times as fast as the default, but more overshoot after a slow approach |
-| **0.005** | Faster still, higher overshoot risk |
+| **0.001** | A third of the default. Less overshoot after a slow approach, but the last tenth takes longer |
+| **0.002** | Two thirds of the default |
+| **0.003** | Default. While the room stays 0.2°C off, the correction grows by about 0.36°C every 10 minutes |
+| **0.005** | Faster, higher overshoot risk |
 | 0.01+ | Aggressive – only for systematic offset |
 
 The correction changes by Ki × gap every second, so a smaller gap means a slower
@@ -148,12 +149,16 @@ correction: at half the gap, half the speed.
 
 **Rule of thumb:** Higher Ki = a lasting shortfall is closed sooner, but overshoot risk increases.
 
-**Room creeps the last tenth slowly, or stays a little below target for hours?** Raise
-Ki to 0.002, and to 0.003 if that is still too slow. With the default the long-term
-correction deliberately takes its time. This happens most with a thermostat that
-opens its valve in proportion to the gap: it needs a lasting positive correction to
-close the last tenth, and the default builds that up slowly. The price of a higher Ki
-is a bit more overshoot after a slow approach.
+**Room creeps the last tenth slowly, or stays a little below target for hours?** If you
+lowered Ki, set it back to 0.003, the default. Otherwise raise it a little, to 0.004 or
+0.005. This happens most with a thermostat that opens its valve in proportion to the
+gap: it needs a lasting positive correction to close the last tenth. The price of a
+higher Ki is a bit more overshoot after a slow approach.
+
+**Heating goes on after the room has reached its target?** That is the other side of
+the same correction. Let the boiler follow the needs heat sensor; a lower Ki for that
+room is optional (see
+[Heating goes on after the target](#heating-goes-on-after-the-room-reached-its-target)).
 
 This works while the room is less than about 0.3°C below target. Further below, the
 correction does not build up at all, whatever Ki is: it decays, and the band
@@ -186,7 +191,7 @@ These parameters can be adjusted in the options flow under "PI Controller":
 | Parameter | Default | Range | Meaning |
 |-----------|---------|-------|---------|
 | `correction_kp` | 0.8 | 0.0–5.0 | Proportional gain of the PI controller |
-| `correction_ki` | 0.001 | 0.0–0.1 | Integral gain of the PI controller |
+| `correction_ki` | 0.003 | 0.0–0.1 | Integral gain of the PI controller |
 | `integral_deadband_c` | 0.3°C | 0.1–1.0°C | Integral only accumulates when error is within this zone |
 
 ### Configurable Parameters (Options → Gain Scheduling)
@@ -304,9 +309,24 @@ commands (check the Tado integration and whether the zone is in manual mode).
 
 1. Reduce Kp (e.g., from 0.8 to 0.5).
 2. If gain scheduling is enabled, reduce the near-target strength (e.g., 0.7).
-3. Check `i_correction_c` when the room arrives: above 0.5 means the integral built up while the room crept up the last few tenths of a degree, and it unwinds only slowly ([why](docs/how-it-works.md#integral-windup)). Steps 4 and 5 keep it small.
-4. If you raised Ki above its default of 0.001, set it back.
+3. Check `i_correction_c` when the room arrives: above 1.0 means the integral built up while the room crept up the last few tenths of a degree, and it unwinds only slowly ([why](docs/how-it-works.md#integral-windup)). Steps 4 and 5 keep it small.
+4. If you raised Ki above its default of 0.003, set it back. At the default, lower it for this room, for example to 0.001; the last tenth then takes longer.
 5. Reduce `integral_deadband_c` (Options → PI Controller) to tighten the precision zone.
+
+### Heating Goes On After the Room Reached Its Target
+
+This matters most for a boiler that only runs on demand. After a slow final approach
+the long-term correction is still pushing when the room arrives, so the valve stays
+open for a while and `hvac_action` keeps showing `heating`
+([why](docs/how-it-works.md#integral-windup)).
+
+1. Let the boiler follow the [needs heat sensor](docs/settings.md#needs-heat-for-a-boiler),
+   not the valve or `hvac_action`. It turns off once the room has reached its target,
+   whatever the valve does. This is the fix for the boiler.
+2. Optional, for that room only: lower Ki (Options → PI Controller), for example to
+   0.001. About a third of the long-term correction is then left when the room
+   arrives, so it pushes less past the target. The valve does not necessarily shut
+   sooner, and the last tenth of a degree takes longer to close.
 
 ### Temperature Oscillates Strongly
 
@@ -351,9 +371,8 @@ resists every adjustment, the cause is usually physical rather than numerical:
 - **The radiator needs bleeding, or the valve is stuck.**
 - **Another room keeps a shared boiler running.** A room that is already at its
   target still takes some heat while the boiler runs for another room, because its
-  valve stays open a crack to hold the room. The lower Ki and the tighter integral
-  floor reduce this a little, they do not remove it: it mostly follows from sharing
-  one boiler, so tuning will change little here.
+  valve stays open a crack to hold the room. This mostly follows from sharing one
+  boiler, so tuning will change little here.
 
 If none of those apply, please open an
 [issue](https://github.com/kinimodb/ha-tadox-proxy/issues) with your radiator type,

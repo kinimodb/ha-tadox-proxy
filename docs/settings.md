@@ -459,12 +459,12 @@ the temperature you have.
 | Setting | Default | Range | What it does |
 |---|---|---|---|
 | Kp (Proportional) | 0.8 | 0.0–5.0 | How hard it reacts to the current gap |
-| Ki (Integral) | 0.001 | 0.0–0.1 | How fast it corrects a long-standing offset |
+| Ki (Integral) | 0.003 | 0.0–0.1 | How fast it corrects a long-standing offset |
 | Integral precision zone | 0.3 °C | 0.1–1.0 °C | Long-term correction only builds up inside this band |
 
-Up to v1.5.0 the default for Ki was 0.003. Any other value you set stays. A Ki of
-exactly 0.003 counts as the previous default: the update replaces it once with the
-new default, even if you had chosen it yourself. Set it again if you want it.
+A value you set stays, also through updates. The test versions v1.6.0-beta.1 and
+beta.2 used a Ki of 0.001 as the default. If you saved this dialog while one of them
+was installed, that room keeps 0.001. Set 0.003 to go back to the default.
 
 ### Gain Scheduling
 
