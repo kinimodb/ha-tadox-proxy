@@ -716,9 +716,10 @@ class TestRoomSensorTimestamp:
 class TestMigrationKeepsStoredValues:
     """async_migrate_entry raises the version and writes no options or data.
 
-    The pre-releases of v1.6.0 dropped a stored Ki there, without notice and
-    also where someone had chosen it.  A later step that has to move a stored
-    value must keep the value, and change this guard on purpose.
+    The pre-releases of v1.6.0 dropped a stored Ki there, also where someone
+    had chosen it, with no log entry or message in Home Assistant (only the
+    release notes said so).  A later step that has to move a stored value
+    must keep the value, and change this guard on purpose.
     """
 
     def test_migration_writes_no_options_or_data(self):
@@ -740,6 +741,8 @@ class TestMigrationKeepsStoredValues:
         assert updates, "async_migrate_entry no longer raises the version"
         for call in updates:
             written = {keyword.arg for keyword in call.keywords}
+            # A **{...} keyword has no name and could carry options or data.
+            assert None not in written, f"line {call.lineno} passes **kwargs"
             assert not written & {"data", "options"}, f"line {call.lineno} writes {written}"
 
 
