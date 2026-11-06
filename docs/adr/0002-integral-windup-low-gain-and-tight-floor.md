@@ -1,5 +1,7 @@
 # Integral windup is limited by a low gain and a tight floor, not by a smarter rule
 
+Status: the `Ki` half is superseded by [ADR 0003](0003-ki-default-back-to-0003.md): v1.6.0 went back to `Ki = 0.003`, and its migration keeps every stored value. The floor of -0.5 °C stands.
+
 The integral correction runs at `Ki = 0.001` (was 0.003) and may not go below -0.5 °C (was -2.0 °C). Its ceiling stays at +2.0 °C and `regulation.py` does not change. Entries saved at the previous Ki default of 0.003 follow the new one through a config-entry migration (minor version 1.2); any other stored Ki stays.
 
 ## Context
@@ -18,7 +20,7 @@ All numbers come from a throwaway simulation of the closed loop (it is not in th
 Old regulator → new regulator (`Ki` 0.003 and floor -2.0 → `Ki` 0.001 and floor -0.5):
 
 - Simulation: lowest integral -2.00 → -0.50; integral at the first crossing of the target 1.03 → 0.49; valve open while 0.1 K or more above the target 45 → 30 min a day; overshoot 0.46 → 0.38 K; TRV commands a day 83 → 60; boiler starts a day unchanged at 2.5.
-- Replay of the four recorded evenings of #124: integral at the crossing +1.25 / +0.60 / +0.91 / +0.45 → +0.36 / +0.05 / +0.30 / +0.15; valve open after the crossing 28.5 / 36 / 20 / 11 → 9 / 3 / 6 / 1 min.
+- Replay of the four recorded evenings of #124: integral at the crossing +1.25 / +0.60 / +0.91 / +0.45 → +0.36 / +0.05 / +0.30 / +0.15. The minutes with the valve open after the crossing that this replay gave are withdrawn: the tester's real runs on the beta refuted them (ADR 0003).
 - Replay of six rooms over 5.5 days, totals over the rooms: minutes with the integral at ±2 (the old limits) 290 → 0, its range -2.00 … +1.51 → -0.50 … +0.54; valve open while 0.1 K or more warm 251 → 46 min; valve shut while 0.1 K or more cold 535 → 197 min.
 
 ## Considered Options
