@@ -553,8 +553,9 @@ has taken over.
 ### What "heating" means
 
 The proxy shows **Heating** (`hvac_action: heating`) when the target it sent to the
-Tado is above the Tado's own reading. In practice this means the valve is open. It
-does **not** mean that the room still needs heat: the correction keeps the valve
+Tado is above the Tado's own reading. The valve is most likely open then: that is
+what the readings show, but the Tado X does not report its valve, so the proxy cannot
+know for sure. It does **not** mean that the room still needs heat: the correction keeps the valve
 slightly open to hold the room at its target, so a room only 0.05 °C below target can
 show Heating. After a slow final approach it can even stay on for a while once the
 room is slightly above its target (see
