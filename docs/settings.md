@@ -462,9 +462,11 @@ the temperature you have.
 | Ki (Integral) | 0.003 | 0.0–0.1 | How fast it corrects a long-standing offset |
 | Integral precision zone | 0.3 °C | 0.1–1.0 °C | Long-term correction only builds up inside this band |
 
-A value you set stays, also through updates. The test versions v1.6.0-beta.1 and
-beta.2 used a Ki of 0.001 as the default. If you saved this dialog while one of them
-was installed, that room keeps 0.001. Set 0.003 to go back to the default.
+A value you set stays, also through updates. Saving this dialog stores every value it
+shows, so a later change of a default does not reach a room whose dialog was saved.
+The test versions v1.6.0-beta.1 and beta.2 used a Ki of 0.001 as the default. If you
+saved this dialog while one of them was installed and Ki showed 0.001, that room keeps
+0.001. Set 0.003 to get the default value back.
 
 ### Gain Scheduling
 

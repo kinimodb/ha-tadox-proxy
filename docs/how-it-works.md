@@ -225,9 +225,10 @@ This matters most for a boiler that only runs on demand. While the room is less 
 the needs-heat switch-on gap below its target, the valve can be open with no hot water
 behind it, and the integral keeps building up for nothing. A lower `Ki` for that room
 slows that down, it does not remove it. A lower switch-on gap for the needs-heat
-sensor helps more: in a simulated house, 0.1 °C instead of 0.3 °C cut the time with an
-open valve and no hot water by a lot, for about one more boiler start a day (see
-[Changing when it switches](settings.md#changing-when-it-switches)). The boiler
+sensor helps more: in a simulated house running the test version's `Ki` of 0.001,
+0.1 °C instead of 0.3 °C cut the time with an open valve and no hot water by a lot,
+for about one more boiler start a day; this was not simulated again for the default
+`Ki` (see [Changing when it switches](settings.md#changing-when-it-switches)). The boiler
 itself should follow that sensor: it turns off once the room has reached its target,
 whatever the valve does.
 

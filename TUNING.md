@@ -138,7 +138,7 @@ If you want to understand *why* a value has the effect it does, see
 | Value | Behavior |
 |-------|----------|
 | 0.0 | No long-term correction (P + feedforward only) |
-| **0.001** | A third of the default. Less overshoot after a slow approach, but the last tenth takes longer |
+| **0.001** | A third of the default. Less push past the target after a slow approach, but the last tenth takes longer |
 | **0.002** | Two thirds of the default |
 | **0.003** | Default. While the room stays 0.2°C off, the correction grows by about 0.36°C every 10 minutes |
 | **0.005** | Faster, higher overshoot risk |
@@ -155,15 +155,15 @@ lowered Ki, set it back to 0.003, the default. Otherwise raise it a little, to 0
 gap: it needs a lasting positive correction to close the last tenth. The price of a
 higher Ki is a bit more overshoot after a slow approach.
 
-**Heating goes on after the room has reached its target?** That is the other side of
-the same correction. Let the boiler follow the needs heat sensor; a lower Ki for that
-room is optional (see
-[Heating goes on after the target](#heating-goes-on-after-the-room-reached-its-target)).
-
 This works while the room is less than about 0.3°C below target. Further below, the
 correction does not build up at all, whatever Ki is: it decays, and the band
 `integral_deadband_c` is what matters. A wider band might help there; this has not
 been tested.
+
+**Heating goes on after the room has reached its target?** That is the other side of
+the same correction. Let the boiler follow the needs heat sensor; a lower Ki for that
+room is optional (see
+[Heating goes on after the target](#heating-goes-on-after-the-room-reached-its-target)).
 
 ### Adaptive Gain Scheduling
 
