@@ -1,6 +1,6 @@
 # Integral windup is limited by a low gain and a tight floor, not by a smarter rule
 
-Status: the `Ki` half is superseded by [ADR 0003](0003-ki-default-back-to-0003.md): v1.6.0 went back to `Ki = 0.003`, and its migration keeps every stored value. The floor of -0.5 °C stands.
+Status: the `Ki` half is superseded by [ADR 0003](0003-ki-default-back-to-0003.md): v1.6.0 went back to `Ki = 0.003`, and its migration keeps every stored value. The floor of -0.5 °C stands. ADR 0003 also reverses the rejection of "the floor alone" below: v1.6.0 ships exactly that. The figures below for the new regulator were computed with `Ki = 0.001`.
 
 The integral correction runs at `Ki = 0.001` (was 0.003) and may not go below -0.5 °C (was -2.0 °C). Its ceiling stays at +2.0 °C and `regulation.py` does not change. Entries saved at the previous Ki default of 0.003 follow the new one through a config-entry migration (minor version 1.2); any other stored Ki stays.
 
