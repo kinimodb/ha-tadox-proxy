@@ -13,9 +13,9 @@ Status: accepted for v1.6.0. Supersedes the `Ki` half of [ADR 0002](0002-integra
 
 ## Considered Options
 
-- **Keep the beta's numbers:** fewer commands and less valve time while warm in the models, but more minutes below target (656 / 644 a day in the model below) and a slower last tenth in every room; its gain for on-demand boilers did not hold.
-- **Both numbers back** (`Ki` 0.003, floor -2): the cold-side windup returns, the warm side is the same as now. Replaying the test days open loop through the real code, the valve was commanded shut while the room was 0.1 K or more below target for 308 minutes a day, against 93 with this decision and 143 with the beta.
-- **The floor back alone** (`Ki` 0.001, floor -2): the worst of the four; after eight warm hours a room 0.1 K below target waited 304 minutes for its valve.
+- **Keep the beta's numbers:** fewer commands and less valve time while warm in the models, but more minutes below target (656 / 644 a day in the model below) and a slower last tenth; its gain for on-demand boilers did not hold.
+- **Both numbers back** (`Ki` 0.003, floor -2): the cold-side windup returns, the warm side is the same as now. Replaying the test days open loop through the real code, the valve was commanded shut while the room was 0.1 K or more below target for 308 minutes a day in the six rooms together, against 93 with this decision and 143 with the beta.
+- **The floor back alone** (`Ki` 0.001, floor -2): the worst of the four; in the model a room 0.1 K below target after eight warm hours waited 304 minutes for its valve.
 - **`Ki` 0.002:** the fallback if rooms at 0.003 overshoot clearly more than with v1.5.0.
 - **The tester's offer, a cap on the feedforward or the command at the target:** feedforward cancels out of the push, so only a cap on the push would act, and it would shut valves at the target where the maintainer's thermostats need a gap of 0.2 to 0.6 K to hold it (saw-tooth, colder, more commands). At most a later opt-in for on-demand boilers.
 - **Later levers, model only:** a minimum push near the target (code), `Kp` 1.2 to 1.5 as a trial in one room.

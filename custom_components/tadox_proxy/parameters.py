@@ -71,10 +71,9 @@ class CorrectionTuning:
     # (1 + kp) / ki is 10 min: for a gap that stays, the integral needs that
     # long to add as much push as the gap itself already gives.  0.003 up to
     # v1.5.0 and again from v1.6.0; its pre-releases ran 0.001, which slowed
-    # the last tenth of a degree in every room (#124, docs/adr/0003).  A room
-    # whose valve keeps heating past its target after a slow approach can run
-    # a lower Ki of its own (TUNING.md).  A stored Ki is never changed by an
-    # update.
+    # the last tenth of a degree (#124, docs/adr/0003).  A room whose valve
+    # keeps heating past its target after a slow approach can run a lower Ki
+    # of its own (TUNING.md).  A stored Ki is never changed by an update.
     ki: float = 0.003
 
 
