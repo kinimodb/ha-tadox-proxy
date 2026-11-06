@@ -11,6 +11,7 @@ from .helpers import (
     CONTROL_INTERVAL_S,
     DOMAIN,
     ROOM_SENSOR,
+    SETUP_INPUT,
     TEMPERATURE,
     TRV,
     WINDOW_DELAY_S,
@@ -19,6 +20,7 @@ from .helpers import (
     async_set_state,
     async_setup_proxy,
     async_submit_options,
+    set_source_states,
 )
 
 # DEFAULT_SENSOR_GRACE_S – how long the last valid room reading is used.
@@ -206,14 +208,10 @@ async def test_hold_after_turning_back_on_sends_room_target(hass, freezer):
 
 
 async def test_new_entry_lets_trv_regulate(hass):
-    hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
-    hass.states.async_set(ROOM_SENSOR, "20.0", TEMPERATURE)
+    set_source_states(hass)
 
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"source_entity_id": TRV, "external_temperature_entity_id": ROOM_SENSOR, "name": "Living"},
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], dict(SETUP_INPUT))
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY

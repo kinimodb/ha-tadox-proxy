@@ -14,10 +14,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from .helpers import (
     CURRENT_ENTRY_MINOR_VERSION,
     DOMAIN,
-    ROOM_SENSOR,
-    TEMPERATURE,
+    SETUP_INPUT,
     TRV,
     async_setup_proxy,
+    set_source_states,
 )
 
 # CorrectionTuning.ki
@@ -93,12 +93,11 @@ async def test_entry_from_a_later_minor_version_is_left_alone(hass):
 
 async def test_entry_from_a_newer_major_version_is_not_set_up(hass):
     """A downgrade over a breaking change: the entry is refused, not misread."""
-    hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
-    hass.states.async_set(ROOM_SENSOR, "20.0", TEMPERATURE)
+    set_source_states(hass)
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Living",
-        data={"source_entity_id": TRV, "external_temperature_entity_id": ROOM_SENSOR, "name": "Living"},
+        data=dict(SETUP_INPUT),
         options={"correction_ki": V150_KI},
         unique_id=TRV,
         version=2,
@@ -115,14 +114,10 @@ async def test_entry_from_a_newer_major_version_is_not_set_up(hass):
 
 async def test_new_entry_starts_at_the_current_version(hass):
     """The config flow and async_setup_proxy agree on what a current entry is."""
-    hass.states.async_set(TRV, "heat", {"current_temperature": 22.0, "temperature": 20.0})
-    hass.states.async_set(ROOM_SENSOR, "20.0", TEMPERATURE)
+    set_source_states(hass)
 
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"source_entity_id": TRV, "external_temperature_entity_id": ROOM_SENSOR, "name": "Living"},
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], dict(SETUP_INPUT))
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY

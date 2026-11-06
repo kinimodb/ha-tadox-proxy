@@ -52,6 +52,14 @@ CURRENT_ENTRY_MINOR_VERSION = 2
 # Attributes of a room temperature sensor.
 TEMPERATURE: dict[str, Any] = {"device_class": "temperature", "unit_of_measurement": "°C"}
 
+# What a person enters in the first step of the config flow; async_setup_proxy
+# uses it as the entry's data.
+SETUP_INPUT: dict[str, Any] = {
+    "source_entity_id": TRV,
+    "external_temperature_entity_id": ROOM_SENSOR,
+    "name": "Living",
+}
+
 # The sections of the options dialog; the form requires every one.
 OPTIONS_SECTIONS = (
     "window_sensor",
@@ -147,6 +155,19 @@ class Proxy:
         await self.hass.async_block_till_done()
 
 
+def set_source_states(
+    hass: HomeAssistant, *, source_state: str = "heat", room_state: str = "20.0"
+) -> None:
+    """Create the source TRV and the room sensor that an entry points to."""
+    source_attributes = (
+        {"current_temperature": 22.0, "temperature": 20.0}
+        if source_state not in ("unavailable", "unknown")
+        else {}
+    )
+    hass.states.async_set(TRV, source_state, source_attributes)
+    hass.states.async_set(ROOM_SENSOR, room_state, TEMPERATURE)
+
+
 async def async_setup_proxy(
     hass: HomeAssistant,
     *,
@@ -170,13 +191,7 @@ async def async_setup_proxy(
     the TRV then holds what it is sent, as a real one does.  See
     ``trv_adopts_setpoints`` for why a TRV that does not is a trap.
     """
-    source_attributes = (
-        {"current_temperature": 22.0, "temperature": 20.0}
-        if source_state not in ("unavailable", "unknown")
-        else {}
-    )
-    hass.states.async_set(TRV, source_state, source_attributes)
-    hass.states.async_set(ROOM_SENSOR, room_state, TEMPERATURE)
+    set_source_states(hass, source_state=source_state, room_state=room_state)
     hass.states.async_set(PRESENCE_SENSOR, presence)
     hass.states.async_set(WINDOW_SENSOR, window)
 
@@ -188,7 +203,7 @@ async def async_setup_proxy(
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Living",
-        data={"source_entity_id": TRV, "external_temperature_entity_id": ROOM_SENSOR, "name": "Living"},
+        data=dict(SETUP_INPUT),
         options={**BASE_OPTIONS, **(options or {})},
         unique_id=TRV,
         entry_id=entry_id,
