@@ -21,7 +21,7 @@ from .helpers import (
 )
 
 # CorrectionTuning.ki
-KI_DEFAULT = 0.001
+KI_DEFAULT = 0.003
 # The Ki default up to v1.5.0.  The options dialog stores every field it shows,
 # so an entry saved there once holds it.
 V150_KI = 0.003

@@ -303,7 +303,8 @@ class TestAntiWindup:
 # open while the command is above the thermostat's own reading, that is
 # while u = (1 + Kp) * error + integral is above zero.  The Tado X does not
 # report its valve, so the tests look at that margin.  They run the real
-# regulator with its default config against a room that drifts or is held.
+# regulator with its default config, or with the one value a test names,
+# against a room that drifts or is held.
 
 SETPOINT_C = 20.0
 
@@ -344,16 +345,31 @@ def _slow_approach(reg):
     return state
 
 
+# The lower Ki that TUNING.md suggests for a room whose valve keeps heating
+# after a slow final approach, for example with an on-demand boiler (#124).
+LOW_KI = 0.001
+
+
+def _low_ki_regulator():
+    return make_regulator(tuning=CorrectionTuning(ki=LOW_KI))
+
+
 class TestSlowApproach:
-    """A room that creeps up the last 0.3 °C stays inside the integral zone."""
+    """A room that creeps up the last 0.3 °C stays inside the integral zone.
+
+    The integral builds up all the way, in proportion to Ki.  With the
+    default it keeps the valve open past the target for a while (#124,
+    docs/adr/0003); the first two tests check the lower Ki that TUNING.md
+    suggests for such a room.
+    """
 
     def test_integral_at_the_crossing_stays_small(self):
-        state = _slow_approach(make_regulator())
+        state = _slow_approach(_low_ki_regulator())
 
         assert state.integral_c <= 0.45
 
     def test_valve_shuts_when_the_room_goes_a_quarter_degree_over(self):
-        reg = make_regulator()
+        reg = _low_ki_regulator()
         state = _slow_approach(reg)
         room_c = SETPOINT_C + 0.25
 
@@ -361,6 +377,15 @@ class TestSlowApproach:
 
         # A command at or below the thermostat's own reading shuts the valve.
         assert result.target_for_tado_c <= room_c + TRV_OFFSET_C
+
+    def test_the_default_leaves_three_times_as_much(self):
+        """The default Ki of 0.003 leaves about 1.2 °C at the crossing, three
+        times what the lower Ki leaves; the docs quote both figures."""
+        default = _slow_approach(make_regulator()).integral_c
+        low = _slow_approach(_low_ki_regulator()).integral_c
+
+        assert default == pytest.approx(1.2, abs=0.05)
+        assert default == pytest.approx(3 * low)
 
 
 class TestWarmRoom:
@@ -396,8 +421,8 @@ class TestColdRoom:
             make_regulator(), RegulationState(), SETPOINT_C - 0.1, minutes=10 * 60
         )
 
-        # 0.1 K for 10 h would add 3.6 K; the ceiling holds it at +2.0, not
-        # lower (1.5) and not higher (3.0).
+        # 0.1 K for 10 h would add 10.8 K at the default Ki; the ceiling holds
+        # it at +2.0, not lower (1.5) and not higher (3.0).
         assert integrals[-1] == pytest.approx(2.0)
         assert max(integrals) == pytest.approx(2.0)
 
