@@ -153,7 +153,8 @@ class TestPiCorrection:
 
     def test_integral_accumulates_near_target(self):
         """Integral should grow when error is within deadband (near target)."""
-        reg = make_regulator()
+        # The sum below is worked out for Ki 0.003, so the test sets it.
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
         state = RegulationState()
 
         # Simulate 5 cycles of 60s each with 0.2°C persistent undershoot
@@ -192,7 +193,8 @@ class TestPiCorrection:
 
     def test_integral_decays_on_overshoot(self):
         """Integral should decrease when room overshoots."""
-        reg = make_regulator()
+        # The step below is worked out for Ki 0.003, so the test sets it.
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
         # Start with some integral built up
         state = RegulationState(integral_c=1.0)
 
@@ -291,6 +293,138 @@ class TestAntiWindup:
             state = result.new_state
 
         assert result.i_correction_c <= 1.0
+
+
+# -----------------------------------------------------------------------
+# Integral windup in both directions (#124)
+# -----------------------------------------------------------------------
+#
+# The model behind these tests (docs/adr/0002): the thermostat's valve is
+# open while the command is above the thermostat's own reading, that is
+# while u = (1 + Kp) * error + integral is above zero.  The Tado X does not
+# report its valve, so the tests look at that margin.  They run the real
+# regulator with its default config, or with the one value a test names,
+# against a room that drifts or is held.
+
+SETPOINT_C = 20.0
+
+# The Tado sensor on the radiator reads this much above the room sensor.
+TRV_OFFSET_C = 2.0
+
+
+def _cycle(reg, state, room_c, time_delta_s=60.0):
+    """Run one regulation cycle with the room at *room_c*."""
+    return reg.compute(
+        setpoint_c=SETPOINT_C,
+        room_temp_c=room_c,
+        tado_internal_c=room_c + TRV_OFFSET_C,
+        time_delta_s=time_delta_s,
+        state=state,
+    )
+
+
+def _hold_room(reg, state, room_c, minutes):
+    """Hold the room at *room_c*; return the last state and every integral on the way."""
+    integrals = []
+    for _ in range(minutes):
+        state = _cycle(reg, state, room_c).new_state
+        integrals.append(state.integral_c)
+    return state, integrals
+
+
+def _slow_approach(reg):
+    """The room rises evenly from 19.7 to 20.0 °C in 45 minutes.
+
+    Returns the state at the crossing, when the room reaches the setpoint.
+    """
+    state = RegulationState()
+    for minute in range(46):
+        room_c = 19.7 + 0.3 * minute / 45
+        first = minute == 0
+        state = _cycle(reg, state, room_c, time_delta_s=0.0 if first else 60.0).new_state
+    return state
+
+
+# The lower Ki that TUNING.md suggests for a room whose valve keeps heating
+# after a slow final approach, for example with an on-demand boiler (#124).
+LOW_KI = 0.001
+
+
+def _low_ki_regulator():
+    return make_regulator(tuning=CorrectionTuning(ki=LOW_KI))
+
+
+class TestSlowApproach:
+    """A room that creeps up the last 0.3 °C stays inside the integral zone.
+
+    The integral builds up all the way, in proportion to Ki.  With the
+    default it keeps the valve open past the target for a while (#124,
+    docs/adr/0003); the first two tests check the lower Ki that TUNING.md
+    suggests for such a room.
+    """
+
+    def test_integral_at_the_crossing_stays_small(self):
+        state = _slow_approach(_low_ki_regulator())
+
+        assert state.integral_c <= 0.45
+
+    def test_valve_shuts_when_the_room_goes_a_quarter_degree_over(self):
+        reg = _low_ki_regulator()
+        state = _slow_approach(reg)
+        room_c = SETPOINT_C + 0.25
+
+        result = _cycle(reg, state, room_c)
+
+        # A command at or below the thermostat's own reading shuts the valve.
+        assert result.target_for_tado_c <= room_c + TRV_OFFSET_C
+
+    def test_the_default_leaves_three_times_as_much(self):
+        """The default Ki of 0.003 leaves about 1.2 °C at the crossing, three
+        times what the lower Ki leaves; the docs quote both figures."""
+        default = _slow_approach(make_regulator()).integral_c
+        low = _slow_approach(_low_ki_regulator()).integral_c
+
+        assert default == pytest.approx(1.2, abs=0.05)
+        assert default == pytest.approx(3 * low)
+
+
+class TestWarmRoom:
+    """A room that stays above its target winds the integral down."""
+
+    def test_integral_stops_at_minus_half_a_degree(self):
+        _, integrals = _hold_room(
+            make_regulator(), RegulationState(), SETPOINT_C + 0.1, minutes=8 * 60
+        )
+
+        assert min(integrals) >= -0.5
+        # It does wind down that far, so this is not met by an idle integral.
+        assert integrals[-1] == pytest.approx(-0.5)
+
+    def test_valve_reopens_four_tenths_below_the_target(self):
+        reg = make_regulator()
+        state, _ = _hold_room(reg, RegulationState(), SETPOINT_C + 0.1, minutes=8 * 60)
+        room_c = SETPOINT_C - 0.4
+
+        result = _cycle(reg, state, room_c)
+
+        # A command above the thermostat's own reading opens the valve.  With
+        # the integral at -0.5 the push is 1.8 * 0.4 - 0.5 = 0.22 K; at the
+        # old floor of -2.0 it would still be shut here.
+        assert result.target_for_tado_c > room_c + TRV_OFFSET_C
+
+
+class TestColdRoom:
+    """A room that stays a little below its target climbs to the ceiling, no further."""
+
+    def test_integral_climbs_to_the_ceiling_and_stops_there(self):
+        _, integrals = _hold_room(
+            make_regulator(), RegulationState(), SETPOINT_C - 0.1, minutes=10 * 60
+        )
+
+        # 0.1 K for 10 h would add 10.8 K at the default Ki; the ceiling holds
+        # it at +2.0, not lower (1.5) and not higher (3.0).
+        assert integrals[-1] == pytest.approx(2.0)
+        assert max(integrals) == pytest.approx(2.0)
 
 
 # -----------------------------------------------------------------------
@@ -664,9 +798,11 @@ class TestTimeDeltaEdgeCases:
         """Skipped cycles (sensor outage) must not integrate the whole gap.
 
         After a 40-minute outage dt is ~2400s.  Without a cap a single
-        near-target cycle would add 0.2 * 0.003 * 2400 = 1.44°C at once.
+        near-target cycle would add 0.2 * 0.003 * 2400 = 1.44°C at once
+        (Ki 0.003, which the test sets).
         """
-        reg = make_regulator()
+        cfg = RegulationConfig(tuning=CorrectionTuning(ki=0.003))
+        reg = FeedforwardPiRegulator(cfg)
         result = reg.compute(
             setpoint_c=21.0,
             room_temp_c=20.8,   # error = 0.2 < deadband (0.3)
@@ -674,12 +810,11 @@ class TestTimeDeltaEdgeCases:
             time_delta_s=2400.0,
             state=RegulationState(integral_c=0.0),
         )
-        cfg = RegulationConfig()
         max_step = 0.2 * cfg.tuning.ki * cfg.max_integration_dt_s
         assert result.new_state.integral_c == pytest.approx(max_step)
 
     def test_normal_time_delta_is_not_capped(self):
-        reg = make_regulator()
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
         result = reg.compute(
             setpoint_c=21.0,
             room_temp_c=20.8,

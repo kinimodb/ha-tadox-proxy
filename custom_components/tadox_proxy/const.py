@@ -61,6 +61,10 @@ CONF_BACKUP_TEMPERATURE_ENTITY_ID = "backup_temperature_entity_id"
 # Overlay refresh (for cloud-API integrations with timer-based overlays)
 CONF_OVERLAY_REFRESH_S = "overlay_refresh_s"
 
+# Needs-heat sensor: on above the first gap (error_c), off at the second one
+CONF_NEEDS_HEAT_ON_C = "needs_heat_on_c"
+CONF_NEEDS_HEAT_OFF_C = "needs_heat_off_c"
+
 # PI controller tuning keys (stored in options)
 CONF_CORRECTION_KP = "correction_kp"
 CONF_CORRECTION_KI = "correction_ki"
@@ -75,10 +79,13 @@ CONF_MIN_COMMAND_INTERVAL_S = "min_command_interval_s"
 CONF_MIN_CHANGE_THRESHOLD_C = "min_change_threshold_c"
 CONF_INTEGRAL_DEADBAND_C = "integral_deadband_c"
 
-# Options written at runtime by the number/switch entities.  The climate
-# entity applies them live via its update listener; they must NOT trigger a
-# full integration reload (that would wipe boost timers, window/presence
-# automation state and the PI integral).
+# Options the climate entity applies live via its update listener: those
+# written at runtime by the number/switch entities, and the needs-heat
+# thresholds from the options dialog, which only change what the needs-heat
+# sensor shows.  They must NOT trigger a full integration reload: that would
+# end a running boost, restart or cut short a running delay of the window or
+# nobody-home layer, and reset the PI integral (a layer that holds the room
+# keeps holding it).  A change to any other option reloads (__init__.py).
 LIVE_OPTION_KEYS = frozenset({
     CONF_COMFORT_TARGET,
     CONF_ECO_TARGET,
@@ -86,6 +93,8 @@ LIVE_OPTION_KEYS = frozenset({
     CONF_AWAY_TARGET,
     CONF_FROST_PROTECTION_TARGET,
     CONF_FOLLOW_TADO_INPUT,
+    CONF_NEEDS_HEAT_ON_C,
+    CONF_NEEDS_HEAT_OFF_C,
 })
 
 # The climate state attributes read back on restart are defined in
