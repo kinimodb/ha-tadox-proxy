@@ -22,6 +22,37 @@ _LOGGER = logging.getLogger(__name__)
 # List the platforms that you want to support.
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.CLIMATE, Platform.NUMBER, Platform.SENSOR, Platform.SWITCH]
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Bring an entry saved by an earlier release up to the current version.
+
+    Home Assistant calls this before setup whenever the entry's version differs
+    from the config flow's, in either direction.  Each step below belongs to
+    one minor version; the config flow's MINOR_VERSION is the last of them.  A
+    step never deletes or changes a value someone has stored (#124).
+    """
+    if entry.version > 1:
+        # Saved by a newer release that changed the stored format (a new major
+        # version), then downgraded: refused, so this code cannot misread it.
+        # Home Assistant shows the entry as a migration error and leaves its
+        # data alone, so upgrading again brings it back.
+        _LOGGER.error(
+            "%s was saved by a newer version of Tado X Proxy (entry version %s.%s) "
+            "and cannot be loaded by this one",
+            entry.title, entry.version, entry.minor_version,
+        )
+        return False
+
+    if entry.minor_version < 2:
+        # 1.2 (v1.6.0): only the version.  The pre-releases v1.6.0-beta.1 and
+        # beta.2 dropped a stored Ki of 0.003 in this step; v1.6.0 keeps every
+        # option.
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+
+    # A later minor version (a downgrade within major version 1) is set up as
+    # it is: minor versions only add what older code can ignore.
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Tado X Proxy from a config entry."""
 
@@ -119,12 +150,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 7. Load the platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # 8. Reload integration when options change via the options flow.
-    # This listener fires AFTER HA has persisted the new options, so the
-    # reload always sees the up-to-date values.  Options written at runtime
-    # by number/switch entities (LIVE_OPTION_KEYS) are applied live by the
-    # climate entity and must not reload – compare against a snapshot of the
-    # reload-relevant options taken at setup.
+    # 8. Reload the integration when an option changes that the climate
+    # entity does not apply live.  The live ones are LIVE_OPTION_KEYS
+    # (const.py): they come from the number/switch entities and, for the
+    # needs-heat thresholds, from the options dialog – so a dialog save that
+    # changes only those does not reload.  That holds from the second save on:
+    # the first save stores every option the dialog shows that is not stored
+    # yet (all of them for a new entry, correction_ki for an entry whose Ki a
+    # pre-release of v1.6.0 dropped), and those are not live, so that save
+    # does reload.
+    # This listener fires AFTER HA has persisted the new options, so the reload
+    # always sees the up-to-date values.  Compare against a snapshot of the
+    # other options taken at setup.
     reload_snapshot = _reload_relevant_options(entry.options)
 
     async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:

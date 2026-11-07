@@ -18,9 +18,10 @@ Everything you can see, switch, and adjust — looked up rather than read start 
 5. [Turning the thermostat off](#turning-the-thermostat-off)
 6. [Following the physical thermostat](#following-the-physical-thermostat)
 7. [When the sensor drops out](#when-the-sensor-drops-out)
-8. [Adjustable settings](#adjustable-settings)
-9. [Diagnostic attributes](#diagnostic-attributes)
-10. [Supported radiators](#supported-radiators)
+8. [Needs heat for a boiler](#needs-heat-for-a-boiler)
+9. [Adjustable settings](#adjustable-settings)
+10. [Diagnostic attributes](#diagnostic-attributes)
+11. [Supported radiators](#supported-radiators)
 
 ---
 
@@ -59,6 +60,9 @@ or automation has set since.
 | **You start a boost** | The timer keeps running. If it ends during the boost, the preset applies once the boost is over |
 | **You tap the preset that is forced right now** | The timer keeps running. Tapping Frost Protection during the close delay is a real choice, though, and ends it |
 | **A schedule or automation sets a preset** | The timer keeps running and Manual lasts its full time. The new preset only applies afterwards, also after a restart |
+| **A schedule or automation sets the preset that is forced right now** | The command is ignored. The timer, the preset that applies afterwards and a running close delay stay as they were |
+| **A schedule or automation starts a boost** | The boost starts as it does when you start it. The timer keeps running |
+| **A schedule or automation sets a temperature** (`climate.set_temperature`) | It counts as a new Manual change, as if you had made it. The timer starts over |
 
 Two limits, because Home Assistant only tells whether a logged-in user is behind a
 command:
@@ -137,6 +141,7 @@ Each entry creates:
 | `number.<name>_comfort_temperature` | What Comfort means, and one of these per preset |
 | `sensor.<name>_boost_remaining` | Minutes of boost left. Stands still while the boost is paused, 0 without a boost |
 | `binary_sensor.<name>_sensor_degraded` | Turns on when your room sensor stops reporting |
+| `binary_sensor.<name>_needs_heat` | On while the room needs heat. For a boiler that only runs on demand, see [needs heat for a boiler](#needs-heat-for-a-boiler) |
 | `switch.<name>_follow_physical_thermostat` | Off by default, see [below](#following-the-physical-thermostat) |
 | `switch.<name>_guest_mode` | Off by default, see [guest mode](#guest-mode) |
 
@@ -312,6 +317,11 @@ period at the latest (**Min command interval**, 180 s by default). So a dial
 turned up while a window is open no longer heats into the open window. The
 attribute `regulation_reason` shows `sent(trv_drift)` for such a correction.
 
+A dial turned while the radiator thermostat is `unavailable` or `unknown` is not
+taken over, not even with the switch **on**. When the thermostat comes back, the
+setpoint it reports is not read as a turned dial. The correction described above
+puts the proxy's own value back once the room is regulated again.
+
 ---
 
 ## When the sensor drops out
@@ -364,6 +374,74 @@ glitchy reading cannot flip your room into Away.
 
 ---
 
+## Needs heat for a boiler
+
+`binary_sensor.<name>_needs_heat`, one for each entry.
+
+Some boilers only run when a room asks for heat – for example an OpenTherm boiler
+that an automation switches on and off. This sensor gives you that signal. It is
+**on** while the room needs heat.
+
+- It turns **on** once the room is more than 0.3 °C below its target.
+- It turns **off** once the room has reached its target.
+- In between, it stays as it is. So it does not start the boiler for a tiny gap,
+  and it does not stop the boiler before the room is warm.
+- It is always **off** while the thermostat is off.
+- It is also **off** while `binary_sensor.<name>_sensor_degraded` is on. A missing
+  room sensor should not keep your boiler running. This holds even while the
+  integration keeps regulating the room on the last good reading or on the backup
+  room sensor. When the room sensor reports again, the sensor starts from off: it
+  turns on once the room is more than the **Switch on above** value below its
+  target. A room whose boiler starts only on this sensor gets no heat during the
+  sensor outage.
+- It is **off** while the source radiator thermostat is `unavailable` or `unknown`,
+  and it can turn on again once the thermostat returns and the room still needs heat.
+- It is also **off** while the integration does not regulate the room. Its
+  attribute `error_c` is then empty. This happens for up to a minute after Home
+  Assistant starts or the integration reloads, before the room sensor reports for
+  the first time, while the radiator thermostat reports no temperature of its own,
+  and while an open window has switched the radiator thermostat off.
+
+Its attribute `error_c` shows the gap the sensor follows: the target minus the room
+temperature, the same value as on the climate entity. It is empty while the
+integration does not regulate, for example while the thermostat is off.
+
+**Switching the boiler.** The boiler should run while at least one room needs heat.
+Collect the sensors of all rooms in a group:
+
+1. Go to **Settings → Devices & Services → Helpers**.
+2. Click **Create helper** and choose **Group → Binary sensor group**.
+3. Add the needs heat sensor of every room. Leave **All entities** off.
+
+The group is on while at least one room needs heat. Let your boiler automation follow
+the group.
+
+### Changing when it switches
+
+Under **Settings → Devices & Services → Tado X Proxy → Configure → Needs heat
+sensor**:
+
+| Setting | Default | Range | What it does |
+|---|---|---|---|
+| Switch on above | 0.3 °C | 0.0–2.0 °C | The sensor turns on once the room is more than this much below its target |
+| Switch off at | 0.0 °C | -1.0–1.0 °C | The sensor turns off once the room is no more than this much below its target. 0 means: at the target |
+
+The switch-on value must be higher than the switch-off value. Changes apply right
+away.
+
+A lower switch-on value, for example 0.1 °C, starts the boiler for smaller gaps. You
+get more boiler starts, but the valve spends less time open with no hot water behind
+it. While that lasts, the long-term correction keeps building up for nothing (see
+[Integral windup](how-it-works.md#integral-windup)).
+
+A switch-off value above 0 turns the sensor off a little before the room reaches its
+target. This can suit a heavy radiator, for example a cast-iron one, that keeps
+heating for a while after the boiler stops. Its stored heat brings the room the rest
+of the way. If you set the value too high, the room stays below its target. A value
+below 0 keeps the boiler running until the room is that much above its target.
+
+---
+
 ## Adjustable settings
 
 All of these live under
@@ -383,6 +461,12 @@ the temperature you have.
 | Kp (Proportional) | 0.8 | 0.0–5.0 | How hard it reacts to the current gap |
 | Ki (Integral) | 0.003 | 0.0–0.1 | How fast it corrects a long-standing offset |
 | Integral precision zone | 0.3 °C | 0.1–1.0 °C | Long-term correction only builds up inside this band |
+
+A value you set stays, also through updates. Saving this dialog stores every value it
+shows, so a later change of a default does not reach a room whose dialog was saved.
+The test versions v1.6.0-beta.1 and beta.2 used a Ki of 0.001 as the default. If you
+saved this dialog while one of them was installed and Ki showed 0.001, that room keeps
+0.001. Set 0.003 to get the default value back.
 
 ### Gain Scheduling
 
@@ -471,19 +555,19 @@ has taken over.
 ### What "heating" means
 
 The proxy shows **Heating** (`hvac_action: heating`) when the target it sent to the
-Tado is above the Tado's own reading. In practice this means the valve is open. It
-does **not** mean that the room still needs heat: the correction keeps the valve
-slightly open to hold the room at its target, so a room only 0.05 °C below target can
-show Heating. After a slow final approach it can even stay on for a while once the
-room is slightly above its target (see
+Tado is above the Tado's own reading. The valve is most likely open then: that is
+what the readings show, but the Tado X does not report its valve, so the proxy cannot
+know for sure. It does **not** mean that the room still needs heat: the correction
+keeps the valve slightly open to hold the room at its target, so a room only 0.05 °C
+below target can show Heating. After a slow final approach it can even stay on for a
+while once the room is slightly above its target (see
 [Integral windup](how-it-works.md#integral-windup)).
 
-To decide whether a boiler should run, use `error_c` instead (target minus room
-temperature). Leave out rooms that are off or have `sensor_degraded` on. Add some
-hysteresis so the boiler does not start for tiny gaps — for example, start when
-`error_c` rises above 0.3 °C and keep running until it reaches 0, which is when the
-room is at its target. Do not stop earlier: a boiler that stops while `error_c` is
-still above 0 leaves the room short of its target.
+To decide whether a boiler should run, use the
+[needs heat sensor](#needs-heat-for-a-boiler) instead. It follows `error_c` (target
+minus room temperature), not the valve. It starts at a clear gap, keeps running until
+the room has reached its target, and leaves out rooms that are off or have a missing
+sensor.
 
 The [tuning guide](../TUNING.md#diagnostics-what-the-attributes-tell-you) shows what
 healthy and unhealthy values look like side by side.

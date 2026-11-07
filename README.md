@@ -1,7 +1,7 @@
 # Tado X Proxy Thermostat
 
 [![Tests](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml/badge.svg)](https://github.com/kinimodb/ha-tadox-proxy/actions/workflows/tests.yml)
-![Version](https://img.shields.io/badge/version-1.5.0-blue)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 ![HA](https://img.shields.io/badge/Home%20Assistant-2026.3%2B-41BDF5)
 
 **Read this page in your language:**
@@ -114,7 +114,8 @@ Beyond the temperature correction, you get:
 
 - **Presets** — Comfort, Eco, Away, Boost, Frost Protection. One tap each. What you
   picked comes back by itself: after airing, after coming home and after a boost.
-  Even after a restart.
+  Even after a restart. If you set a temperature by hand, the room can go back to
+  your preset after a time you choose. Optional.
 - **Window detection** — when a window contact opens, heating drops to frost
   protection, or switches off if you prefer. Optional.
 - **Presence detection** — when nobody is home, the room drops to Away and recovers
@@ -123,6 +124,8 @@ Beyond the temperature correction, you get:
   away, even though your presence sensor says nobody is home.
 - **Manual override** — turn the dial on the radiator thermostat itself and, if you
   enable it, the proxy follows you instead of fighting you.
+- **Needs heat** — one on/off sensor per room. It is on while the room needs heat. A
+  boiler that only runs when a room asks for heat can follow it.
 
 Details for all of these are in the [settings reference](docs/settings.md).
 
@@ -167,6 +170,14 @@ Use a normal web browser to set it up.
 - Usually one entry per radiator: a room with two radiators gets two entries, both
   using the same room sensor. Some setups need one entry per room instead — the
   [setup guide](docs/setup.md#how-many-entries-you-need) tells you which
+
+---
+
+## Thanks
+
+Thanks to [Nick Altmann](https://github.com/nikbyte): the proxy now shows when its
+thermostat has dropped out and gets through that cleanly, and a Manual change can end
+by itself after a timer.
 
 ---
 

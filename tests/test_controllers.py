@@ -30,6 +30,7 @@ _ctrl_mod = _load("climate_controllers")
 _params_mod = _load("parameters")
 
 FollowPhysicalController = _ctrl_mod.FollowPhysicalController
+NeedsHeat = _ctrl_mod.NeedsHeat
 decide_send = _ctrl_mod.decide_send
 trv_drifted_setpoint = _ctrl_mod.trv_drifted_setpoint
 preset_target_c = _ctrl_mod.preset_target_c
@@ -470,3 +471,83 @@ class TestPresetTarget:
             "comfort", PresetConfig(), comfort_c=22.0, manual_c=19.0
         ) == 22.0
 
+
+
+# ---------------------------------------------------------------------------
+# NeedsHeat (hysteresis on error_c, for a boiler that runs on demand)
+# ---------------------------------------------------------------------------
+
+class TestNeedsHeat:
+    """On above the switch-on gap, off at the switch-off gap, unchanged between.
+
+    Thresholds match the option defaults: on above 0.3 °C, off at 0.0 °C.
+    """
+
+    def _needs_heat(self, *errors, on_above_c=0.3, off_at_c=0.0):
+        """Feed *errors* in order, heating on and sensor fine; return the decider."""
+        needs_heat = NeedsHeat(on_above_c=on_above_c, off_at_c=off_at_c)
+        for error_c in errors:
+            needs_heat.update(error_c, heating=True, degraded=False)
+        return needs_heat
+
+    def test_off_before_the_first_cycle(self):
+        assert self._needs_heat().is_on is False
+
+    def test_on_once_the_gap_rises_above_the_switch_on_value(self):
+        assert self._needs_heat(0.31).is_on is True
+
+    def test_a_gap_of_exactly_the_switch_on_value_is_not_above_it(self):
+        """Target 20.3 °C, room 20.0 °C: 0.3 K, although the float is 0.3000...07."""
+        assert self._needs_heat(20.3 - 20.0).is_on is False
+
+    def test_keeps_running_between_the_two_values(self):
+        """No stop for a room that is still 0.2 K short: it would never get there."""
+        assert self._needs_heat(0.5, 0.2).is_on is True
+
+    def test_stays_off_between_the_two_values(self):
+        """No start for a small gap."""
+        assert self._needs_heat(0.2).is_on is False
+
+    def test_off_once_the_room_has_reached_its_target(self):
+        assert self._needs_heat(0.5, 0.0).is_on is False
+
+    def test_off_once_the_room_is_above_its_target(self):
+        assert self._needs_heat(0.5, -0.2).is_on is False
+
+    def test_a_gap_of_exactly_the_switch_off_value_switches_off(self):
+        """Target 20.1 °C, room 20.0 °C: 0.1 K, although the float is 0.1000...01."""
+        assert self._needs_heat(0.5, 20.1 - 20.0, off_at_c=0.1).is_on is False
+
+    def test_off_while_the_heating_is_off(self):
+        needs_heat = self._needs_heat(0.5)
+
+        assert needs_heat.update(0.5, heating=False, degraded=False) is False
+        assert needs_heat.is_on is False
+
+    def test_off_while_the_room_sensor_is_degraded(self):
+        """A stale room reading must not keep the boiler running."""
+        needs_heat = self._needs_heat(0.5)
+
+        assert needs_heat.update(0.5, heating=True, degraded=True) is False
+
+    def test_off_without_a_regulation_value(self):
+        """No error_c: waiting for sensors, the TRV in charge, the window's valve off."""
+        needs_heat = self._needs_heat(0.5)
+
+        assert needs_heat.update(None, heating=True, degraded=False) is False
+
+    def test_starts_from_off_once_the_heating_is_back(self):
+        """After a pause the small gap of 0.2 K does not start the boiler."""
+        needs_heat = self._needs_heat(0.5)
+        needs_heat.update(None, heating=False, degraded=False)
+
+        assert needs_heat.update(0.2, heating=True, degraded=False) is False
+
+    def test_changed_values_apply_to_the_next_decision(self):
+        """The options can change while the room runs."""
+        needs_heat = self._needs_heat(0.2)
+
+        needs_heat.on_above_c = 0.1
+        assert needs_heat.update(0.2, heating=True, degraded=False) is True
+        needs_heat.on_above_c, needs_heat.off_at_c = 0.5, 0.2
+        assert needs_heat.update(0.2, heating=True, degraded=False) is False

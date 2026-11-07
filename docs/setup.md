@@ -220,6 +220,8 @@ optional and you can ignore them until you need them.
   in automations.
 - **A boost timer sensor** showing how many minutes of boost are left.
 - **A warning sensor** that turns on if your room sensor stops reporting.
+- **A "needs heat" sensor** that is on while the room needs heat. You only need it
+  if your boiler should run only when a room asks for heat.
 - **A "follow physical thermostat" switch**, off by default. Turn it on if you want
   turning the dial on the radiator thermostat to override the proxy.
 
@@ -244,6 +246,53 @@ home for 10 minutes, the room drops to Away. When someone returns, your own sett
 comes back after 30 seconds.
 
 Both are optional and work independently.
+
+---
+
+## Optional: a weekly plan
+
+The proxy does not need a plan of its own. Another tool can pick a preset for it at
+the times you choose. Two things from HACS do this: the **Scheduler component** and
+the **Scheduler Card**. The card is a box on your dashboard where you make the plan.
+
+**Install them once:**
+
+1. Open **HACS** in Home Assistant.
+2. Search for **Scheduler component** and download it.
+3. Search for **Scheduler Card** and download it.
+4. **Restart Home Assistant.**
+5. Go to **Settings → Devices & Services**.
+6. Click **Add Integration** (bottom right).
+7. Search for **Scheduler** and add it. If it is not in the list, clear your browser
+   cache and look again.
+8. Open the dashboard where the plan should live. Switch to edit mode and add a card.
+   Choose **Scheduler Card**.
+
+If **Scheduler Card** is missing, check that the folder `www` exists inside your Home
+Assistant `config` folder. The card's own instructions warn that the install can fail
+without a message if it does not.
+
+**Make the plan:**
+
+1. On the card, start a new schedule.
+2. Choose the proxy thermostat of the room. It has the name you gave it in Step 4.
+3. Choose the action **set preset**, and pick a preset: **Comfort** for warm times,
+   **Eco** for cooler times.
+4. Choose the days (every day, workdays, weekend or your own days) and the time.
+5. Save the schedule.
+
+The card may ask for these things in a different order. Repeat the steps for every
+change in your week. For example: Comfort at 06:00 and Eco at 08:00 on workdays.
+
+Do not choose an action that sets a temperature. That puts the room in Manual.
+
+Want the whole day in one schedule? The card can make a time scheme (**To scheme
+mode**). It cuts the day into time slots, and each slot gets its own preset. Give
+every slot a preset, because nothing happens by itself when a slot ends. After a
+restart of Home Assistant, a time scheme sets the preset of the current slot again.
+
+How a plan works together with a temperature you set by hand, and with the Manual
+timer, is in the [settings reference](settings.md#presets).
 
 ---
 

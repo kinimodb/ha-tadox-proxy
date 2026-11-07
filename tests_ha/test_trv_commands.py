@@ -3,10 +3,7 @@ from __future__ import annotations
 
 from homeassistant.components.climate import HVACMode
 
-from .helpers import TRV, async_advance, async_setup_proxy
-
-# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
-CONTROL_INTERVAL_S = 60
+from .helpers import CONTROL_INTERVAL_S, TRV, async_advance, async_setup_proxy
 
 
 async def test_regulation_cycle_sends_setpoint_to_trv(hass, freezer):

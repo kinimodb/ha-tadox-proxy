@@ -36,6 +36,8 @@ from .const import (
     CONF_MIN_CHANGE_THRESHOLD_C,
     CONF_MIN_COMMAND_INTERVAL_S,
     CONF_NAME,
+    CONF_NEEDS_HEAT_OFF_C,
+    CONF_NEEDS_HEAT_ON_C,
     CONF_OVERLAY_REFRESH_S,
     CONF_PRESENCE_AWAY_DELAY_S,
     CONF_PRESENCE_HOME_DELAY_S,
@@ -52,6 +54,8 @@ from .const import (
 )
 from .parameters import (
     DEFAULT_MANUAL_MODE_DURATION_MIN,
+    DEFAULT_NEEDS_HEAT_OFF_C,
+    DEFAULT_NEEDS_HEAT_ON_C,
     DEFAULT_OVERLAY_REFRESH_S,
     DEFAULT_PRESENCE_AWAY_DELAY_S,
     DEFAULT_PRESENCE_HOME_DELAY_S,
@@ -67,6 +71,11 @@ class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """UI setup for the integration (initial setup)."""
 
     VERSION = 1
+    # Raise it with every change to stored options or data that older entries
+    # need, and add the step to async_migrate_entry (__init__.py).  A step
+    # never changes a value someone has stored.
+    # 1.2: v1.6.0; the step only raises the version (#124).
+    MINOR_VERSION = 2
 
     async def async_step_user(self, user_input=None):
         errors: dict[str, str] = {}
@@ -124,6 +133,19 @@ def _validate_sensor_loss(options: dict) -> dict[str, str]:
     return {}
 
 
+def _validate_needs_heat(options: dict) -> dict[str, str]:
+    """Return form errors for the needs-heat thresholds.
+
+    Switching on must take a larger gap than switching off, otherwise there
+    is no hysteresis.  Reported as a base error: the fields sit in a section.
+    """
+    on_c = options.get(CONF_NEEDS_HEAT_ON_C, DEFAULT_NEEDS_HEAT_ON_C)
+    off_c = options.get(CONF_NEEDS_HEAT_OFF_C, DEFAULT_NEEDS_HEAT_OFF_C)
+    if on_c <= off_c:
+        return {"base": "needs_heat_thresholds"}
+    return {}
+
+
 class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
     """Per-entry options (gear icon) for tuning, presets & sensor selection."""
 
@@ -152,10 +174,12 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 if key not in cleaned:
                     merged.pop(key, None)
             merged.update(cleaned)
-            errors = _validate_sensor_loss(merged)
+            errors = {**_validate_sensor_loss(merged), **_validate_needs_heat(merged)}
             if not errors:
-                # Reload is triggered by the update_listener in __init__.py
-                # AFTER HA has persisted the new options, avoiding stale data.
+                # A reload, when one is needed, is triggered by the
+                # update_listener in __init__.py AFTER HA has persisted the
+                # new options, avoiding stale data.  Options in
+                # LIVE_OPTION_KEYS (const.py) apply without one.
                 return self.async_create_entry(title="", data=merged)
             # Show the form again with the values just entered.
             return self.async_show_form(
@@ -329,6 +353,36 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                     {"collapsed": True},
                 ),
 
+                # Section: Needs-heat sensor (a boiler that runs on demand)
+                vol.Required("needs_heat"): section(
+                    vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_NEEDS_HEAT_ON_C,
+                                default=opts.get(CONF_NEEDS_HEAT_ON_C, DEFAULT_NEEDS_HEAT_ON_C),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0.0, max=2.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
+                            vol.Required(
+                                CONF_NEEDS_HEAT_OFF_C,
+                                default=opts.get(CONF_NEEDS_HEAT_OFF_C, DEFAULT_NEEDS_HEAT_OFF_C),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=-1.0, max=1.0, step=0.1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="°C",
+                                )
+                            ),
+                        }
+                    ),
+                    {"collapsed": True},
+                ),
+
+                # Section: Manual mode (timer and what happens after it)
                 vol.Required("manual_mode"): section(
                     manual_section_schema,
                     {"collapsed": True},

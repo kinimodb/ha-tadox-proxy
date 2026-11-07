@@ -48,6 +48,12 @@ DEFAULT_MANUAL_MODE_DURATION_MIN: int = 15  # how long Manual lasts with the tim
 # timer-based overlays (s).  0 = disabled (correct for Matter/Thread).
 DEFAULT_OVERLAY_REFRESH_S: int = 0
 
+# Needs-heat sensor (a boiler that runs on demand), overridable via options:
+# on once error_c rises above the first value, off once it falls to the
+# second one or below (°C).
+DEFAULT_NEEDS_HEAT_ON_C: float = 0.3
+DEFAULT_NEEDS_HEAT_OFF_C: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # Correction tuning  (PI layer on top of feedforward)
@@ -61,7 +67,14 @@ class CorrectionTuning:
     """
 
     kp: float = 0.8    # proportional gain for residual room-error correction
-    ki: float = 0.003   # integral gain for slow steady-state error correction
+    # Integral gain for slow steady-state error correction.  The integral time
+    # (1 + kp) / ki is 10 min: for a gap that stays, the integral needs that
+    # long to add as much push as the gap itself already gives.  0.003 up to
+    # v1.5.0 and again from v1.6.0; its pre-releases ran 0.001, which in one
+    # clear field case slowed the last tenth (#124, docs/adr/0003).  A room
+    # whose valve keeps heating past its target after a slow approach can run
+    # a lower Ki of its own (TUNING.md).  An update never changes a stored Ki.
+    ki: float = 0.003
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +108,13 @@ class RegulationConfig:
     min_target_c: float = 5.0
     max_target_c: float = 30.0
 
-    # Anti-windup limits for the integral correction term
-    integral_min_c: float = -2.0
+    # Anti-windup limits for the integral correction term.  They are not
+    # symmetric.  A shut valve cannot be shut further: below about -0.5 the
+    # integral only delays the next heating, because it has to unwind before
+    # the valve opens again (#124).  The upper limit stays wide: a TRV that
+    # opens in proportion to the gap needs a lasting positive integral to
+    # reach the target.
+    integral_min_c: float = -0.5
     integral_max_c: float = 2.0
 
     # Integral deadband: only accumulate integral when |error| < this value.

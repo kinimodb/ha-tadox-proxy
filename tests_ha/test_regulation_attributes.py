@@ -5,7 +5,9 @@ from homeassistant.components.climate import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE
 
 from .helpers import (
+    CONTROL_INTERVAL_S,
     ROOM_SENSOR,
+    TEMPERATURE,
     async_advance,
     async_set_state,
     async_setup_proxy,
@@ -13,12 +15,8 @@ from .helpers import (
     trv_rejects,
 )
 
-# DEFAULT_CONTROL_INTERVAL_S – the regulation cycle runs on this timer.
-CONTROL_INTERVAL_S = 60
 # DEFAULT_SENSOR_GRACE_S – how long the last valid room reading is used.
 SENSOR_GRACE_S = 300
-
-TEMPERATURE = {"device_class": "temperature", "unit_of_measurement": "°C"}
 
 REGULATION_ATTRS = (
     "error_c",
