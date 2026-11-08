@@ -286,10 +286,23 @@ change in your week. For example: Comfort at 06:00 and Eco at 08:00 on workdays.
 
 Do not choose an action that sets a temperature. That puts the room in Manual.
 
+The card also offers **Turn on**, **Turn off** and **set mode** (Heat or Off). These
+are all the same on/off switch. They do not choose a temperature. **Turn on** brings
+back the preset the room had.
+
+**set preset** is different. It chooses the temperature and does not touch the
+switch. If the proxy is off, it stays off, even when the plan picks a preset. So a
+plan with **Turn off** needs **Turn on** later, or the room stays cold.
+
+The easiest way is to leave the proxy on and use only **set preset**. For times when
+the room may cool down, choose **Eco**. For times when it may stay nearly off, choose
+**Frost Protection**.
+
 Want the whole day in one schedule? The card can make a time scheme (**To scheme
 mode**). It cuts the day into time slots, and each slot gets its own preset. Give
-every slot a preset, because nothing happens by itself when a slot ends. After a
-restart of Home Assistant, a time scheme sets the preset of the current slot again.
+every slot a preset, because nothing happens by itself when a slot ends. The heating
+does not turn off, and the preset does not change. After a restart of Home Assistant,
+a time scheme sets the preset of the current slot again.
 
 How a plan works together with a temperature you set by hand, and with the Manual
 timer, is in the [settings reference](settings.md#presets).
