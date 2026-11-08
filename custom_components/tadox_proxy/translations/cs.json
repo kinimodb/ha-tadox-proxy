@@ -1,0 +1,276 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tado X Proxy Thermostat",
+        "description": "Jedna položka ovládá přesně jednu entitu termostatu (climate) Tado X. Přes Matter se jedná o jednu radiátorovou hlavici. Pokud má místnost více radiátorů, přidejte jednu položku pro každou hlavici a všechny nasměrujte na stejný pokojový senzor teploty. U cloudové integrace Tado X (exabird/ha-tado-x) řídí jedna entita celou místnost v Tado: přidejte jednu položku pro celou místnost a následně nastavte interval obnovení manuálního přepsání na 900 s (Komunikace s hlavicí).",
+        "data": {
+          "source_entity_id": "Radiátorová termostatická hlavice Tado X",
+          "external_temperature_entity_id": "Externí teplotní senzor",
+          "name": "Název"
+        },
+        "data_description": {
+          "source_entity_id": "Matter: entita termostatu (climate) ventilové hlavice namontované na radiátoru. Cloudová integrace Tado X: entita termostatu pro danou místnost Tado. Nevybírejte zde nástěnný termostat. Každá entita může být použita pouze v jedné položce.",
+          "external_temperature_entity_id": "Teplotní senzor umístěný v místnosti, dál od radiátoru. Použijte stejný senzor pro všechny hlavice patřící do této místnosti.",
+          "name": "Název proxy termostatu. Zvolte výstižný název, například „Obývací pokoj okno“ a „Obývací pokoj zeď“ pro dva radiátory, nebo „Obývací pokoj“ pro celou místnost Tado, abyste tyto entity snadno našli v automatizacích."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entita nebyla nalezena.",
+      "not_a_climate_entity": "Vyberte prosím entitu termostatu (climate).",
+      "temp_entity_not_found": "Externí teplotní senzor nebyl nalezen.",
+      "temp_not_a_sensor": "Jako externí teplotní senzor vyberte prosím entitu senzoru.",
+      "temp_not_temperature": "Vyberte prosím teplotní senzor (device_class: temperature)."
+    },
+    "abort": {
+      "already_configured": "Tento termostat je již použit v jiné položce. Každou entitu termostatu může ovládat pouze jeden proxy."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Možnosti Tado X Proxy Thermostat",
+        "description": "Nastavte chování termostatu.",
+        "data": {
+          "external_temperature_entity_id": "Externí teplotní senzor",
+          "sensor_loss_action": "Když zůstane pokojový senzor nedostupný",
+          "backup_temperature_entity_id": "Záložní senzor místnosti",
+          "boost_duration": "Doba boostu"
+        },
+        "data_description": {
+          "external_temperature_entity_id": "Teplotní senzor umístěný v místnosti, dál od radiátoru. Použijte stejný senzor pro všechny hlavice patřící do této místnosti.",
+          "sensor_loss_action": "Co se stane po vypršení časového limitu při výpadku pokojového senzoru: ponechat poslední příkaz pro hlavici, regulovat podle záložního pokojového senzoru, nebo nechat hlavici regulovat samostatně. Otevřené okno (ochrana proti mrazu) a vypnutí topení mají vždy přednost.",
+          "backup_temperature_entity_id": "Použije se pouze při zvolené akci záložního senzoru. Vyberte jiný senzor než výše zvolený externí teplotní senzor.",
+          "boost_duration": "Jak dlouho trvá boost vytápění před návratem k původní předvolbě. Čas se pozastaví při otevřeném okně, nepřítomnosti nebo vypnutém topení."
+        },
+        "sections": {
+          "manual_mode": {
+            "name": "Manuální režim",
+            "data": {
+              "manual_mode_action": "Ruční změna teploty",
+              "manual_mode_duration_min": "Doba manuálního režimu"
+            },
+            "data_description": {
+              "manual_mode_action": "Ponechat manuální režim až do výběru jiné předvolby, nebo jej ukončit po vypršení časovače. Následně se obnoví původní předvolba, případně předvolba nastavená plánem či automatizací. Každá další ruční úprava časovač restartuje.",
+              "manual_mode_duration_min": "Jak dlouho trvá manuální režim při použití časovače. Výchozí hodnota: 15 minut."
+            }
+          },
+          "window_sensor": {
+            "name": "Senzor otevřeného okna",
+            "data": {
+              "window_sensor_id": "Senzor otevřeného okna",
+              "window_action": "Akce při otevřeném okně",
+              "window_delay_s": "Prodleva po otevření okna",
+              "window_close_delay_s": "Prodleva po zavření okna"
+            },
+            "data_description": {
+              "window_sensor_id": "Binární senzor, který detekuje otevřené okno. Při aktivaci přepne termostat do režimu ochrany proti mrazu.",
+              "window_action": "Udržuje v místnosti nastavenou protimrazovou teplotu. Vypnutí hlavice ji vypne úplně. V obou případech se po zavření okna obnoví původní předvolba – nebo režim Pryč, pokud nikdo není doma.",
+              "window_delay_s": "Prodleva před aktivací ochrany proti mrazu po otevření okna.",
+              "window_close_delay_s": "Prodleva před obnovením předchozího režimu po zavření okna."
+            }
+          },
+          "presence_sensor": {
+            "name": "Senzor přítomnosti",
+            "data": {
+              "presence_sensor_id": "Senzor přítomnosti",
+              "presence_away_delay_s": "Prodleva při odchodu",
+              "presence_home_delay_s": "Prodleva při příchodu"
+            },
+            "data_description": {
+              "presence_sensor_id": "Binární senzor aktivní po dobu přítomnosti. Při detekci nepřítomnosti se místnost přepne do režimu Pryč.",
+              "presence_away_delay_s": "Prodleva před přepnutím do režimu Pryč po odchodu.",
+              "presence_home_delay_s": "Prodleva před obnovením předchozího režimu po detekci přítomnosti."
+            }
+          },
+          "needs_heat": {
+            "name": "Senzor požadavku na teplo",
+            "description": "Pro kotel, který má běžet pouze tehdy, když místnost potřebuje topit. Senzor sepne, když je teplota v místnosti výrazně pod cílem, a vypne, jakmile jí dosáhne.",
+            "data": {
+              "needs_heat_on_c": "Sepnout při odchylce nad",
+              "needs_heat_off_c": "Vypnout při odchylce do"
+            },
+            "data_description": {
+              "needs_heat_on_c": "Senzor sepne, jakmile je teplota v místnosti o více než tuto hodnotu pod cílem.",
+              "needs_heat_off_c": "Senzor vypne, jakmile teplota v místnosti není o více než tuto hodnotu pod cílem. Hodnota 0 znamená přesné dosažení cílové teploty. Musí být nižší než hodnota pro sepnutí."
+            }
+          },
+          "pi_controller": {
+            "name": "PI regulátor",
+            "description": "Parametry ladění proporcionálně-integračního regulátoru.",
+            "data": {
+              "correction_kp": "Proporcionální korekce (Kp)",
+              "correction_ki": "Integrační korekce (Ki)",
+              "integral_deadband_c": "Pásmo přesnosti integrace"
+            },
+            "data_description": {
+              "correction_kp": "Proporcionální zesílení PI regulátoru. Vyšší hodnoty reagují rychleji na teplotní odchylky.",
+              "correction_ki": "Integrační zesílení PI regulátoru. Vyšší hodnoty agresivněji korigují trvalou teplotní odchylku.",
+              "integral_deadband_c": "Integrační korekce se načítá pouze tehdy, když je odchylka v rámci tohoto pásma. Zabraňuje přetopení při velkých přechodových dějích."
+            }
+          },
+          "gain_scheduling": {
+            "name": "Řízení zesílení",
+            "description": "Automatické škálování Kp na základě teplotní odchylky.",
+            "data": {
+              "gain_scheduling_enabled": "Adaptivní řízení zesílení",
+              "gain_fine_multiplier": "Síla regulace poblíž cíle",
+              "gain_startup_multiplier": "Posílení při studeném startu",
+              "gain_startup_threshold_c": "Prahová hodnota zóny studeného startu",
+              "gain_fine_threshold_c": "Prahová hodnota zóny poblíž cíle"
+            },
+            "data_description": {
+              "gain_scheduling_enabled": "Rychlejší vytápění při studeném startu, jemnější v blízkosti cílové teploty.",
+              "gain_fine_multiplier": "Násobitel Kp v blízkosti cílové teploty. Aktivní pouze při zapnutém adaptivním řízení zesílení.",
+              "gain_startup_multiplier": "Násobitel Kp během studeného startu (při velké odchylce). Aktivní pouze při zapnutém adaptivním řízení zesílení.",
+              "gain_startup_threshold_c": "Odchylka vyšší než tento práh aktivuje násobitel pro studený start.",
+              "gain_fine_threshold_c": "Odchylka nižší než tento práh aktivuje násobitel pro přiblížení k cíli."
+            }
+          },
+          "trv_communication": {
+            "name": "Komunikace s hlavicí",
+            "description": "Časování příkazů a úspora baterie.",
+            "data": {
+              "min_command_interval_s": "Minimální interval mezi příkazy",
+              "min_change_threshold_c": "Minimální změna pro odeslání příkazu",
+              "overlay_refresh_s": "Interval obnovení manuálního přepsání"
+            },
+            "data_description": {
+              "min_command_interval_s": "Minimální doba mezi příkazy odesílanými do hlavice (pro úsporu baterie).",
+              "min_change_threshold_c": "Minimální rozdíl oproti aktuální požadované teplotě v Tado, než je odeslán nový příkaz.",
+              "overlay_refresh_s": "Po této době znovu odeslat nezměněnou požadovanou teplotu, aby nevypršelo časové manuální přepsání. Cloudová integrace Tado X (exabird/ha-tado-x): 900 s. Matter: 0 = vypnuto."
+            }
+          },
+          "behaviour": {
+            "name": "Chování",
+            "description": "Odolnost senzoru a prahové hodnoty pro sledování změn v Tado.",
+            "data": {
+              "sensor_grace_s": "Tolerance výpadku senzoru",
+              "follow_threshold_c": "Práh pro detekci ruční změny",
+              "follow_grace_s": "Prodleva ignorování změn po odeslání",
+              "urgent_decrease_threshold_c": "Práh okamžitého snížení teploty"
+            },
+            "data_description": {
+              "sensor_grace_s": "Jak dlouho používat poslední platnou hodnotu, když se externí senzor stane nedostupným.",
+              "follow_threshold_c": "Minimální rozdíl oproti naposledy odeslané cílové teplotě, aby byla změna v Tado považována za fyzický zásah uživatele.",
+              "follow_grace_s": "Doba po odeslání příkazu, po kterou jsou změny cílové teploty z Tado ignorovány (zpoždění potvrzení / odezvy).",
+              "urgent_decrease_threshold_c": "Obejít časové omezení odesílání příkazů, pokud je nová cílová teplota alespoň o tolik nižší než aktuální hodnota v Tado."
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "backup_sensor_required": "Vyberte záložní senzor místnosti pro tuto akci.",
+      "backup_sensor_same": "Záložní senzor místnosti se musí lišit od externího teplotního senzoru.",
+      "needs_heat_thresholds": "Senzor požadavku na teplo: hodnota pro vypnutí musí být nižší než hodnota pro sepnutí.",
+      "temp_entity_not_found": "Externí teplotní senzor nebyl nalezen.",
+      "temp_not_temperature": "Vyberte prosím teplotní senzor (device_class: temperature)."
+    }
+  },
+  "selector": {
+    "manual_mode_action": {
+      "options": {
+        "keep": "Zůstat v manuálním režimu",
+        "timer": "Ukončit manuální režim po vypršení časovače"
+      }
+    },
+    "sensor_loss_action": {
+      "options": {
+        "hold": "Ponechat poslední příkaz pro hlavici",
+        "backup_sensor": "Regulovat podle záložního pokojového senzoru",
+        "trv": "Nechat hlavici regulovat samostatně"
+      }
+    },
+    "window_action": {
+      "options": {
+        "frost_protection": "Ochrana proti mrazu",
+        "off": "Vypnout hlavici"
+      }
+    }
+  },
+  "entity": {
+    "climate": {
+      "tadox_proxy": {
+        "state_attributes": {
+          "hvac_action": {
+            "state": {
+              "heating": "Vytápění",
+              "idle": "Nečinné",
+              "off": "Vypnuto"
+            }
+          },
+          "preset_mode": {
+            "state": {
+              "none": "Manuální",
+              "comfort": "Komfort",
+              "eco": "Eco",
+              "boost": "Boost",
+              "away": "Pryč",
+              "frost_protection": "Proti mrazu"
+            }
+          },
+          "active_control_mode": {
+            "name": "Režim řízení",
+            "state": {
+              "room_sensor": "Senzor místnosti",
+              "backup_sensor": "Záložní senzor místnosti",
+              "trv": "Termostatický ventil se reguluje sám",
+              "hold": "Ponechání posledního příkazu"
+            }
+          }
+        }
+      }
+    },
+    "number": {
+      "comfort_target": {
+        "name": "Komfort"
+      },
+      "eco_target": {
+        "name": "Eco"
+      },
+      "boost_target": {
+        "name": "Boost"
+      },
+      "away_target": {
+        "name": "Pryč"
+      },
+      "frost_protection_target": {
+        "name": "Ochrana proti mrazu"
+      }
+    },
+    "sensor": {
+      "boost_remaining": {
+        "name": "Zbývající čas boostu"
+      }
+    },
+    "binary_sensor": {
+      "sensor_degraded": {
+        "name": "Stav senzoru",
+        "state_attributes": {
+          "active_control_mode": {
+            "name": "Režim řízení",
+            "state": {
+              "room_sensor": "Senzor místnosti",
+              "backup_sensor": "Záložní senzor místnosti",
+              "trv": "Termostatický ventil se reguluje sám",
+              "hold": "Ponechání posledního příkazu"
+            }
+          }
+        }
+      },
+      "needs_heat": {
+        "name": "Požadavek na teplo"
+      }
+    },
+    "switch": {
+      "follow_tado_input": {
+        "name": "Řídit se fyzickým termostatem"
+      },
+      "guest_mode": {
+        "name": "Režim hosta"
+      }
+    }
+  }
+}
