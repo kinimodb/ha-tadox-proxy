@@ -598,7 +598,7 @@ sensor has taken over.
 The configured values — the gains, the integral precision zone, gain scheduling,
 minimum change and minimum time between commands — are always there. They only change
 when you change the setting, so the history of the entity shows which values a room
-ran on at any time.
+ran on, as far back as your history goes. They are recorded from v1.6.1 on.
 
 ### What "heating" means
 
