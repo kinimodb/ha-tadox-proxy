@@ -355,6 +355,7 @@ def decide_send(
     overlay_refresh_s: float,
     drifted_setpoint_c: float | None = None,
     urgent_increase: bool = False,
+    last_urgent_increase_ts: float = 0.0,
 ) -> SendDecision:
     """Decide whether *target_c* is sent to the TRV in this cycle.
 
@@ -378,7 +379,11 @@ def decide_send(
     A boost is a short burst someone asked for, and the command sent just
     before it would otherwise eat minutes of its time.  The flag opens nothing
     else: a decrease, a correction of a drifted TRV and a retry without a
-    baseline wait as always.
+    baseline wait as always.  *last_urgent_increase_ts* is when the last
+    command went out for that reason (0 before the first): there is one per
+    rate-limit interval.  Switching between Boost and a lower preset would
+    otherwise send a command on every tap, because the way down is an urgent
+    decrease (battery).
 
     *last_command_ts* is 0 before the first command.  *overlay_refresh_s* > 0
     resends an unchanged setpoint once that many seconds have passed.
@@ -414,7 +419,12 @@ def decide_send(
     if is_rate_limited:
         if target_c < baseline_c - urgent_decrease_c:
             return SendDecision(True, "urgent_decrease")
-        if urgent_increase and not at_baseline and target_c > baseline_c:
+        if (
+            urgent_increase
+            and now - last_urgent_increase_ts >= min_interval_s
+            and not at_baseline
+            and target_c > baseline_c
+        ):
             return SendDecision(True, "urgent_increase")
         return SendDecision(False, rate_limited_reason)
 

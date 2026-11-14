@@ -126,7 +126,7 @@ async def test_a_boost_started_by_a_person_is_sent_at_once(hass, freezer, hass_a
 
 
 async def test_tapping_boost_again_sends_nothing_more(hass, freezer, hass_admin_user):
-    """One command per start: repeated taps cannot spend the TRV's battery."""
+    """One command per start: tapping Boost again and again sends nothing."""
     proxy = await _async_setup_with_a_command_just_sent(hass, freezer)
     person = Context(user_id=hass_admin_user.id)
     await proxy.call(
@@ -140,6 +140,34 @@ async def test_tapping_boost_again_sends_nothing_more(hass, freezer, hass_admin_
         )
 
     assert _setpoints(proxy) == sent
+
+
+async def test_boost_and_another_preset_in_turns_send_one_boost_at_once(
+    hass, freezer, hass_admin_user
+):
+    """Boost, Eco, Boost, Eco, Boost, seconds apart.  The way down is an
+    urgent decrease, so without a bound every tap would be a command.  One
+    boost per send interval goes out at once; the next one waits for it."""
+    proxy = await _async_setup_with_a_command_just_sent(hass, freezer)
+    person = Context(user_id=hass_admin_user.id)
+
+    for preset in (PRESET_BOOST, PRESET_ECO, PRESET_BOOST, PRESET_ECO, PRESET_BOOST):
+        await async_advance(hass, freezer, 5)
+        await proxy.call(
+            "climate", "set_preset_mode", proxy.climate, context=person, preset_mode=preset
+        )
+
+    # Comfort from the setup, the first boost, the way down to Eco.
+    sent = _setpoints(proxy)
+    assert len(sent) == 3
+    assert sent[1] > sent[0] > sent[2]
+    assert proxy.preset == PRESET_BOOST
+    assert proxy.state.attributes["regulation_reason"].startswith("rate_limited(")
+
+    await async_advance(hass, freezer, MIN_COMMAND_INTERVAL_S)
+
+    assert len(_setpoints(proxy)) == 4
+    assert _setpoints(proxy)[3] == sent[1]
 
 
 @pytest.mark.parametrize(

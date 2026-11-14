@@ -184,6 +184,8 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         self._regulation_lock = asyncio.Lock()
         self._last_regulation_ts = 0.0
         self._last_command_sent_ts = 0.0
+        # When a boost was last sent past the send limit (see decide_send).
+        self._last_urgent_increase_ts = 0.0
         self._last_sent_setpoint: float | None = None
 
         # Sensor resilience: bridges short room-sensor gaps and applies the

@@ -106,8 +106,10 @@ The attribute `user_preset` on the climate entity shows your choice at any time.
 - Picking Boost heats at the boost temperature for the boost time (default 30
   minutes). Then your own choice is back – a boost started from Eco goes back to Eco.
 - A boost you start yourself is sent to the thermostat right away, even if another
-  command went out a moment before. A boost that a schedule or an automation starts
-  waits for the [min command interval](#trv-communication) like every other increase.
+  command went out a moment before. This happens once per
+  [min command interval](#trv-communication): if you switch between Boost and another
+  preset several times in a row, the next boost waits. A boost that a schedule or an
+  automation starts waits for the min command interval like every other increase.
 - The time only counts down while the boost is what heats the room. An open window,
   nobody home or heating that is off **pauses** it. Afterwards it continues with the
   time that was left. `sensor.<name>_boost_remaining` stands still meanwhile.

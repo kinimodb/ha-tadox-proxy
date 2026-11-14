@@ -311,6 +311,27 @@ class TestDecideSend:
         )
         assert result == (True, "normal_update")
 
+    def test_second_urgent_increase_within_the_interval_waits(self):
+        """Boost, another preset, Boost again within seconds: the decrease in
+        between is urgent too, so without a bound every tap would send a
+        command.  One urgent increase per interval; the next boost waits."""
+        result = self._decide(
+            target_c=25.0,
+            urgent_increase=True,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 10.0,
+        )
+        assert result == (False, "rate_limited(175s)")
+
+    def test_urgent_increase_is_free_again_after_the_interval(self):
+        result = self._decide(
+            target_c=25.0,
+            urgent_increase=True,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 180.0,
+        )
+        assert result == (True, "urgent_increase")
+
     # --- TRV drifted away from our command (dial, Tado schedule) ---
 
     def test_drift_is_corrected_although_our_target_did_not_move(self):

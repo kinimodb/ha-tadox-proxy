@@ -446,6 +446,42 @@ def _method_calls(file_path: str, method_name: str, called: str) -> bool:
 # Decision logic must be the tested HA-free code (AST-based guard)
 # ---------------------------------------------------------------------------
 
+def _regulation_cycle() -> ast.AsyncFunctionDef:
+    """The body of the regulation cycle in the regulation mixin."""
+    with open(_CLIMATE_REGULATION_PY, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    return next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "_async_regulation_cycle_locked"
+    )
+
+
+def _decide_send_keyword(name: str) -> list[str]:
+    """The expressions the regulation cycle hands to decide_send as *name*."""
+    return [
+        ast.unparse(keyword.value)
+        for call in ast.walk(_regulation_cycle())
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "decide_send"
+        for keyword in call.keywords
+        if keyword.arg == name
+    ]
+
+
+def _assignments_in_cycle(attribute: str) -> int:
+    """How often the regulation cycle assigns ``self.<attribute>``."""
+    return sum(
+        1
+        for node in ast.walk(_regulation_cycle())
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute) and target.attr == attribute
+    )
+
+
 class TestDecisionLogicRoutedThroughControllers:
     """The HA mixins must call the HA-free functions the tests exercise,
     instead of carrying their own copy of the logic."""
@@ -468,26 +504,31 @@ class TestDecisionLogicRoutedThroughControllers:
         decide_send.  Any other expression here (a constant True, the active
         preset) would let increases past the send limit that nobody tapped
         for."""
-        with open(_CLIMATE_REGULATION_PY, encoding="utf-8") as fh:
-            tree = ast.parse(fh.read())
-        cycle = next(
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.AsyncFunctionDef)
-            and node.name == "_async_regulation_cycle_locked"
-        )
-        urgent = [
-            keyword.value
-            for call in ast.walk(cycle)
-            if isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Name)
-            and call.func.id == "decide_send"
-            for keyword in call.keywords
-            if keyword.arg == "urgent_increase"
-        ]
-        assert [ast.unparse(value) for value in urgent] == [
+        assert _decide_send_keyword("urgent_increase") == [
             "self._layers.is_boost_start(trigger)"
         ]
+
+    def test_the_cycle_tells_decide_send_when_the_last_urgent_increase_went_out(self):
+        """One urgent increase per send interval is decide_send's rule.  The
+        mixin only keeps the time: it notes it when decide_send answered with
+        that reason and hands it back the next time.  Noting it anywhere else,
+        or not handing it back, would let Boost and a lower preset in turns
+        send a command on every tap."""
+        assert _decide_send_keyword("last_urgent_increase_ts") == [
+            "self._last_urgent_increase_ts"
+        ]
+        noted = [
+            (ast.unparse(branch.test), ast.unparse(statement))
+            for branch in ast.walk(_regulation_cycle())
+            if isinstance(branch, ast.If)
+            for statement in branch.body
+            if isinstance(statement, ast.Assign)
+            and "_last_urgent_increase_ts" in ast.unparse(statement.targets[0])
+        ]
+        assert noted == [
+            ("reason == 'urgent_increase'", "self._last_urgent_increase_ts = now")
+        ]
+        assert _assignments_in_cycle("_last_urgent_increase_ts") == 1
 
     def test_regulation_cycle_uses_control_mode_resolver(self):
         assert _method_calls(
