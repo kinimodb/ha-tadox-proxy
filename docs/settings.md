@@ -503,7 +503,8 @@ saved this dialog while one of them was installed and Ki showed 0.001, that room
 ### Gain Scheduling
 
 Automatically reacts harder when the room is far off target and gentler when it is
-close, so you do not have to compromise between fast heat-up and a steady room.
+close, so you do not have to choose between a strong reaction far from the target
+and a steady room near it.
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|

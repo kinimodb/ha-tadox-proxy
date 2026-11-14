@@ -171,10 +171,11 @@ to be strong.
 **If you take one thing from this page:** turning Kp up is rarely the fix. When a
 room heats too slowly, look at `feedforward_offset_c` first. It shows how far the
 radiator thermostat, which sits on the radiator, reads above the room. If the
-radiator is already hot and the room is still slow, no setting helps: the radiator or
-the hot water supply is the limit, or the sensor sits in a bad spot. If the radiator
-is still cool while the room is close to its target, there is one setting to try. The
-[tuning guide](../TUNING.md#room-takes-long-to-warm-up) has both cases.
+radiator is already hot and the room is still slow, a setting rarely helps: most
+often the radiator or the hot water supply is the limit, or the sensor sits in a bad
+spot. If the radiator is still cool while the room is close to its target, there are
+settings to try. The [tuning guide](../TUNING.md#room-takes-long-to-warm-up) has both
+cases, and how to tell them apart.
 
 ---
 
