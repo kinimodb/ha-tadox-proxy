@@ -34,7 +34,7 @@ did what.
 | Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak; some thermostats need a lasting positive correction | Less than about 0.3°C below target: if you lowered [Ki](#ki-integral-correction), set it back to 0.003 (the default), otherwise raise it a little, to 0.004 or 0.005 (a bit more overshoot). From about 0.3°C below target Ki does not help: the correction only builds up inside the band `integral_deadband_c` (0.3°C by default) and decays outside it. Widening that band might help; this has not been tested |
 | The boiler keeps firing, or the valve keeps heating, after the room has reached its target (a boiler that only runs on demand) | After a slow final approach the long-term correction keeps the valve open for a while, and a boiler that follows the valve or `hvac_action` keeps running with it | [Heating goes on after the target](#heating-goes-on-after-the-room-reached-its-target) |
 | A room at its target still takes some heat while another room keeps a shared boiler running | Mostly the shared boiler, not the settings. Tuning changes little here | [Still not right?](#still-not-right) |
-| Room takes very long to warm from cold | Cold-start boost too low — or the radiator is simply undersized | [Kp](#kp-proportional-correction) and the [radiator table](#tuning-by-radiator-type) |
+| Room takes very long to warm up | Often the radiator or the hot water supply, and then no setting helps. Sometimes the radiator stays cool because the room is already close to its target | [Room takes long to warm up](#room-takes-long-to-warm-up) |
 | Room feels fine but the reading is always off | Sensor placement, not tuning | [Sensor placement](docs/setup.md#step-1-place-the-sensor-properly) |
 
 If you want to understand *why* a value has the effect it does, see
@@ -70,15 +70,16 @@ If you want to understand *why* a value has the effect it does, see
 | Attribute | Good Value | Problem |
 |-----------|-----------|---------|
 | `feedforward_offset_c` | 1.0–5.0°C | < 0 indicates wrong sensor |
-| `error_c` | Trending towards 0 | Stays > 1°C after 30 min → Kp too low |
+| `error_c` | Trending towards 0 | Stays > 1°C after 30 min → check `feedforward_offset_c` before you change anything: [Room takes long to warm up](#room-takes-long-to-warm-up) |
 | `i_correction_c` | < 0.3 during heat-up | > 1.0 when the room arrives → built up during a slow final approach, expect a small overshoot |
-| `target_for_tado_c` | Decreases as room warms | Stuck at max (30°C) → room too large or Kp too low |
+| `target_for_tado_c` | Decreases as room warms | Stuck at max (30°C) → the radiator is asked for all it can give; no setting adds heat ([Still not right?](#still-not-right)) |
 
 **Evaluate results:**
 - **Overshoot < 0.5°C:** All good → proceed to Phase 2.
 - **Overshoot 0.5–1.0°C:** Reduce Kp by 0.1–0.2, retest.
 - **Overshoot > 1.0°C:** Reduce Kp to 0.5. If you raised Ki, set it back to 0.003 (the default); otherwise lowering it to 0.001 can help.
-- **Room doesn't get warm enough:** Increase Kp by 0.2.
+- **Room warms too slowly or doesn't get warm enough:** see
+  [Room takes long to warm up](#room-takes-long-to-warm-up) before you touch Kp.
 
 ### Phase 2: Hold Test (4–8 Hours)
 
@@ -128,10 +129,13 @@ If you want to understand *why* a value has the effect it does, see
 | 0.0 | Feedforward only, no error correction |
 | **0.5** | Gentle, low overshoot, slow heat-up |
 | **0.8** | Default – good compromise |
-| **1.2** | More aggressive, faster heat-up, higher overshoot risk |
-| 2.0+ | Only for large rooms with slow heating |
+| **1.2** | Reacts harder to the gap, higher overshoot risk |
+| 2.0+ | Very strong reaction, high overshoot risk |
 
-**Rule of thumb:** Lower Kp = less overshoot, higher Kp = faster heat-up.
+**Rule of thumb:** Lower Kp = less overshoot. Higher Kp = a stronger reaction to the
+gap. A higher Kp does not make a room warm up faster once its radiator is hot, so it
+is rarely the answer to a slow room: see
+[Room takes long to warm up](#room-takes-long-to-warm-up).
 
 ### Ki (Integral Correction)
 
@@ -178,6 +182,8 @@ cold start and gentle control near the target temperature.
 | **Fine** | \|error\| < 0.5°C | × 1.0 (configurable) | No attenuation by default |
 
 Both multipliers are now configurable in the options flow under "Gain Scheduling".
+The zones go by the size of the error (\|error\|), so they apply in the same way
+while the room is above its target. That is deliberate.
 
 **When to disable:** If you have already tuned Kp carefully for your room and are
 satisfied with both heat-up speed and steady-state stability, you can disable adaptive
@@ -309,6 +315,28 @@ boost. A boost started by a schedule or an automation shows `rate_limited(...)` 
 3. Is the Tado X thermostat set to "Manual"? Automatic schedules from the Tado app can interfere.
 4. Is the external sensor reachable? Check the `sensor_degraded` attribute – if `true`, the sensor has failed and the control loop is using the last valid reading.
 
+### Room Takes Long to Warm Up
+
+Watch `feedforward_offset_c` while the room heats up. It shows how far the radiator
+thermostat, which sits on the radiator, reads above the room. So it tells you whether
+the radiator is hot. There are two cases, and they need opposite answers.
+
+1. **The radiator is already hot and the room still warms slowly.** The offset is
+   several degrees. No setting helps here. The valve is open and the radiator gives
+   what it can: the limit is the size of the radiator or the hot water the boiler
+   supplies. A higher Kp only asks for more of what is not there. See
+   [Still not right?](#still-not-right).
+2. **The radiator is still cool while the room is within about 1°C of its target.**
+   The offset stays small. Close to the target the proxy pushes only a little, on
+   purpose, and a radiator thermostat answers a small push slowly. The setting to
+   try, for that room only, is the **Cold-start zone threshold** (Options → Gain
+   Scheduling): lower it step by step. The stronger cold-start reaction then applies
+   in full from a smaller gap. Raising the **Cold-start boost** alone changes little
+   here: below the threshold only a part of it applies, and less the closer the room
+   is to its target. The near-target zone threshold must stay below the cold-start
+   zone threshold. The price is more commands to the thermostat, which costs
+   battery. Give the room a few days and watch for overshoot before you go further.
+
 ### Strong Overshoot (> 1°C)
 
 1. Reduce Kp (e.g., from 0.8 to 0.5).
@@ -366,8 +394,10 @@ attribute `active_control_mode` shows which one is active.
 Tuning cannot fix everything, and it is worth knowing when to stop. If a room
 resists every adjustment, the cause is usually physical rather than numerical:
 
-- **The radiator is too small for the room.** No setting adds heating capacity.
-  `target_for_tado_c` pinned at 30 °C with `is_saturated: true` is the giveaway.
+- **The radiator is too small for the room, or the boiler supplies too little hot
+  water.** No setting adds heating capacity. `target_for_tado_c` pinned at 30 °C with
+  `is_saturated: true` is the giveaway, and so is a `feedforward_offset_c` of several
+  degrees (the radiator is hot) while the room hardly rises.
 - **The sensor is in the wrong place.** Worth re-checking even if you are sure —
   see [sensor placement](docs/setup.md#step-1-place-the-sensor-properly).
 - **A schedule is still active in the Tado app.** It will quietly fight every

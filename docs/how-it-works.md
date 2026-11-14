@@ -163,8 +163,13 @@ The defence is patience, plus the fact that feedforward already handles the bulk
 the correction. The PI part is only cleaning up a small residue, so it does not need
 to be strong.
 
-**If you take one thing from this page:** turning Kp up is almost never the fix.
-Rooms that heat too slowly are usually undersized radiators or a sensor in a bad spot.
+**If you take one thing from this page:** turning Kp up is rarely the fix. When a
+room heats too slowly, look at `feedforward_offset_c` first. It shows how far the
+radiator thermostat, which sits on the radiator, reads above the room. If the
+radiator is already hot and the room is still slow, no setting helps: the radiator or
+the hot water supply is the limit, or the sensor sits in a bad spot. If the radiator
+is still cool while the room is close to its target, there is one setting to try. The
+[tuning guide](../TUNING.md#room-takes-long-to-warm-up) has both cases.
 
 ---
 
@@ -258,6 +263,10 @@ Picking one value means accepting a compromise that is wrong in both situations.
 
 It is the same instinct you use driving: firm on the accelerator when you are far
 from the speed you want, feathering it as you approach.
+
+"How far off" is the size of the error, whatever its sign. A room 3 °C above its
+target gets the same × 1.5 as a room 3 °C below it. That is deliberate, and a test
+pins it.
 
 The transition is a linear slide rather than a step, because a controller whose
 behaviour jumps at a threshold produces visible kinks in the temperature curve.

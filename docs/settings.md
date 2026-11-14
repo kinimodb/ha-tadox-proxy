@@ -489,6 +489,9 @@ For that, the near-target zone threshold must be lower than the cold-start zone
 threshold. While adaptive gain scheduling is on, the dialog does not save a pair
 where it is not.
 
+The gap counts by its size, not by its direction. So the same strengths also apply
+while the room is above its target. That is deliberate.
+
 ### TRV Communication
 
 How often the integration is allowed to talk to your radiator thermostat (TRV).
