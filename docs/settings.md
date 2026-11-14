@@ -485,6 +485,9 @@ close, so you do not have to compromise between fast heat-up and a steady room.
 | Near-target zone threshold | 0.5 °C | 0.1–2.0 °C | Below this gap, the near-target strength applies |
 
 Between the two thresholds the strength slides smoothly from one to the other.
+For that, the near-target zone threshold must be lower than the cold-start zone
+threshold. While adaptive gain scheduling is on, the dialog does not save a pair
+where it is not.
 
 ### TRV Communication
 

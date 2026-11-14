@@ -509,6 +509,14 @@ class TestDecisionLogicRoutedThroughControllers:
         )
         assert _method_calls(_CLIMATE_REGULATION_PY, "_update_needs_heat", "update")
 
+    def test_options_dialog_asks_the_regulator_about_gain_thresholds(self):
+        """Which pair of thresholds gives a slide is the gain schedule's
+        knowledge (regulation.py); the dialog only reports the answer."""
+        assert _method_calls(
+            _CONFIG_FLOW_PY, "_validate_gain_thresholds", "gain_thresholds_usable"
+        )
+        assert _method_calls(_CONFIG_FLOW_PY, "async_step_init", "_validate_gain_thresholds")
+
     def test_entity_shows_the_tuning_read_out_of_the_config(self):
         """Which tuning values go into the state is decided in parameters.py."""
         assert _method_calls(_CLIMATE_PY, "extra_state_attributes", "tuning_attributes")

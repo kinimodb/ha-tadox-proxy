@@ -43,6 +43,7 @@ CorrectionTuning = _params.CorrectionTuning
 PresetConfig = _params.PresetConfig
 FeedforwardPiRegulator = _reg.FeedforwardPiRegulator
 RegulationState = _reg.RegulationState
+gain_thresholds_usable = _reg.gain_thresholds_usable
 
 
 # ---------------------------------------------------------------------------
@@ -1073,10 +1074,11 @@ class TestAdaptiveGainScheduling:
     def test_equal_thresholds_no_division_by_zero(self):
         """fine_threshold == startup_threshold must not raise ZeroDivisionError.
 
-        The options flow allows overlapping ranges (fine 0.1-2.0, startup
-        0.5-5.0), so both thresholds can be set to the same value.  With an
-        error exactly on the shared threshold the interpolation span is zero –
-        the startup multiplier must be used as fallback.
+        The ranges of the two fields overlap (fine 0.1-2.0, startup 0.5-5.0),
+        and up to v1.6.0 the options dialog accepted any pair, so a room can
+        still hold the same value for both.  With an error exactly on the
+        shared threshold the interpolation span is zero – the startup
+        multiplier must be used as fallback.
         """
         config = RegulationConfig(
             gain_fine_threshold_c=1.0, gain_startup_threshold_c=1.0
@@ -1102,6 +1104,32 @@ class TestAdaptiveGainScheduling:
         assert FeedforwardPiRegulator._effective_kp(1.0, config) == pytest.approx(
             config.tuning.kp * config.gain_fine_multiplier, abs=0.001
         )
+
+
+class TestGainThresholdsUsable:
+    """What the options dialog accepts as a pair of gain scheduling thresholds.
+
+    Between the two thresholds Kp slides from one multiplier to the other.
+    That needs the near-target threshold below the cold-start threshold;
+    otherwise there is nothing to slide in and Kp steps from one multiplier
+    to the other (pinned above, for rooms that stored such a pair before
+    the dialog checked it).
+    """
+
+    def test_defaults_are_usable(self):
+        config = RegulationConfig()
+        assert gain_thresholds_usable(
+            config.gain_fine_threshold_c, config.gain_startup_threshold_c
+        )
+
+    def test_near_target_below_cold_start_is_usable(self):
+        assert gain_thresholds_usable(0.9, 1.0)
+
+    def test_equal_thresholds_are_not_usable(self):
+        assert not gain_thresholds_usable(1.0, 1.0)
+
+    def test_near_target_above_cold_start_is_not_usable(self):
+        assert not gain_thresholds_usable(2.0, 1.0)
 
 
 # ---------------------------------------------------------------------------

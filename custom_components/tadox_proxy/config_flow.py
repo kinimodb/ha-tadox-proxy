@@ -65,6 +65,7 @@ from .parameters import (
     BehaviourConfig,
     RegulationConfig,
 )
+from .regulation import gain_thresholds_usable
 
 
 class TadoxProxyConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -146,6 +147,23 @@ def _validate_needs_heat(options: dict) -> dict[str, str]:
     return {}
 
 
+def _validate_gain_thresholds(options: dict) -> dict[str, str]:
+    """Return form errors for the gain scheduling thresholds.
+
+    Checked only while gain scheduling is on: switched off, the thresholds
+    do nothing and must not keep the dialog from saving.  Reported as a base
+    error: the fields sit in a section.
+    """
+    defaults = RegulationConfig()
+    if not options.get(CONF_GAIN_SCHEDULING, defaults.gain_scheduling_enabled):
+        return {}
+    fine_c = options.get(CONF_GAIN_FINE_THRESHOLD_C, defaults.gain_fine_threshold_c)
+    startup_c = options.get(CONF_GAIN_STARTUP_THRESHOLD_C, defaults.gain_startup_threshold_c)
+    if not gain_thresholds_usable(fine_c, startup_c):
+        return {"base": "gain_thresholds"}
+    return {}
+
+
 class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
     """Per-entry options (gear icon) for tuning, presets & sensor selection."""
 
@@ -174,7 +192,11 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                 if key not in cleaned:
                     merged.pop(key, None)
             merged.update(cleaned)
-            errors = {**_validate_sensor_loss(merged), **_validate_needs_heat(merged)}
+            errors = {
+                **_validate_sensor_loss(merged),
+                **_validate_gain_thresholds(merged),
+                **_validate_needs_heat(merged),
+            }
             if not errors:
                 # A reload, when one is needed, is triggered by the
                 # update_listener in __init__.py AFTER HA has persisted the
