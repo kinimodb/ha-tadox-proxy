@@ -462,6 +462,33 @@ class TestDecisionLogicRoutedThroughControllers:
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "trv_drifted_setpoint"
         )
 
+    def test_only_presetlayers_unlocks_the_urgent_increase(self):
+        """The mixin decides nothing: it asks PresetLayers whether this cycle
+        is the one a person's boost starts with and hands the answer to
+        decide_send.  Any other expression here (a constant True, the active
+        preset) would let increases past the send limit that nobody tapped
+        for."""
+        with open(_CLIMATE_REGULATION_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        cycle = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_async_regulation_cycle_locked"
+        )
+        urgent = [
+            keyword.value
+            for call in ast.walk(cycle)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "decide_send"
+            for keyword in call.keywords
+            if keyword.arg == "urgent_increase"
+        ]
+        assert [ast.unparse(value) for value in urgent] == [
+            "self._layers.is_boost_start(trigger)"
+        ]
+
     def test_regulation_cycle_uses_control_mode_resolver(self):
         assert _method_calls(
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "resolve"

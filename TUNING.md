@@ -294,6 +294,10 @@ wrote its own block – and the proxy put its own value back. Expected right aft
 dial change; if it repeats every rate-limit interval, the TRV is not accepting the
 commands (check the Tado integration and whether the zone is in manual mode).
 
+A `regulation_reason` of `sent(urgent_increase)` means a person started a boost and
+its command went out without waiting for the rate-limit interval. It shows once per
+boost. A boost started by a schedule or an automation shows `rate_limited(...)` first.
+
 ---
 
 ## Troubleshooting

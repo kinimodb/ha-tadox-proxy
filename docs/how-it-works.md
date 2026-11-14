@@ -287,7 +287,11 @@ Two refinements soften the edges:
 - **An urgent bypass.** If the target needs to drop by more than 1 °C — you opened a
   window, or switched to Away — the wait is skipped. Making a room too hot is
   uncomfortable and wastes energy, so *stopping* heat is allowed to be immediate even
-  though *adding* it is not.
+  though *adding* it is not. The one exception is a boost you start yourself: it is a
+  short burst with a fixed time, so its command goes out at once instead of spending
+  the first minutes of that time waiting. A boost that a schedule or an automation
+  starts waits like every other increase, and so does a boost that comes back after
+  an open window or after nobody was home.
 
 ---
 
