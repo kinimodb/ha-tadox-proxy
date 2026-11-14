@@ -419,6 +419,29 @@ Collect the sensors of all rooms in a group:
 The group is on while at least one room needs heat. Let your boiler automation follow
 the group.
 
+**If your boiler must not fire before a valve is open.** The sensor tells you that a
+room is too cold. It does not tell you that the radiator thermostat has already been
+asked to heat. The higher setpoint goes out with the next command, and commands are
+limited (see [TRV Communication](#trv-communication)):
+
+- A higher setpoint waits until 180 s have passed since the last command to that
+  thermostat. The integration checks once a minute, so the wait can be up to 240 s.
+- A setpoint less than 0.3 °C above the one the thermostat already holds is not sent
+  at all. The thermostat keeps what it has until the difference is large enough.
+- `hvac_action: heating` on the proxy comes later still. The integration reads the
+  thermostat's setpoint back once a minute, so add up to 60 s.
+
+So let the automation start on the needs heat sensor, and then wait until at least
+one of those rooms shows `hvac_action: heating` before it fires the boiler. Allow
+about 5 minutes for that. Give the wait a time-out and decide what happens then, so
+the automation never waits forever. To save the last minute, read the radiator
+thermostat's own climate entity instead: its `temperature` (the setpoint it holds)
+above its `current_temperature` says the same.
+
+Use `hvac_action` only for this start. Switch the boiler off on the needs heat sensor
+alone (see [What "heating" means](#what-heating-means)). The 180 s and the 0.3 °C are
+the defaults; if you changed them, the waits change with them.
+
 ### Changing when it switches
 
 Under **Settings → Devices & Services → Tado X Proxy → Configure → Needs heat
@@ -537,7 +560,7 @@ something is wrong or when you are curious what the integration is thinking.
 | `i_correction_c` | Correction from a persistent offset |
 | `error_c` | The gap between target and actual room temperature |
 | `push_c` | How far the computed command lies above the Tado's own reading. The valve opens while it is above zero. Taken before the command is limited to its allowed range. See [how it works](how-it-works.md#putting-it-together) |
-| `target_for_tado_c` | The number actually sent to the Tado |
+| `target_for_tado_c` | The setpoint the integration has computed for the Tado. It is sent once it differs by at least the minimum change (0.3 °C by default) from the setpoint the Tado holds and the command interval allows it. What the Tado really holds is the `temperature` of the Tado's own climate entity |
 | `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
 | `integral_deadband_c` | The configured integral precision zone |
 | `gain_scheduling_enabled`, `gain_fine_multiplier`, `gain_startup_multiplier`, `gain_fine_threshold_c`, `gain_startup_threshold_c` | The configured [gain scheduling](#gain-scheduling) |
@@ -572,8 +595,9 @@ ran on at any time.
 
 ### What "heating" means
 
-The proxy shows **Heating** (`hvac_action: heating`) when the target it sent to the
-Tado is above the Tado's own reading. The valve is most likely open then: that is
+The proxy shows **Heating** (`hvac_action: heating`) when the setpoint the Tado holds
+is above the Tado's own reading. The proxy reads both from the Tado once a minute. The
+valve is most likely open then: that is
 what the readings show, but the Tado X does not report its valve, so the proxy cannot
 know for sure. It does **not** mean that the room still needs heat: the correction
 keeps the valve slightly open to hold the room at its target, so a room only 0.05 °C

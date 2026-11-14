@@ -273,7 +273,7 @@ feedforward_offset_c: 1.7       ← Tado reads 1.7°C more than room (normal)
 p_correction_c: 0.08            ← small error, small correction
 i_correction_c: 0.06            ← integral near 0 = stable
 error_c: 0.1                    ← room 0.1°C below target = good
-target_for_tado_c: 19.8         ← command sent to Tado
+target_for_tado_c: 19.8         ← setpoint computed for the Tado (sent in this cycle, see regulation_reason)
 is_saturated: false              ← not at limit
 regulation_reason: sent(normal_update)
 ```

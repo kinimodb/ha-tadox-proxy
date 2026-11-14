@@ -118,10 +118,10 @@ minutes, not seconds.
 ### Putting it together
 
 ```
-target_sent_to_tado = your_target
-                    + feedforward_offset      (the sensor gap, measured)
-                    + Kp × error              (react to now)
-                    + integral                (remember the persistent part)
+target_for_tado = your_target
+                + feedforward_offset      (the sensor gap, measured)
+                + Kp × error              (react to now)
+                + integral                (remember the persistent part)
 ```
 
 The result is clamped to 5–30 °C so a strange sensor reading can never send an absurd
