@@ -61,7 +61,7 @@ or automation has set since.
 | **You tap the preset that is forced right now** | The timer keeps running. Tapping Frost Protection during the close delay is a real choice, though, and ends it |
 | **A schedule or automation sets a preset** | The timer keeps running and Manual lasts its full time. The new preset only applies afterwards, also after a restart |
 | **A schedule or automation sets the preset that is forced right now** | The command is ignored. The timer, the preset that applies afterwards and a running close delay stay as they were |
-| **A schedule or automation starts a boost** | The boost starts as it does when you start it. The timer keeps running |
+| **A schedule or automation starts a boost** | The boost starts. Its command can wait for the min command interval (see [Boost](#boost)). The timer keeps running |
 | **A schedule or automation sets a temperature** (`climate.set_temperature`) | It counts as a new Manual change, as if you had made it. The timer starts over |
 
 Two limits, because Home Assistant only tells whether a logged-in user is behind a
@@ -105,6 +105,15 @@ The attribute `user_preset` on the climate entity shows your choice at any time.
 
 - Picking Boost heats at the boost temperature for the boost time (default 30
   minutes). Then your own choice is back – a boost started from Eco goes back to Eco.
+- A boost you start yourself is sent to the thermostat right away, even if another
+  command went out a moment before. This happens once per
+  [min command interval](#trv-communication): if you switch between Boost and another
+  preset several times in a row, the next boost waits. A boost that a schedule or an
+  automation starts waits for the min command interval like every other increase.
+  Home Assistant only tells whether a logged-in user is behind a command, so the two
+  limits under [Presets](#presets) apply here too: a button that starts the boost
+  through an automation waits, and tools that connect with an access token (Node-RED,
+  AppDaemon) count as you, so their boost is sent right away.
 - The time only counts down while the boost is what heats the room. An open window,
   nobody home or heating that is off **pauses** it. Afterwards it continues with the
   time that was left. `sensor.<name>_boost_remaining` stands still meanwhile.
@@ -416,6 +425,29 @@ Collect the sensors of all rooms in a group:
 The group is on while at least one room needs heat. Let your boiler automation follow
 the group.
 
+**If your boiler must not fire before a valve is open.** The sensor tells you that a
+room is too cold. It does not tell you that the radiator thermostat has already been
+asked to heat. The higher setpoint goes out with the next command, and commands are
+limited (see [TRV Communication](#trv-communication)):
+
+- A higher setpoint waits until 180 s have passed since the last command to that
+  thermostat. The integration checks once a minute, so the wait can be up to 240 s.
+- A setpoint less than 0.3 °C above the one the thermostat already holds is not sent
+  at all. The thermostat keeps what it has until the difference is large enough.
+- `hvac_action: heating` on the proxy comes later still. The integration reads the
+  thermostat's setpoint back once a minute, so add up to 60 s.
+
+So let the automation start on the needs heat sensor, and then wait until at least
+one of those rooms shows `hvac_action: heating` before it fires the boiler. Allow
+about 5 minutes for that. Give the wait a time-out and decide what happens then, so
+the automation never waits forever. To save the last minute, read the radiator
+thermostat's own climate entity instead: its `temperature` (the setpoint it holds)
+above its `current_temperature` says the same.
+
+Use `hvac_action` only for this start. Switch the boiler off on the needs heat sensor
+alone (see [What "heating" means](#what-heating-means)). The 180 s and the 0.3 °C are
+the defaults; if you changed them, the waits change with them.
+
 ### Changing when it switches
 
 Under **Settings → Devices & Services → Tado X Proxy → Configure → Needs heat
@@ -471,7 +503,8 @@ saved this dialog while one of them was installed and Ki showed 0.001, that room
 ### Gain Scheduling
 
 Automatically reacts harder when the room is far off target and gentler when it is
-close, so you do not have to compromise between fast heat-up and a steady room.
+close, so you do not have to choose between a strong reaction far from the target
+and a steady room near it.
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
@@ -482,6 +515,12 @@ close, so you do not have to compromise between fast heat-up and a steady room.
 | Near-target zone threshold | 0.5 °C | 0.1–2.0 °C | Below this gap, the near-target strength applies |
 
 Between the two thresholds the strength slides smoothly from one to the other.
+For that, the near-target zone threshold must be lower than the cold-start zone
+threshold. While adaptive gain scheduling is on, the dialog does not save a pair
+where it is not.
+
+The gap counts by its size, not by its direction. So the same strengths also apply
+while the room is above its target. That is deliberate.
 
 ### TRV Communication
 
@@ -527,8 +566,12 @@ something is wrong or when you are curious what the integration is thinking.
 | `p_correction_c` | Correction from the current gap |
 | `i_correction_c` | Correction from a persistent offset |
 | `error_c` | The gap between target and actual room temperature |
-| `target_for_tado_c` | The number actually sent to the Tado |
+| `push_c` | How far the computed command lies above the Tado's own reading. Above zero it asks the valve to open, once that command has been sent; whether the valve is open depends on the setpoint the Tado holds (see `target_for_tado_c` and `regulation_reason`). Taken before the command is limited to its allowed range. See [how it works](how-it-works.md#putting-it-together) |
+| `target_for_tado_c` | The setpoint the integration has computed for the Tado. It is sent once it differs by at least the minimum change (0.3 °C by default) from the setpoint the Tado holds and the command interval allows it. What the Tado really holds is the `temperature` of the Tado's own climate entity |
 | `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
+| `integral_deadband_c` | The configured integral precision zone |
+| `gain_scheduling_enabled`, `gain_fine_multiplier`, `gain_startup_multiplier`, `gain_fine_threshold_c`, `gain_startup_threshold_c` | The configured [gain scheduling](#gain-scheduling) |
+| `min_change_threshold_c` / `min_command_interval_s` | The configured minimum change and minimum time between commands |
 | `user_preset` | Your own choice – what comes back once nothing else holds the room. `none` means Manual |
 | `manual_target_c` | The temperature of Manual. Shown whenever your choice is Manual, also while something else holds the room |
 | `manual_return_preset` | The preset that applies when the Manual timer ends. Only while the timer runs |
@@ -547,15 +590,21 @@ While the sensor is missing, `room_temp_last_valid_c` and
 `room_temp_last_valid_age_s` appear as well.
 
 The regulation values — `feedforward_offset_c`, `p_correction_c`, `i_correction_c`,
-`error_c`, `target_for_tado_c` and `is_saturated` — only appear while the integration
-is actually regulating. They disappear while the proxy is off, and when the room
-sensor has been gone for longer than the grace period — unless a backup room sensor
-has taken over.
+`error_c`, `push_c`, `target_for_tado_c` and `is_saturated` — only appear while the
+integration is actually regulating. They disappear while the proxy is off, and when
+the room sensor has been gone for longer than the grace period — unless a backup room
+sensor has taken over.
+
+The configured values — the gains, the integral precision zone, gain scheduling,
+minimum change and minimum time between commands — are always there. They only change
+when you change the setting, so the history of the entity shows which values a room
+ran on, as far back as your history goes. They are recorded from v1.6.1 on.
 
 ### What "heating" means
 
-The proxy shows **Heating** (`hvac_action: heating`) when the target it sent to the
-Tado is above the Tado's own reading. The valve is most likely open then: that is
+The proxy shows **Heating** (`hvac_action: heating`) when the setpoint the Tado holds
+is above the Tado's own reading. The proxy reads both from the Tado once a minute. The
+valve is most likely open then: that is
 what the readings show, but the Tado X does not report its valve, so the proxy cannot
 know for sure. It does **not** mean that the room still needs heat: the correction
 keeps the valve slightly open to hold the room at its target, so a room only 0.05 °C

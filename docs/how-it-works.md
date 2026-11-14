@@ -118,28 +118,34 @@ minutes, not seconds.
 ### Putting it together
 
 ```
-target_sent_to_tado = your_target
-                    + feedforward_offset      (the sensor gap, measured)
-                    + Kp × error              (react to now)
-                    + integral                (remember the persistent part)
+target_for_tado = your_target
+                + feedforward_offset      (the sensor gap, measured)
+                + Kp × error              (react to now)
+                + integral                (remember the persistent part)
 ```
 
 The result is clamped to 5–30 °C so a strange sensor reading can never send an absurd
 command.
 
 Take the thermostat's own reading away from that sum and what is left is
-`(1 + Kp) × error + integral`. Call it the push. The readings show the valve opening
-while the push is above zero, that is, while the target sent to the thermostat is above
-the thermostat's own reading, and staying shut at zero or below. The Tado X does not
-report its valve, so this is what the readings show, not something the thermostat
-confirms. The `1` comes from feedforward, which already moves the target along with
-the gap. With `Kp = 0.8` a room 0.5 °C too cold gives a push of 0.9 °C before the
-integral adds anything. If the gap stays the same, the integral needs `(1 + Kp) / Ki`
-seconds to add as much push as the gap itself gives. That is the *integral time* of
-the controller: 10 minutes with the defaults.
+`(1 + Kp) × error + integral`. Call it the push. A push above zero means that the
+computed target lies above the thermostat's own reading, so it asks the valve to open.
+The valve is taken to be open while the setpoint the thermostat holds is above its own
+reading, and shut otherwise. So the push counts once its command has been sent: a
+very small change is not sent, and others can wait (see
+[Why it waits three minutes](#why-it-waits-three-minutes)). The Tado X does not
+report its valve, so this is a working model read from the temperatures, not
+something the thermostat confirms.
+
+The `1` comes from feedforward, which already moves the target along with the gap.
+With `Kp = 0.8` a room 0.5 °C too cold gives a push of 0.9 °C before the integral
+adds anything. If the gap stays the same, the integral needs `(1 + Kp) / Ki` seconds
+to add as much push as the gap itself gives. That is the *integral time* of the
+controller: 10 minutes with the defaults.
 
 You can watch all four numbers live in **Developer Tools → States** on your proxy
-entity. They are listed in the
+entity, and the push as `push_c`. It is taken before the clamp, so it also says how
+hard the proxy would push while the command stands at its upper limit. They are listed in the
 [settings reference](settings.md#diagnostic-attributes).
 
 ---
@@ -162,8 +168,14 @@ The defence is patience, plus the fact that feedforward already handles the bulk
 the correction. The PI part is only cleaning up a small residue, so it does not need
 to be strong.
 
-**If you take one thing from this page:** turning Kp up is almost never the fix.
-Rooms that heat too slowly are usually undersized radiators or a sensor in a bad spot.
+**If you take one thing from this page:** turning Kp up is rarely the fix. When a
+room heats too slowly, look at `feedforward_offset_c` first. It shows how far the
+radiator thermostat, which sits on the radiator, reads above the room. If the
+radiator is already hot and the room is still slow, a setting rarely helps: most
+often the radiator or the hot water supply is the limit, or the sensor sits in a bad
+spot. If the radiator is still cool while the room is close to its target, there are
+settings to try. The [tuning guide](../TUNING.md#room-takes-long-to-warm-up) has both
+cases, and how to tell them apart.
 
 ---
 
@@ -258,6 +270,10 @@ Picking one value means accepting a compromise that is wrong in both situations.
 It is the same instinct you use driving: firm on the accelerator when you are far
 from the speed you want, feathering it as you approach.
 
+"How far off" is the size of the error, whatever its sign. A room 3 °C above its
+target gets the same × 1.5 as a room 3 °C below it. That is deliberate, and a test
+pins it.
+
 The transition is a linear slide rather than a step, because a controller whose
 behaviour jumps at a threshold produces visible kinks in the temperature curve.
 
@@ -287,7 +303,14 @@ Two refinements soften the edges:
 - **An urgent bypass.** If the target needs to drop by more than 1 °C — you opened a
   window, or switched to Away — the wait is skipped. Making a room too hot is
   uncomfortable and wastes energy, so *stopping* heat is allowed to be immediate even
-  though *adding* it is not.
+  though *adding* it is not. The one exception is a boost you start yourself: it is a
+  short burst with a fixed time, so its command goes out at once instead of spending
+  the first minutes of that time waiting. This happens once per interval, so tapping
+  Boost and another preset in turns does not send a command with every tap. A boost
+  that a schedule or an automation starts waits like every other increase, and so
+  does a boost that comes back after an open window or after nobody was home. Tools
+  that connect with an access token count as a person (see
+  [Boost](settings.md#boost)).
 
 ---
 

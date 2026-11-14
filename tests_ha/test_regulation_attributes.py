@@ -1,8 +1,10 @@
 """Regulation diagnostics on the proxy climate entity."""
 from __future__ import annotations
 
+import pytest
 from homeassistant.components.climate import HVACMode
 from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.data_entry_flow import FlowResultType
 
 from .helpers import (
     CONTROL_INTERVAL_S,
@@ -11,6 +13,7 @@ from .helpers import (
     async_advance,
     async_set_state,
     async_setup_proxy,
+    async_submit_options,
     on_trv_command,
     trv_rejects,
 )
@@ -20,6 +23,7 @@ SENSOR_GRACE_S = 300
 
 REGULATION_ATTRS = (
     "error_c",
+    "push_c",
     "feedforward_offset_c",
     "p_correction_c",
     "i_correction_c",
@@ -28,8 +32,58 @@ REGULATION_ATTRS = (
 )
 
 
+# The tuning of a room that does not run on the defaults, as stored options.
+OWN_TUNING = {
+    "correction_kp": 1.0,
+    "correction_ki": 0.001,
+    "integral_deadband_c": 0.4,
+    "gain_scheduling_enabled": False,
+    "gain_fine_multiplier": 0.8,
+    "gain_startup_multiplier": 2.5,
+    "gain_fine_threshold_c": 0.3,
+    "gain_startup_threshold_c": 1.0,
+    "min_change_threshold_c": 0.4,
+    "min_command_interval_s": 240,
+}
+
+
 def _regulation_attrs(proxy) -> set[str]:
     return set(REGULATION_ATTRS) & set(proxy.state.attributes)
+
+
+def _tuning_attrs(proxy) -> dict:
+    return {key: proxy.state.attributes.get(key) for key in OWN_TUNING}
+
+
+async def test_push_shows_how_far_the_command_lies_above_the_trv_reading(hass, freezer):
+    """Half a degree below the 20 °C target: (1 + Kp 0.8) * 0.5, no integral yet."""
+    proxy = await async_setup_proxy(hass, room_state="19.5")
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+
+    assert proxy.state.attributes["error_c"] == 0.5
+    assert proxy.state.attributes["push_c"] == pytest.approx(0.9)
+
+
+async def test_tuning_values_of_the_room_are_shown(hass, freezer):
+    """History has to say which tuning a room ran on, also while it is off."""
+    proxy = await async_setup_proxy(hass, options=OWN_TUNING)
+    await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    assert _tuning_attrs(proxy) == OWN_TUNING
+
+    await proxy.call("climate", "set_hvac_mode", proxy.climate, hvac_mode=HVACMode.OFF)
+    assert _tuning_attrs(proxy) == OWN_TUNING
+
+
+async def test_tuning_value_changed_in_the_options_dialog_is_shown(hass):
+    proxy = await async_setup_proxy(hass)
+    assert proxy.state.attributes["gain_startup_multiplier"] != 2.5
+
+    result = await async_submit_options(
+        hass, proxy.entry, gain_scheduling={"gain_startup_multiplier": 2.5}
+    )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert proxy.state.attributes["gain_startup_multiplier"] == 2.5
 
 
 async def test_regulation_values_disappear_when_turned_off(hass, freezer):

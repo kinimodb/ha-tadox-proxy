@@ -59,8 +59,31 @@ class RegulationResult:
     p_correction_c: float          # proportional correction (diagnostic)
     i_correction_c: float          # integral correction     (diagnostic)
     error_c: float                 # room error: setpoint - room_temp
+    # The push: the command before clamping minus Tado's own reading, i.e.
+    # (1 + effective Kp) * error + integral.  Above zero it asks the valve
+    # to open, once this command has been sent; the valve follows the
+    # setpoint it holds (diagnostic; see "Push" in CONTEXT.md).  It holds
+    # the integral this command was built with; i_correction_c already
+    # shows the integral after this cycle.
+    push_c: float
     is_saturated: bool             # True when output was clamped
     new_state: RegulationState
+
+
+# ---------------------------------------------------------------------------
+# Gain scheduling thresholds
+# ---------------------------------------------------------------------------
+
+def gain_thresholds_usable(fine_threshold_c: float, startup_threshold_c: float) -> bool:
+    """Return whether the gain schedule can slide between its two zones.
+
+    Between the near-target (fine) and the cold-start (startup) threshold
+    Kp moves linearly from one multiplier to the other.  That range only
+    exists when the near-target threshold is the lower one.  The options
+    dialog asks here before it stores a pair; the regulator itself stays
+    tolerant (see ``_effective_kp``).
+    """
+    return fine_threshold_c < startup_threshold_c
 
 
 # ---------------------------------------------------------------------------
@@ -92,9 +115,10 @@ class FeedforwardPiRegulator:
             multiplier = config.gain_fine_multiplier
         else:
             # Linear interpolation between fine and startup multiplier.
-            # Guard: the options flow allows fine_threshold >= startup_threshold,
-            # which makes the span zero or negative – fall back to the startup
-            # multiplier instead of dividing by zero.
+            # Guard: a room can still hold fine_threshold >= startup_threshold
+            # (the options dialog accepted that up to v1.6.0), which makes the
+            # span zero or negative – fall back to the startup multiplier
+            # instead of dividing by zero.
             span = config.gain_startup_threshold_c - config.gain_fine_threshold_c
             if span <= 0:
                 multiplier = config.gain_startup_multiplier
@@ -150,6 +174,7 @@ class FeedforwardPiRegulator:
                     p_correction_c=0.0,
                     i_correction_c=state.integral_c,
                     error_c=0.0,
+                    push_c=0.0,
                     is_saturated=False,
                     new_state=state,
                 )
@@ -219,6 +244,7 @@ class FeedforwardPiRegulator:
             p_correction_c=round(p_correction, 2),
             i_correction_c=round(new_integral, 2),
             error_c=round(error, 2),
+            push_c=round(raw_command - tado_internal_c, 2),
             is_saturated=is_saturated,
             new_state=new_state,
         )

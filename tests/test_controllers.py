@@ -283,6 +283,55 @@ class TestDecideSend:
         result = self._decide(target_c=22.0, last_command_ts=self.NOW - 180.0)
         assert result == (True, "normal_update")
 
+    # --- urgent increase (a boost a person started) ---
+
+    def test_urgent_increase_bypasses_rate_limit(self):
+        assert self._decide(target_c=25.0, urgent_increase=True) == (True, "urgent_increase")
+
+    def test_urgent_increase_does_not_send_a_drift_correction_early(self):
+        """Our own target hardly moved; only the TRV left it.  That correction
+        waits for the rate limit, whoever started a boost."""
+        result = self._decide(target_c=20.2, drifted_setpoint_c=25.0, urgent_increase=True)
+        assert result == (False, "rate_limited(90s)")
+
+    def test_urgent_increase_does_not_send_a_change_below_the_threshold(self):
+        assert self._decide(target_c=20.2, urgent_increase=True) == (False, "already_at_target")
+
+    def test_urgent_increase_does_not_send_a_small_decrease_early(self):
+        assert self._decide(target_c=19.5, urgent_increase=True) == (False, "rate_limited(90s)")
+
+    def test_urgent_increase_does_not_send_a_retry_without_baseline_early(self):
+        """After a failed send the baseline is unknown: the retry still waits."""
+        result = self._decide(baseline_c=None, urgent_increase=True)
+        assert result == (False, "rate_limited(90s)")
+
+    def test_urgent_increase_after_the_interval_is_a_normal_update(self):
+        result = self._decide(
+            target_c=25.0, urgent_increase=True, last_command_ts=self.NOW - 200.0
+        )
+        assert result == (True, "normal_update")
+
+    def test_second_urgent_increase_within_the_interval_waits(self):
+        """Boost, another preset, Boost again within seconds: the decrease in
+        between is urgent too, so without a bound every tap would send a
+        command.  One urgent increase per interval; the next boost waits."""
+        result = self._decide(
+            target_c=25.0,
+            urgent_increase=True,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 10.0,
+        )
+        assert result == (False, "rate_limited(175s)")
+
+    def test_urgent_increase_is_free_again_after_the_interval(self):
+        result = self._decide(
+            target_c=25.0,
+            urgent_increase=True,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 180.0,
+        )
+        assert result == (True, "urgent_increase")
+
     # --- TRV drifted away from our command (dial, Tado schedule) ---
 
     def test_drift_is_corrected_although_our_target_did_not_move(self):

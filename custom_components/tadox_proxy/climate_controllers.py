@@ -354,6 +354,8 @@ def decide_send(
     urgent_decrease_c: float,
     overlay_refresh_s: float,
     drifted_setpoint_c: float | None = None,
+    urgent_increase: bool = False,
+    last_urgent_increase_ts: float = 0.0,
 ) -> SendDecision:
     """Decide whether *target_c* is sent to the TRV in this cycle.
 
@@ -371,12 +373,24 @@ def decide_send(
     our own command, so a TRV that never adopts our setpoint cannot push
     commands past the limit (battery).
 
+    *urgent_increase* lets an increase of our own target past the rate limit
+    in this one cycle.  It is the single exception to "adding heat can wait":
+    the cycle a person's boost starts with (``PresetLayers.is_boost_start``).
+    A boost is a short burst someone asked for, and the command sent just
+    before it would otherwise eat minutes of its time.  The flag opens nothing
+    else: a decrease, a correction of a drifted TRV and a retry without a
+    baseline wait as always.  *last_urgent_increase_ts* is when the last
+    command went out for that reason (0 before the first): there is one per
+    rate-limit interval.  Switching between Boost and a lower preset would
+    otherwise send a command on every tap, because the way down is an urgent
+    decrease (battery).
+
     *last_command_ts* is 0 before the first command.  *overlay_refresh_s* > 0
     resends an unchanged setpoint once that many seconds have passed.
 
     Reasons: ``no_baseline``, ``already_at_target``, ``overlay_refresh``,
-    ``urgent_decrease``, ``normal_update``, ``trv_drift`` and
-    ``rate_limited(<n>s)``.
+    ``urgent_decrease``, ``urgent_increase``, ``normal_update``, ``trv_drift``
+    and ``rate_limited(<n>s)``.
     """
     time_since_last = now - last_command_ts
     is_rate_limited = time_since_last < min_interval_s
@@ -405,6 +419,13 @@ def decide_send(
     if is_rate_limited:
         if target_c < baseline_c - urgent_decrease_c:
             return SendDecision(True, "urgent_decrease")
+        if (
+            urgent_increase
+            and now - last_urgent_increase_ts >= min_interval_s
+            and not at_baseline
+            and target_c > baseline_c
+        ):
+            return SendDecision(True, "urgent_increase")
         return SendDecision(False, rate_limited_reason)
 
     # Only the TRV moved: the send is a correction, not a new target.

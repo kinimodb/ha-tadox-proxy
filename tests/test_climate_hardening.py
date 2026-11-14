@@ -446,6 +446,42 @@ def _method_calls(file_path: str, method_name: str, called: str) -> bool:
 # Decision logic must be the tested HA-free code (AST-based guard)
 # ---------------------------------------------------------------------------
 
+def _regulation_cycle() -> ast.AsyncFunctionDef:
+    """The body of the regulation cycle in the regulation mixin."""
+    with open(_CLIMATE_REGULATION_PY, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    return next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        and node.name == "_async_regulation_cycle_locked"
+    )
+
+
+def _decide_send_keyword(name: str) -> list[str]:
+    """The expressions the regulation cycle hands to decide_send as *name*."""
+    return [
+        ast.unparse(keyword.value)
+        for call in ast.walk(_regulation_cycle())
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Name)
+        and call.func.id == "decide_send"
+        for keyword in call.keywords
+        if keyword.arg == name
+    ]
+
+
+def _assignments_in_cycle(attribute: str) -> int:
+    """How often the regulation cycle assigns ``self.<attribute>``."""
+    return sum(
+        1
+        for node in ast.walk(_regulation_cycle())
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute) and target.attr == attribute
+    )
+
+
 class TestDecisionLogicRoutedThroughControllers:
     """The HA mixins must call the HA-free functions the tests exercise,
     instead of carrying their own copy of the logic."""
@@ -461,6 +497,38 @@ class TestDecisionLogicRoutedThroughControllers:
         assert _method_calls(
             _CLIMATE_REGULATION_PY, "_async_regulation_cycle_locked", "trv_drifted_setpoint"
         )
+
+    def test_only_presetlayers_unlocks_the_urgent_increase(self):
+        """The mixin decides nothing: it asks PresetLayers whether this cycle
+        is the one a person's boost starts with and hands the answer to
+        decide_send.  Any other expression here (a constant True, the active
+        preset) would let increases past the send limit that nobody tapped
+        for."""
+        assert _decide_send_keyword("urgent_increase") == [
+            "self._layers.is_boost_start(trigger)"
+        ]
+
+    def test_the_cycle_tells_decide_send_when_the_last_urgent_increase_went_out(self):
+        """One urgent increase per send interval is decide_send's rule.  The
+        mixin only keeps the time: it notes it when decide_send answered with
+        that reason and hands it back the next time.  Noting it anywhere else,
+        or not handing it back, would let Boost and a lower preset in turns
+        send a command on every tap."""
+        assert _decide_send_keyword("last_urgent_increase_ts") == [
+            "self._last_urgent_increase_ts"
+        ]
+        noted = [
+            (ast.unparse(branch.test), ast.unparse(statement))
+            for branch in ast.walk(_regulation_cycle())
+            if isinstance(branch, ast.If)
+            for statement in branch.body
+            if isinstance(statement, ast.Assign)
+            and "_last_urgent_increase_ts" in ast.unparse(statement.targets[0])
+        ]
+        assert noted == [
+            ("reason == 'urgent_increase'", "self._last_urgent_increase_ts = now")
+        ]
+        assert _assignments_in_cycle("_last_urgent_increase_ts") == 1
 
     def test_regulation_cycle_uses_control_mode_resolver(self):
         assert _method_calls(
@@ -481,6 +549,38 @@ class TestDecisionLogicRoutedThroughControllers:
             _CLIMATE_REGULATION_PY, "_write_linked_entities", "_update_needs_heat"
         )
         assert _method_calls(_CLIMATE_REGULATION_PY, "_update_needs_heat", "update")
+
+    def test_options_dialog_asks_the_regulator_about_gain_thresholds(self):
+        """Which pair of thresholds gives a slide is the gain schedule's
+        knowledge (regulation.py); the dialog only reports the answer."""
+        assert _method_calls(
+            _CONFIG_FLOW_PY, "_validate_gain_thresholds", "gain_thresholds_usable"
+        )
+        assert _method_calls(_CONFIG_FLOW_PY, "async_step_init", "_validate_gain_thresholds")
+
+    def test_entity_shows_the_tuning_read_out_of_the_config(self):
+        """Which tuning values go into the state is decided in parameters.py."""
+        assert _method_calls(_CLIMATE_PY, "extra_state_attributes", "tuning_attributes")
+
+    def test_entity_shows_the_regulators_push_without_computing_it(self):
+        """The push is the regulator's (taken before clamping); the entity
+        must not rebuild it from the rounded, clamped attributes."""
+        with open(_CLIMATE_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        attributes = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "extra_state_attributes"
+        )
+        shown = {
+            key.value: ast.unparse(value)
+            for node in ast.walk(attributes)
+            if isinstance(node, ast.Dict)
+            for key, value in zip(node.keys, node.values, strict=True)
+            if isinstance(key, ast.Constant)
+        }
+        assert shown.get("push_c") == "r.push_c"
+        assert not any(isinstance(node, ast.BinOp) for node in ast.walk(attributes))
 
 
 # ---------------------------------------------------------------------------
@@ -823,3 +923,77 @@ class TestPresetNamesMatchConst:
             and isinstance(node.value, ast.Constant)
         ]
         assert values == [_ctrl.PRESET_FROST_PROTECTION]
+
+
+# ---------------------------------------------------------------------------
+# Climate temperature names of old and new Home Assistant (AST-based guard)
+# ---------------------------------------------------------------------------
+
+_OLD_TEMPERATURE_NAMES = {
+    "_attr_temperature_unit",
+    "current_temperature",
+    "target_temperature",
+}
+_NATIVE_TEMPERATURE_NAMES = {
+    "_attr_native_temperature_unit",
+    "native_current_temperature",
+    "native_target_temperature",
+}
+
+
+def _class_level_names(file_path: str, class_name: str) -> set[str]:
+    """Return every name the class body binds, also inside ``if`` blocks."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+    cls = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == class_name
+    )
+    names: set[str] = set()
+    pending = list(cls.body)
+    while pending:
+        item = pending.pop()
+        if isinstance(item, ast.If):
+            pending.extend(item.body + item.orelse)
+        elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(item.name)
+        elif isinstance(item, ast.Assign):
+            names.update(t.id for t in item.targets if isinstance(t, ast.Name))
+        elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+            names.add(item.target.id)
+    return names
+
+
+class TestClimateTemperatureNames:
+    """Home Assistant 2026.11 reads the unit and the two temperatures of a
+    climate entity under native_* names and logs a warning for a class that
+    only has the old ones; versions before it read only the old names.  The
+    minimum version in hacs.json is older, so the entity must know both."""
+
+    def test_entity_has_the_native_names(self):
+        assert _NATIVE_TEMPERATURE_NAMES <= _class_level_names(
+            _CLIMATE_PY, "TadoXProxyClimate"
+        )
+
+    def test_entity_keeps_the_old_names_for_older_home_assistant(self):
+        assert _OLD_TEMPERATURE_NAMES <= _class_level_names(
+            _CLIMATE_PY, "TadoXProxyClimate"
+        )
+
+    def test_integration_never_reads_the_old_names(self):
+        """On Home Assistant 2026.11 a read of an old name is a warning too."""
+        old_properties = {"temperature_unit", "current_temperature", "target_temperature"}
+        reads = []
+        for file_name in sorted(os.listdir(_COMP_DIR)):
+            if not file_name.endswith(".py"):
+                continue
+            with open(os.path.join(_COMP_DIR, file_name), encoding="utf-8") as fh:
+                tree = ast.parse(fh.read(), filename=file_name)
+            reads += [
+                f"{file_name}:{node.lineno} .{node.attr}"
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute)
+                and (node.attr in old_properties or node.attr in _OLD_TEMPERATURE_NAMES)
+            ]
+        assert reads == []

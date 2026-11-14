@@ -164,6 +164,7 @@
     "error": {
       "backup_sensor_required": "Vyberte záložní senzor místnosti pro tuto akci.",
       "backup_sensor_same": "Záložní senzor místnosti se musí lišit od externího teplotního senzoru.",
+      "gain_thresholds": "Adaptivní řízení zesílení: prahová hodnota zóny poblíž cíle musí být nižší než prahová hodnota zóny studeného startu.",
       "needs_heat_thresholds": "Senzor požadavku na teplo: hodnota pro vypnutí musí být nižší než hodnota pro sepnutí.",
       "temp_entity_not_found": "Externí teplotní senzor nebyl nalezen.",
       "temp_not_temperature": "Vyberte prosím teplotní senzor (device_class: temperature)."

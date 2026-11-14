@@ -43,6 +43,7 @@ CorrectionTuning = _params.CorrectionTuning
 PresetConfig = _params.PresetConfig
 FeedforwardPiRegulator = _reg.FeedforwardPiRegulator
 RegulationState = _reg.RegulationState
+gain_thresholds_usable = _reg.gain_thresholds_usable
 
 
 # ---------------------------------------------------------------------------
@@ -1073,10 +1074,11 @@ class TestAdaptiveGainScheduling:
     def test_equal_thresholds_no_division_by_zero(self):
         """fine_threshold == startup_threshold must not raise ZeroDivisionError.
 
-        The options flow allows overlapping ranges (fine 0.1-2.0, startup
-        0.5-5.0), so both thresholds can be set to the same value.  With an
-        error exactly on the shared threshold the interpolation span is zero –
-        the startup multiplier must be used as fallback.
+        The ranges of the two fields overlap (fine 0.1-2.0, startup 0.5-5.0),
+        and up to v1.6.0 the options dialog accepted any pair, so a room can
+        still hold the same value for both.  With an error exactly on the
+        shared threshold the interpolation span is zero – the startup
+        multiplier must be used as fallback.
         """
         config = RegulationConfig(
             gain_fine_threshold_c=1.0, gain_startup_threshold_c=1.0
@@ -1102,6 +1104,32 @@ class TestAdaptiveGainScheduling:
         assert FeedforwardPiRegulator._effective_kp(1.0, config) == pytest.approx(
             config.tuning.kp * config.gain_fine_multiplier, abs=0.001
         )
+
+
+class TestGainThresholdsUsable:
+    """What the options dialog accepts as a pair of gain scheduling thresholds.
+
+    Between the two thresholds Kp slides from one multiplier to the other.
+    That needs the near-target threshold below the cold-start threshold;
+    otherwise there is nothing to slide in and Kp steps from one multiplier
+    to the other (pinned above, for rooms that stored such a pair before
+    the dialog checked it).
+    """
+
+    def test_defaults_are_usable(self):
+        config = RegulationConfig()
+        assert gain_thresholds_usable(
+            config.gain_fine_threshold_c, config.gain_startup_threshold_c
+        )
+
+    def test_near_target_below_cold_start_is_usable(self):
+        assert gain_thresholds_usable(0.9, 1.0)
+
+    def test_equal_thresholds_are_not_usable(self):
+        assert not gain_thresholds_usable(1.0, 1.0)
+
+    def test_near_target_above_cold_start_is_not_usable(self):
+        assert not gain_thresholds_usable(2.0, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1146,3 +1174,132 @@ class TestTemperatureRangeLimits:
             state=state,
         )
         assert result.target_for_tado_c <= cfg.max_target_c
+
+
+# ---------------------------------------------------------------------------
+# Push: the command minus the thermostat's own reading
+# ---------------------------------------------------------------------------
+
+class TestPush:
+    """The push says how hard the thermostat is asked to heat."""
+
+    def test_room_half_a_degree_cold_gives_a_push_of_nine_tenths(self):
+        """The worked example of docs/how-it-works.md: Kp 0.8, no integral yet."""
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=20.5,
+            tado_internal_c=23.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.push_c == pytest.approx(0.9)
+
+    def test_carried_integral_adds_to_the_push(self):
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=20.5,
+            tado_internal_c=23.0,
+            time_delta_s=0.0,
+            state=RegulationState(integral_c=0.3),
+        )
+
+        assert result.push_c == pytest.approx(1.2)
+
+    def test_gain_scheduling_scales_the_push(self):
+        """3 K too cold runs on Kp 0.8 * 1.5 = 1.2, so the push is 2.2 * 3."""
+        result = make_regulator().compute(
+            setpoint_c=22.0,
+            room_temp_c=19.0,
+            tado_internal_c=20.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.push_c == pytest.approx(6.6)
+
+    def test_room_too_warm_gives_a_negative_push(self):
+        result = make_regulator().compute(
+            setpoint_c=20.0,
+            room_temp_c=20.5,
+            tado_internal_c=23.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.push_c == pytest.approx(-0.9)
+
+    def test_push_is_taken_before_the_command_is_clamped(self):
+        """6 K too cold on a hot radiator: the command stops at 30, the push does not."""
+        result = make_regulator().compute(
+            setpoint_c=25.0,
+            room_temp_c=19.0,
+            tado_internal_c=28.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.target_for_tado_c == 30.0
+        # 2.2 * 6; the clamped command lies only 2.0 above the reading.
+        assert result.push_c == pytest.approx(13.2)
+
+    def test_push_holds_the_integral_the_command_was_built_with(self):
+        """A minute has passed and the room is 0.2 K too cold: the integral
+        grows from 0.50 to 0.54 in this cycle (Ki 0.003 * 0.2 * 60 s).  The
+        command, and so the push, still carries the 0.50 from before:
+        1.8 * 0.2 + 0.50."""
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=20.8,
+            tado_internal_c=23.0,
+            time_delta_s=60.0,
+            state=RegulationState(integral_c=0.5),
+        )
+
+        assert result.i_correction_c == pytest.approx(0.54)
+        assert result.push_c == pytest.approx(0.86)
+
+    def test_no_push_when_an_input_is_not_a_number(self):
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=float("nan"),
+            tado_internal_c=23.0,
+            time_delta_s=60.0,
+            state=RegulationState(integral_c=0.3),
+        )
+
+        assert result.push_c == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Tuning read-out: the values a room runs on, for the recorder history
+# ---------------------------------------------------------------------------
+
+class TestTuningAttributes:
+    """History has to say which tuning a room ran on, without a rule to guess it."""
+
+    def test_a_room_with_its_own_tuning_shows_its_values(self):
+        config = RegulationConfig(
+            tuning=CorrectionTuning(kp=1.0, ki=0.001),
+            integral_deadband_c=0.4,
+            gain_scheduling_enabled=False,
+            gain_fine_multiplier=0.8,
+            gain_startup_multiplier=2.5,
+            gain_fine_threshold_c=0.3,
+            gain_startup_threshold_c=1.0,
+            min_change_threshold_c=0.4,
+            min_command_interval_s=240.0,
+        )
+
+        assert config.tuning_attributes() == {
+            "correction_kp": 1.0,
+            "correction_ki": 0.001,
+            "integral_deadband_c": 0.4,
+            "gain_scheduling_enabled": False,
+            "gain_fine_multiplier": 0.8,
+            "gain_startup_multiplier": 2.5,
+            "gain_fine_threshold_c": 0.3,
+            "gain_startup_threshold_c": 1.0,
+            "min_change_threshold_c": 0.4,
+            "min_command_interval_s": 240.0,
+        }

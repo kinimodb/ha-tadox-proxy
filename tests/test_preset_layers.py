@@ -56,6 +56,8 @@ HOME = _layers.TIMER_HOME
 BOOST = _layers.TIMER_BOOST
 MANUAL_RETURN = _layers.TIMER_MANUAL_RETURN
 
+BOOST_STARTED = _layers.CYCLE_BOOST_STARTED
+
 T0 = 1_000_000.0
 
 
@@ -683,7 +685,7 @@ class TestBoost:
         assert room.room_target_c == 25.0
         assert room.user_choice.preset == ECO
         assert effects.timers == {BOOST: 1800}
-        assert effects.cycle == "preset_change"
+        assert effects.cycle == BOOST_STARTED
 
         effects = room.timer_elapsed(BOOST, T0 + 1810)
 
@@ -864,6 +866,105 @@ class TestBoost:
 
         assert room.active_preset == BOOST_PRESET
         assert effects.timers == {BOOST: 1100}
+
+
+class TestBoostStartedByAPerson:
+    """Only the cycle a person's boost starts heating with is marked: the
+    bridge may send that one increase past the send limit."""
+
+    def test_a_person_starting_a_boost_marks_its_cycle(self):
+        room = _room()
+        room.pick_preset(COMFORT, T0)
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 2)
+
+        assert effects.cycle == BOOST_STARTED
+        assert room.is_boost_start(effects.cycle)
+
+    def test_the_mark_is_gone_once_the_boost_no_longer_heats(self):
+        """The cycle can run late (another one is still sending).  If the
+        person has moved on by then, their next choice waits like any other."""
+        room = _room()
+        room.pick_preset(ECO, T0)
+        effects = room.pick_preset(BOOST_PRESET, T0 + 2)
+
+        room.pick_preset(COMFORT, T0 + 3)
+
+        assert not room.is_boost_start(effects.cycle)
+
+    def test_no_other_cycle_of_a_running_boost_is_marked(self):
+        room = _room()
+        room.pick_preset(BOOST_PRESET, T0)
+
+        assert not room.is_boost_start("timer")
+        assert not room.is_boost_start("preset_change")
+
+    def test_a_boost_without_a_person_is_a_plain_preset_change(self):
+        """A schedule or an automation waits for the send limit like any
+        other increase."""
+        room = _room()
+
+        effects = room.pick_preset(BOOST_PRESET, T0, by_person=False)
+
+        assert room.active_preset == BOOST_PRESET
+        assert effects.cycle == "preset_change"
+        assert not room.is_boost_start(effects.cycle)
+
+    def test_tapping_boost_again_while_it_runs_asks_for_no_cycle(self):
+        """Nothing changes for the valve, so no tap can spend a command."""
+        room = _room()
+        room.pick_preset(BOOST_PRESET, T0)
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 5)
+
+        assert effects.cycle is None
+
+    def test_a_boost_picked_while_the_heating_is_off_is_not_marked(self):
+        """It does not heat now; switching the heating on later is not the
+        tap (the bridge runs that cycle itself, as an HVAC mode change)."""
+        room = _room()
+        room.heating_off(T0)
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 100)
+        assert effects.cycle == "preset_change"
+
+        effects = room.heating_on(T0 + 5000)
+        assert effects.cycle is None
+
+    def test_a_boost_waiting_behind_the_window_is_not_marked_when_it_comes_back(self):
+        room = _room()
+        _open_window(room, T0)
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 100)
+        assert effects.cycle is None
+
+        room.window_reported(OFF, T0 + 500)
+        effects = room.timer_elapsed(WINDOW_CLOSE, T0 + 620)
+        assert room.active_preset == BOOST_PRESET
+        assert effects.cycle == "window_closed"
+
+    def test_a_boost_waiting_behind_nobody_home_is_not_marked_when_it_comes_back(self):
+        room = _room()
+        _leave(room, T0)
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 1000)
+        assert effects.cycle is None
+
+        room.presence_reported(ON, T0 + 5000)
+        effects = room.timer_elapsed(HOME, T0 + 5030)
+        assert room.active_preset == BOOST_PRESET
+        assert effects.cycle == "presence_home"
+
+    def test_a_boost_picked_during_the_close_delay_heats_now_and_is_marked(self):
+        """The tap ends the close delay, so the boost is what heats the room."""
+        room = _room()
+        _open_window(room, T0)
+        room.window_reported(OFF, T0 + 100)
+
+        effects = room.pick_preset(BOOST_PRESET, T0 + 130)
+
+        assert room.active_preset == BOOST_PRESET
+        assert effects.cycle == BOOST_STARTED
 
 
 # ---------------------------------------------------------------------------

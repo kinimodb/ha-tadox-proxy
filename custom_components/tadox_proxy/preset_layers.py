@@ -45,6 +45,12 @@ TIMER_HOME = "home"
 TIMER_BOOST = "boost"
 TIMER_MANUAL_RETURN = "manual_return"
 
+# Trigger of the regulation cycle a boost starts with when a person started it
+# and it heats right away.  That cycle may send its increase past the send
+# limit (see ``PresetLayers.is_boost_start`` and ``decide_send``); every other
+# trigger waits for it.
+CYCLE_BOOST_STARTED = "boost_start"
+
 # State attributes of the climate entity, read back after a restart.
 ATTR_USER_PRESET = "user_preset"
 ATTR_MANUAL_TARGET = "manual_target_c"
@@ -256,7 +262,11 @@ class PresetLayers:
         self._change_by_person()
         if preset == PRESET_BOOST:
             self._start_boost()
-            return self._effects("preset_change")
+            # Only a person's boost that heats right now: one that waits (a
+            # layer holds the room, the heating is off) comes back by itself
+            # later, and that is nobody's tap.
+            started = by_person and self._boost_may_run()
+            return self._effects(CYCLE_BOOST_STARTED if started else "preset_change")
         self._end_boost()
         if not self._layer_forces(preset):
             self._cancel_manual_return()
@@ -510,6 +520,16 @@ class PresetLayers:
             left -= now - self._boost_since
         return math.ceil(max(0.0, left) / 60)
 
+    def is_boost_start(self, trigger: str | None) -> bool:
+        """The cycle *trigger* asked for is the one a person's boost starts
+        with, and that boost still heats the room.
+
+        Only that cycle may send its increase past the send limit.  A cycle
+        can run late (another one is still sending): if the boost has ended
+        or paused by then, whatever heats the room now waits as always.
+        """
+        return trigger == CYCLE_BOOST_STARTED and self._boost_since is not None
+
     @property
     def valve_off_due(self) -> bool:
         """The window action should switch the valve off now."""
@@ -685,11 +705,15 @@ class PresetLayers:
         self._boost_left_s = None
         self._boost_since = None
 
+    def _boost_may_run(self) -> bool:
+        """A boost would be what heats the room right now."""
+        return self._heating and not self._window_holds and not self._nobody_home_holds
+
     def _settle_boost(self) -> None:
         """Run the boost while it is what heats the room, else pause it."""
         if self._boost_left_s is None:
             return
-        runs = self._heating and not self._window_holds and not self._nobody_home_holds
+        runs = self._boost_may_run()
         if runs and self._boost_since is None:
             self._boost_since = self._now
             self._arm(TIMER_BOOST, self._boost_left_s)
