@@ -96,6 +96,13 @@ from .regulation import FeedforwardPiRegulator, RegulationState
 
 _LOGGER = logging.getLogger(__name__)
 
+# Home Assistant 2026.11 reads the unit and the two temperatures of a climate
+# entity under native_* names.  A class that only has the old names gets a
+# warning there, and the old names stop working in 2027.11.  Older versions
+# (hacs.json still allows them) read only the old names, so the entity
+# provides the set its base class reads.
+_NATIVE_TEMPERATURE_NAMES = hasattr(ClimateEntity, "native_current_temperature")
+
 
 def _source_state_available(state: State | None) -> bool:
     """Return whether the source thermostat can currently be reached."""
@@ -132,7 +139,10 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
     """Proxy climate entity that controls a Tado X TRV via feedforward + PI."""
 
     _attr_has_entity_name = True
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    if _NATIVE_TEMPERATURE_NAMES:
+        _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
+    else:
+        _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_precision = PRECISION_TENTHS
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
@@ -571,8 +581,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             **self._layers.attributes(),
         })
 
-    @property
-    def current_temperature(self) -> float | None:
+    def _room_temperature(self) -> float | None:
         """Return the room temperature the proxy regulates on.
 
         That is the backup sensor while it stands in for the external one.
@@ -583,10 +592,18 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             return self.coordinator.data.get("backup_room_temp")
         return self.coordinator.data.get("room_temp")
 
-    @property
-    def target_temperature(self) -> float | None:
+    def _shown_target_temperature(self) -> float | None:
         """Return the effective setpoint so HA always shows the active target."""
         return self._effective_setpoint()
+
+    # Home Assistant fills the state attributes current_temperature and
+    # temperature from these; see _NATIVE_TEMPERATURE_NAMES.
+    if _NATIVE_TEMPERATURE_NAMES:
+        native_current_temperature = property(_room_temperature)
+        native_target_temperature = property(_shown_target_temperature)
+    else:
+        current_temperature = property(_room_temperature)
+        target_temperature = property(_shown_target_temperature)
 
     @property
     def hvac_mode(self) -> HVACMode:

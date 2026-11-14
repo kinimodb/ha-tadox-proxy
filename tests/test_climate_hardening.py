@@ -874,3 +874,77 @@ class TestPresetNamesMatchConst:
             and isinstance(node.value, ast.Constant)
         ]
         assert values == [_ctrl.PRESET_FROST_PROTECTION]
+
+
+# ---------------------------------------------------------------------------
+# Climate temperature names of old and new Home Assistant (AST-based guard)
+# ---------------------------------------------------------------------------
+
+_OLD_TEMPERATURE_NAMES = {
+    "_attr_temperature_unit",
+    "current_temperature",
+    "target_temperature",
+}
+_NATIVE_TEMPERATURE_NAMES = {
+    "_attr_native_temperature_unit",
+    "native_current_temperature",
+    "native_target_temperature",
+}
+
+
+def _class_level_names(file_path: str, class_name: str) -> set[str]:
+    """Return every name the class body binds, also inside ``if`` blocks."""
+    with open(file_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=os.path.basename(file_path))
+    cls = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == class_name
+    )
+    names: set[str] = set()
+    pending = list(cls.body)
+    while pending:
+        item = pending.pop()
+        if isinstance(item, ast.If):
+            pending.extend(item.body + item.orelse)
+        elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(item.name)
+        elif isinstance(item, ast.Assign):
+            names.update(t.id for t in item.targets if isinstance(t, ast.Name))
+        elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+            names.add(item.target.id)
+    return names
+
+
+class TestClimateTemperatureNames:
+    """Home Assistant 2026.11 reads the unit and the two temperatures of a
+    climate entity under native_* names and logs a warning for a class that
+    only has the old ones; versions before it read only the old names.  The
+    minimum version in hacs.json is older, so the entity must know both."""
+
+    def test_entity_has_the_native_names(self):
+        assert _NATIVE_TEMPERATURE_NAMES <= _class_level_names(
+            _CLIMATE_PY, "TadoXProxyClimate"
+        )
+
+    def test_entity_keeps_the_old_names_for_older_home_assistant(self):
+        assert _OLD_TEMPERATURE_NAMES <= _class_level_names(
+            _CLIMATE_PY, "TadoXProxyClimate"
+        )
+
+    def test_integration_never_reads_the_old_names(self):
+        """On Home Assistant 2026.11 a read of an old name is a warning too."""
+        old_properties = {"temperature_unit", "current_temperature", "target_temperature"}
+        reads = []
+        for file_name in sorted(os.listdir(_COMP_DIR)):
+            if not file_name.endswith(".py"):
+                continue
+            with open(os.path.join(_COMP_DIR, file_name), encoding="utf-8") as fh:
+                tree = ast.parse(fh.read(), filename=file_name)
+            reads += [
+                f"{file_name}:{node.lineno} .{node.attr}"
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Attribute)
+                and (node.attr in old_properties or node.attr in _OLD_TEMPERATURE_NAMES)
+            ]
+        assert reads == []
