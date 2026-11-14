@@ -509,6 +509,30 @@ class TestDecisionLogicRoutedThroughControllers:
         )
         assert _method_calls(_CLIMATE_REGULATION_PY, "_update_needs_heat", "update")
 
+    def test_entity_shows_the_tuning_read_out_of_the_config(self):
+        """Which tuning values go into the state is decided in parameters.py."""
+        assert _method_calls(_CLIMATE_PY, "extra_state_attributes", "tuning_attributes")
+
+    def test_entity_shows_the_regulators_push_without_computing_it(self):
+        """The push is the regulator's (taken before clamping); the entity
+        must not rebuild it from the rounded, clamped attributes."""
+        with open(_CLIMATE_PY, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        attributes = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "extra_state_attributes"
+        )
+        shown = {
+            key.value: ast.unparse(value)
+            for node in ast.walk(attributes)
+            if isinstance(node, ast.Dict)
+            for key, value in zip(node.keys, node.values, strict=True)
+            if isinstance(key, ast.Constant)
+        }
+        assert shown.get("push_c") == "r.push_c"
+        assert not any(isinstance(node, ast.BinOp) for node in ast.walk(attributes))
+
 
 # ---------------------------------------------------------------------------
 # HVAC mode change must hold the regulation lock (AST-based guard)

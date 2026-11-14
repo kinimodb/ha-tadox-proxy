@@ -1146,3 +1146,116 @@ class TestTemperatureRangeLimits:
             state=state,
         )
         assert result.target_for_tado_c <= cfg.max_target_c
+
+
+# ---------------------------------------------------------------------------
+# Push: the command minus the thermostat's own reading
+# ---------------------------------------------------------------------------
+
+class TestPush:
+    """The push says how hard the thermostat is asked to heat."""
+
+    def test_room_half_a_degree_cold_gives_a_push_of_nine_tenths(self):
+        """The worked example of docs/how-it-works.md: Kp 0.8, no integral yet."""
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=20.5,
+            tado_internal_c=23.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.push_c == pytest.approx(0.9)
+
+    def test_carried_integral_adds_to_the_push(self):
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=20.5,
+            tado_internal_c=23.0,
+            time_delta_s=0.0,
+            state=RegulationState(integral_c=0.3),
+        )
+
+        assert result.push_c == pytest.approx(1.2)
+
+    def test_gain_scheduling_scales_the_push(self):
+        """3 K too cold runs on Kp 0.8 * 1.5 = 1.2, so the push is 2.2 * 3."""
+        result = make_regulator().compute(
+            setpoint_c=22.0,
+            room_temp_c=19.0,
+            tado_internal_c=20.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.push_c == pytest.approx(6.6)
+
+    def test_room_too_warm_gives_a_negative_push(self):
+        result = make_regulator().compute(
+            setpoint_c=20.0,
+            room_temp_c=20.5,
+            tado_internal_c=23.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.push_c == pytest.approx(-0.9)
+
+    def test_push_is_taken_before_the_command_is_clamped(self):
+        """6 K too cold on a hot radiator: the command stops at 30, the push does not."""
+        result = make_regulator().compute(
+            setpoint_c=25.0,
+            room_temp_c=19.0,
+            tado_internal_c=28.0,
+            time_delta_s=0.0,
+            state=RegulationState(),
+        )
+
+        assert result.target_for_tado_c == 30.0
+        # 2.2 * 6; the clamped command lies only 2.0 above the reading.
+        assert result.push_c == pytest.approx(13.2)
+
+    def test_no_push_when_an_input_is_not_a_number(self):
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=float("nan"),
+            tado_internal_c=23.0,
+            time_delta_s=60.0,
+            state=RegulationState(integral_c=0.3),
+        )
+
+        assert result.push_c == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Tuning read-out: the values a room runs on, for the recorder history
+# ---------------------------------------------------------------------------
+
+class TestTuningAttributes:
+    """History has to say which tuning a room ran on, without a rule to guess it."""
+
+    def test_a_room_with_its_own_tuning_shows_its_values(self):
+        config = RegulationConfig(
+            tuning=CorrectionTuning(kp=1.0, ki=0.001),
+            integral_deadband_c=0.4,
+            gain_scheduling_enabled=False,
+            gain_fine_multiplier=0.8,
+            gain_startup_multiplier=2.5,
+            gain_fine_threshold_c=0.3,
+            gain_startup_threshold_c=1.0,
+            min_change_threshold_c=0.4,
+            min_command_interval_s=240.0,
+        )
+
+        assert config.tuning_attributes() == {
+            "correction_kp": 1.0,
+            "correction_ki": 0.001,
+            "integral_deadband_c": 0.4,
+            "gain_scheduling_enabled": False,
+            "gain_fine_multiplier": 0.8,
+            "gain_startup_multiplier": 2.5,
+            "gain_fine_threshold_c": 0.3,
+            "gain_startup_threshold_c": 1.0,
+            "min_change_threshold_c": 0.4,
+            "min_command_interval_s": 240.0,
+        }

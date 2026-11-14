@@ -530,8 +530,12 @@ something is wrong or when you are curious what the integration is thinking.
 | `p_correction_c` | Correction from the current gap |
 | `i_correction_c` | Correction from a persistent offset |
 | `error_c` | The gap between target and actual room temperature |
+| `push_c` | How far the computed command lies above the Tado's own reading. The valve opens while it is above zero. Taken before the command is limited to its allowed range. See [how it works](how-it-works.md#putting-it-together) |
 | `target_for_tado_c` | The number actually sent to the Tado |
 | `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
+| `integral_deadband_c` | The configured integral precision zone |
+| `gain_scheduling_enabled`, `gain_fine_multiplier`, `gain_startup_multiplier`, `gain_fine_threshold_c`, `gain_startup_threshold_c` | The configured [gain scheduling](#gain-scheduling) |
+| `min_change_threshold_c` / `min_command_interval_s` | The configured minimum change and minimum time between commands |
 | `user_preset` | Your own choice – what comes back once nothing else holds the room. `none` means Manual |
 | `manual_target_c` | The temperature of Manual. Shown whenever your choice is Manual, also while something else holds the room |
 | `manual_return_preset` | The preset that applies when the Manual timer ends. Only while the timer runs |
@@ -550,10 +554,15 @@ While the sensor is missing, `room_temp_last_valid_c` and
 `room_temp_last_valid_age_s` appear as well.
 
 The regulation values — `feedforward_offset_c`, `p_correction_c`, `i_correction_c`,
-`error_c`, `target_for_tado_c` and `is_saturated` — only appear while the integration
-is actually regulating. They disappear while the proxy is off, and when the room
-sensor has been gone for longer than the grace period — unless a backup room sensor
-has taken over.
+`error_c`, `push_c`, `target_for_tado_c` and `is_saturated` — only appear while the
+integration is actually regulating. They disappear while the proxy is off, and when
+the room sensor has been gone for longer than the grace period — unless a backup room
+sensor has taken over.
+
+The configured values — the gains, the integral precision zone, gain scheduling,
+minimum change and minimum time between commands — are always there. They only change
+when you change the setting, so the history of the entity shows which values a room
+ran on at any time.
 
 ### What "heating" means
 

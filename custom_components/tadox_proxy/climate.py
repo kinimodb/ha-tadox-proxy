@@ -635,8 +635,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
         attrs: dict[str, Any] = {
             "regulation_reason": self._last_reason,
             "tado_internal_temp_c": self.coordinator.data.get("tado_internal_temp"),
-            "correction_kp": self._config.tuning.kp,
-            "correction_ki": self._config.tuning.ki,
+            # The tuning this room runs on – history then says which values
+            # were active.  Static between option changes: no extra state rows.
+            **self._config.tuning_attributes(),
             "effective_setpoint_c": self._effective_setpoint(),
             # User choice, layer flags and the window's valve state – also
             # read back after a restart.
@@ -658,6 +659,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 "p_correction_c": r.p_correction_c,
                 "i_correction_c": r.i_correction_c,
                 "error_c": r.error_c,
+                "push_c": r.push_c,
                 "target_for_tado_c": r.target_for_tado_c,
                 "is_saturated": r.is_saturated,
             })

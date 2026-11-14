@@ -48,6 +48,12 @@ _Avoid_: window mode
 A switch that keeps nobody home from holding the room, so guests get normal heating while the presence sensor reports the house empty.
 _Avoid_: party mode, presence override
 
+### Regulation
+
+**Push**:
+How far the command computed for the valve lies above the valve's own reading, before the command is limited to the allowed range. The readings show the valve opening while the push is above zero and staying shut at zero or below; the Tado X does not report its valve, so this is read from the temperatures.
+_Avoid_: gap (that is target minus room temperature), u, offset
+
 ### Boiler
 
 **Needs heat**:

@@ -59,6 +59,12 @@ class RegulationResult:
     p_correction_c: float          # proportional correction (diagnostic)
     i_correction_c: float          # integral correction     (diagnostic)
     error_c: float                 # room error: setpoint - room_temp
+    # The push: the command before clamping minus Tado's own reading, i.e.
+    # (1 + effective Kp) * error + integral.  The valve opens while it is
+    # above zero (diagnostic; see "Push" in CONTEXT.md).  It holds the
+    # integral this command was built with; i_correction_c already shows
+    # the integral after this cycle.
+    push_c: float
     is_saturated: bool             # True when output was clamped
     new_state: RegulationState
 
@@ -150,6 +156,7 @@ class FeedforwardPiRegulator:
                     p_correction_c=0.0,
                     i_correction_c=state.integral_c,
                     error_c=0.0,
+                    push_c=0.0,
                     is_saturated=False,
                     new_state=state,
                 )
@@ -219,6 +226,7 @@ class FeedforwardPiRegulator:
             p_correction_c=round(p_correction, 2),
             i_correction_c=round(new_integral, 2),
             error_c=round(error, 2),
+            push_c=round(raw_command - tado_internal_c, 2),
             is_saturated=is_saturated,
             new_state=new_state,
         )

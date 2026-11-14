@@ -139,7 +139,8 @@ seconds to add as much push as the gap itself gives. That is the *integral time*
 the controller: 10 minutes with the defaults.
 
 You can watch all four numbers live in **Developer Tools → States** on your proxy
-entity. They are listed in the
+entity, and the push as `push_c`. It is taken before the clamp, so it also says how
+hard the proxy would push while the command stands at its upper limit. They are listed in the
 [settings reference](settings.md#diagnostic-attributes).
 
 ---
