@@ -128,15 +128,20 @@ The result is clamped to 5–30 °C so a strange sensor reading can never send a
 command.
 
 Take the thermostat's own reading away from that sum and what is left is
-`(1 + Kp) × error + integral`. Call it the push. The readings show the valve opening
-while the push is above zero, that is, while the target sent to the thermostat is above
-the thermostat's own reading, and staying shut at zero or below. The Tado X does not
-report its valve, so this is what the readings show, not something the thermostat
-confirms. The `1` comes from feedforward, which already moves the target along with
-the gap. With `Kp = 0.8` a room 0.5 °C too cold gives a push of 0.9 °C before the
-integral adds anything. If the gap stays the same, the integral needs `(1 + Kp) / Ki`
-seconds to add as much push as the gap itself gives. That is the *integral time* of
-the controller: 10 minutes with the defaults.
+`(1 + Kp) × error + integral`. Call it the push. A push above zero means that the
+computed target lies above the thermostat's own reading, so it asks the valve to open.
+The valve is taken to be open while the setpoint the thermostat holds is above its own
+reading, and shut otherwise. So the push counts once its command has been sent: a
+very small change is not sent, and others can wait (see
+[Why it waits three minutes](#why-it-waits-three-minutes)). The Tado X does not
+report its valve, so this is a working model read from the temperatures, not
+something the thermostat confirms.
+
+The `1` comes from feedforward, which already moves the target along with the gap.
+With `Kp = 0.8` a room 0.5 °C too cold gives a push of 0.9 °C before the integral
+adds anything. If the gap stays the same, the integral needs `(1 + Kp) / Ki` seconds
+to add as much push as the gap itself gives. That is the *integral time* of the
+controller: 10 minutes with the defaults.
 
 You can watch all four numbers live in **Developer Tools → States** on your proxy
 entity, and the push as `push_c`. It is taken before the clamp, so it also says how

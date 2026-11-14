@@ -561,7 +561,7 @@ something is wrong or when you are curious what the integration is thinking.
 | `p_correction_c` | Correction from the current gap |
 | `i_correction_c` | Correction from a persistent offset |
 | `error_c` | The gap between target and actual room temperature |
-| `push_c` | How far the computed command lies above the Tado's own reading. The valve opens while it is above zero. Taken before the command is limited to its allowed range. See [how it works](how-it-works.md#putting-it-together) |
+| `push_c` | How far the computed command lies above the Tado's own reading. Above zero it asks the valve to open, once that command has been sent; whether the valve is open depends on the setpoint the Tado holds (see `target_for_tado_c` and `regulation_reason`). Taken before the command is limited to its allowed range. See [how it works](how-it-works.md#putting-it-together) |
 | `target_for_tado_c` | The setpoint the integration has computed for the Tado. It is sent once it differs by at least the minimum change (0.3 °C by default) from the setpoint the Tado holds and the command interval allows it. What the Tado really holds is the `temperature` of the Tado's own climate entity |
 | `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
 | `integral_deadband_c` | The configured integral precision zone |

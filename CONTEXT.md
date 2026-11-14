@@ -51,7 +51,7 @@ _Avoid_: party mode, presence override
 ### Regulation
 
 **Push**:
-How far the command computed for the valve lies above the valve's own reading, before the command is limited to the allowed range. The readings show the valve opening while the push is above zero and staying shut at zero or below; the Tado X does not report its valve, so this is read from the temperatures.
+How far the command computed for the valve lies above the valve's own reading, before the command is limited to the allowed range. Above zero the command asks the valve to open; at zero or below the valve is taken to be shut. That holds once the command has been sent: the valve follows the setpoint it holds, not the computed one. The Tado X does not report its valve, so this is a working model read from the temperatures.
 _Avoid_: gap (that is target minus room temperature), u, offset
 
 ### Boiler

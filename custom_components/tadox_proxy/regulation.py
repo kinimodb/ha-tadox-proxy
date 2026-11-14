@@ -60,10 +60,11 @@ class RegulationResult:
     i_correction_c: float          # integral correction     (diagnostic)
     error_c: float                 # room error: setpoint - room_temp
     # The push: the command before clamping minus Tado's own reading, i.e.
-    # (1 + effective Kp) * error + integral.  The valve opens while it is
-    # above zero (diagnostic; see "Push" in CONTEXT.md).  It holds the
-    # integral this command was built with; i_correction_c already shows
-    # the integral after this cycle.
+    # (1 + effective Kp) * error + integral.  Above zero it asks the valve
+    # to open, once this command has been sent; the valve follows the
+    # setpoint it holds (diagnostic; see "Push" in CONTEXT.md).  It holds
+    # the integral this command was built with; i_correction_c already
+    # shows the integral after this cycle.
     push_c: float
     is_saturated: bool             # True when output was clamped
     new_state: RegulationState
