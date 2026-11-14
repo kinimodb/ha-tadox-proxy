@@ -61,7 +61,7 @@ or automation has set since.
 | **You tap the preset that is forced right now** | The timer keeps running. Tapping Frost Protection during the close delay is a real choice, though, and ends it |
 | **A schedule or automation sets a preset** | The timer keeps running and Manual lasts its full time. The new preset only applies afterwards, also after a restart |
 | **A schedule or automation sets the preset that is forced right now** | The command is ignored. The timer, the preset that applies afterwards and a running close delay stay as they were |
-| **A schedule or automation starts a boost** | The boost starts as it does when you start it. The timer keeps running |
+| **A schedule or automation starts a boost** | The boost starts. Its command can wait for the min command interval (see [Boost](#boost)). The timer keeps running |
 | **A schedule or automation sets a temperature** (`climate.set_temperature`) | It counts as a new Manual change, as if you had made it. The timer starts over |
 
 Two limits, because Home Assistant only tells whether a logged-in user is behind a
@@ -110,6 +110,10 @@ The attribute `user_preset` on the climate entity shows your choice at any time.
   [min command interval](#trv-communication): if you switch between Boost and another
   preset several times in a row, the next boost waits. A boost that a schedule or an
   automation starts waits for the min command interval like every other increase.
+  Home Assistant only tells whether a logged-in user is behind a command, so the two
+  limits under [Presets](#presets) apply here too: a button that starts the boost
+  through an automation waits, and tools that connect with an access token (Node-RED,
+  AppDaemon) count as you, so their boost is sent right away.
 - The time only counts down while the boost is what heats the room. An open window,
   nobody home or heating that is off **pauses** it. Afterwards it continues with the
   time that was left. `sensor.<name>_boost_remaining` stands still meanwhile.

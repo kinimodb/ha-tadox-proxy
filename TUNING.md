@@ -301,8 +301,11 @@ dial change; if it repeats every rate-limit interval, the TRV is not accepting t
 commands (check the Tado integration and whether the zone is in manual mode).
 
 A `regulation_reason` of `sent(urgent_increase)` means a person started a boost and
-its command went out without waiting for the rate-limit interval. It shows once per
-boost. A boost started by a schedule or an automation shows `rate_limited(...)` first.
+its command went out without waiting for the rate-limit interval. It only shows when
+another command went out less than the rate-limit interval before. Otherwise the boost
+shows `sent(normal_update)` like any change. In that same situation a boost started
+by a schedule or an automation shows `rate_limited(...)` first, and so does a second
+boost within the interval.
 
 ---
 

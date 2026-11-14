@@ -307,7 +307,9 @@ Two refinements soften the edges:
   the first minutes of that time waiting. This happens once per interval, so tapping
   Boost and another preset in turns does not send a command with every tap. A boost
   that a schedule or an automation starts waits like every other increase, and so
-  does a boost that comes back after an open window or after nobody was home.
+  does a boost that comes back after an open window or after nobody was home. Tools
+  that connect with an access token count as a person (see
+  [Boost](settings.md#boost)).
 
 ---
 
