@@ -15,11 +15,8 @@ from homeassistant.components.climate import (
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
 from homeassistant.core import State
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import (
-    mock_restore_cache,
-    mock_restore_cache_with_extra_data,
-)
 
+from .harness import mock_restore_cache, mock_restore_cache_with_extra_data
 from .helpers import (
     CLIMATE,
     CONTROL_INTERVAL_S,
