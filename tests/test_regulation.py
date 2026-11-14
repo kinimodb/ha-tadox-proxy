@@ -1243,6 +1243,22 @@ class TestPush:
         # 2.2 * 6; the clamped command lies only 2.0 above the reading.
         assert result.push_c == pytest.approx(13.2)
 
+    def test_push_holds_the_integral_the_command_was_built_with(self):
+        """A minute has passed and the room is 0.2 K too cold: the integral
+        grows from 0.50 to 0.54 in this cycle (Ki 0.003 * 0.2 * 60 s).  The
+        command, and so the push, still carries the 0.50 from before:
+        1.8 * 0.2 + 0.50."""
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=20.8,
+            tado_internal_c=23.0,
+            time_delta_s=60.0,
+            state=RegulationState(integral_c=0.5),
+        )
+
+        assert result.i_correction_c == pytest.approx(0.54)
+        assert result.push_c == pytest.approx(0.86)
+
     def test_no_push_when_an_input_is_not_a_number(self):
         result = make_regulator().compute(
             setpoint_c=21.0,
