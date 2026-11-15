@@ -434,6 +434,7 @@ limited (see [TRV Communication](#trv-communication)):
 
 - A higher setpoint waits until 180 s have passed since the last command to that
   thermostat. The integration checks once a minute, so the wait can be up to 240 s.
+  Only a boost you start yourself can skip this wait (see [Boost](#boost)).
 - A setpoint less than 0.3 °C above the one the thermostat already holds is not sent
   at all. The thermostat keeps what it has until the difference is large enough.
 - `hvac_action: heating` on the proxy comes later still. The integration reads the
