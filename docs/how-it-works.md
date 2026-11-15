@@ -254,8 +254,8 @@ v1.6.0 also lowered `Ki` to 0.001; why it went back to 0.003 is in
 
 `Kp` has to serve two situations that want opposite things.
 
-Heating a cold room wants a large `Kp`: push hard, get there quickly. Holding a room
-steady wants a small `Kp`: react gently, do not oscillate around the target.
+Far from the target a strong reaction is wanted: a large `Kp`. Holding a room steady
+wants a small `Kp`: react gently, do not oscillate around the target.
 
 Picking one value means accepting a compromise that is wrong in both situations.
 

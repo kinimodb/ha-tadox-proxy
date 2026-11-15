@@ -598,9 +598,11 @@ the room sensor has been gone for longer than the grace period — unless a back
 sensor has taken over.
 
 The configured values — the gains, the integral precision zone, gain scheduling,
-minimum change and minimum time between commands — are always there. They only change
-when you change the setting, so the history of the entity shows which values a room
-ran on, as far back as your history goes. They are recorded from v1.6.1 on.
+minimum change and minimum time between commands — are there whenever the proxy is
+available. They only change when you change the setting, so the history of the entity
+shows which values a room ran on, as far back as your history goes. Kp and Ki
+(`correction_kp`, `correction_ki`) have been recorded all along; the other values are
+recorded from v1.6.1 on.
 
 ### What "heating" means
 

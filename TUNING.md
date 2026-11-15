@@ -34,7 +34,7 @@ did what.
 | Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak; some thermostats need a lasting positive correction | Less than about 0.3°C below target: if you lowered [Ki](#ki-integral-correction), set it back to 0.003 (the default), otherwise raise it a little, to 0.004 or 0.005 (a bit more overshoot). From about 0.3°C below target Ki does not help: the correction only builds up inside the band `integral_deadband_c` (0.3°C by default) and decays outside it. Widening that band might help; this has not been tested |
 | The boiler keeps firing, or the valve keeps heating, after the room has reached its target (a boiler that only runs on demand) | After a slow final approach the long-term correction keeps the valve open for a while, and a boiler that follows the valve or `hvac_action` keeps running with it | [Heating goes on after the target](#heating-goes-on-after-the-room-reached-its-target) |
 | A room at its target still takes some heat while another room keeps a shared boiler running | Mostly the shared boiler, not the settings. Tuning changes little here | [Still not right?](#still-not-right) |
-| Room takes very long to warm up | Often the radiator or the hot water supply, and then a setting rarely helps. Sometimes the radiator stays cool because the room is already close to its target | [Room takes long to warm up](#room-takes-long-to-warm-up) |
+| Room takes very long to warm up | Often the radiator or the hot water supply, and then a setting rarely helps. Sometimes the radiator is still cool while the room is already close to its target | [Room takes long to warm up](#room-takes-long-to-warm-up) |
 | Room feels fine but the reading is always off | Sensor placement, not tuning | [Sensor placement](docs/setup.md#step-1-place-the-sensor-properly) |
 
 If you want to understand *why* a value has the effect it does, see
@@ -177,7 +177,7 @@ while the room is far from its target and gentle control near it.
 
 | Error Zone | Condition | Kp Multiplier | Effect |
 |-----------|-----------|---------------|--------|
-| **Startup** | \|error\| > 2.0°C | × 1.5 (configurable) | Aggressive heating on cold start |
+| **Startup** | \|error\| > 2.0°C | × 1.5 (configurable) | Strong reaction far from the target |
 | **Transition** | 0.5°C ≤ \|error\| ≤ 2.0°C | × 1.0–1.5 (linear) | Smooth interpolation between fine and startup |
 | **Fine** | \|error\| < 0.5°C | × 1.0 (configurable) | No attenuation by default |
 
@@ -186,7 +186,7 @@ The zones go by the size of the error (\|error\|), so they apply in the same way
 while the room is above its target. That is deliberate.
 
 **When to disable:** If you have already tuned Kp carefully for your room and are
-satisfied with both heat-up speed and steady-state stability, you can disable adaptive
+satisfied with how the room reaches and holds its target, you can disable adaptive
 scheduling in the options flow under "Gain Scheduling". The base Kp value will then be
 used unchanged.
 
@@ -323,11 +323,13 @@ that follows one sent this way within the interval.
 Watch `feedforward_offset_c` while the room heats up. It shows how far the radiator
 thermostat, which sits on the radiator, reads above the room.
 
-There is no fixed number for "hot". Compare with the same room: note the value after
-the heating has been off for about an hour. That is this room's value for a cool
-radiator, and it differs from room to room. A value clearly above it means that hot
-water flows through the radiator. It does not say how much. There are two cases, and
-they need different answers.
+There is no fixed number for "hot". Compare with the same room: note the value when
+the radiator has not heated for about an hour, for example in the morning before the
+first heat-up or while a low target keeps the valve shut. Leave the proxy switched
+on: while it is off, the value is not shown. The value you note is this room's value
+for a cool radiator, and it differs from room to room. A value clearly above it means
+that the radiator is warm. It does not say how much heat it gives. There are two
+cases, and they need different answers.
 
 1. **The radiator is already hot and the room still warms slowly.** The offset is
    clearly above the room's value for a cool radiator. Usually no setting helps
