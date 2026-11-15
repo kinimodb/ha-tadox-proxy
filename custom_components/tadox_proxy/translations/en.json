@@ -164,6 +164,7 @@
     "error": {
       "backup_sensor_required": "Choose a backup room sensor for this action.",
       "backup_sensor_same": "The backup room sensor must differ from the external temperature sensor.",
+      "gain_thresholds": "Adaptive gain scheduling: the near-target zone threshold must be lower than the cold-start zone threshold.",
       "needs_heat_thresholds": "Needs heat sensor: the switch-off value must be lower than the switch-on value.",
       "temp_entity_not_found": "External temperature sensor not found.",
       "temp_not_temperature": "Please select a temperature sensor (device_class: temperature)."

@@ -1,1 +1,1 @@
-"""Integration tests against a real Home Assistant core (pytest-homeassistant-custom-component)."""
+"""Integration tests against a real Home Assistant core (harness: see harness.py)."""

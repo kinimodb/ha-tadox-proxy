@@ -164,6 +164,7 @@
     "error": {
       "backup_sensor_required": "Für diese Aktion einen Ersatz-Raumsensor auswählen.",
       "backup_sensor_same": "Der Ersatz-Raumsensor muss sich vom externen Temperatursensor unterscheiden.",
+      "gain_thresholds": "Adaptive Verstärkung: Die Nahziel-Zonenschwelle muss kleiner sein als die Kaltstart-Zonenschwelle.",
       "needs_heat_thresholds": "Sensor „Braucht Wärme“: Der Ausschaltwert muss kleiner sein als der Einschaltwert.",
       "temp_entity_not_found": "Externer Temperatursensor nicht gefunden.",
       "temp_not_temperature": "Bitte einen Temperatursensor (device_class: temperature) auswählen."

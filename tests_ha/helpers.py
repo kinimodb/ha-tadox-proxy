@@ -14,11 +14,8 @@ from homeassistant.core import Context, Event, HomeAssistant, ServiceRegistry, S
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_capture_events,
-    async_fire_time_changed,
-)
+
+from .harness import MockConfigEntry, async_capture_events, async_fire_time_changed
 
 # Not imported from the integration: custom_components must stay unimported
 # until the hass fixture has mounted the harness's package (see conftest.py).

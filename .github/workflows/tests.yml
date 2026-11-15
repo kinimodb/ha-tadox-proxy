@@ -33,10 +33,13 @@ jobs:
         include:
           # Minimum supported version (hacs.json "homeassistant").
           - homeassistant: "2026.3.1"
-            phcc: "0.13.317"
-          # Newest version the suite has been verified against.
-          - homeassistant: "2026.10.2"
-            phcc: "0.13.373"
+            harness: "pytest-homeassistant-custom-component==0.13.317"
+          # Newest version the suite has been verified against.  From Home
+          # Assistant 2026.11 the test harness ships with Home Assistant as
+          # pytest-homeassistant, under the same version number;
+          # pytest-homeassistant-custom-component ended with 2026.10.
+          - homeassistant: "2026.11.1"
+            harness: "pytest-homeassistant==2026.11.1"
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +50,7 @@ jobs:
           cache-dependency-path: .github/workflows/tests.yml
 
       - name: Install dependencies
-        run: pip install "pytest-homeassistant-custom-component==${{ matrix.phcc }}"
+        run: pip install "${{ matrix.harness }}"
 
       - name: Run HA integration tests
         run: python -m pytest tests_ha/ -v

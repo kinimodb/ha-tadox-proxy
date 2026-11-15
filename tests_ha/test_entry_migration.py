@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from .harness import MockConfigEntry
 from .helpers import (
     CURRENT_ENTRY_MINOR_VERSION,
     DOMAIN,

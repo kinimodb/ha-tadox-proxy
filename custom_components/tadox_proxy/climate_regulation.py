@@ -193,7 +193,14 @@ class RegulationMixin:
             min_change_c=self._config.min_change_threshold_c,
             urgent_decrease_c=self._behaviour.urgent_decrease_threshold_c,
             overlay_refresh_s=self._overlay_refresh_s,
+            # A boost a person just started is sent at once; PresetLayers
+            # knows that one cycle, nothing else gets past the limit upwards.
+            urgent_increase=self._layers.is_boost_start(trigger),
+            last_urgent_increase_ts=self._last_urgent_increase_ts,
         )
+        if reason == "urgent_increase":
+            # decide_send allows one per interval; it needs to know when.
+            self._last_urgent_increase_ts = now
 
         # 6. Send command to Tado
         if should_send:

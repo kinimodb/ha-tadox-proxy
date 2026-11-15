@@ -143,3 +143,23 @@ class RegulationConfig:
     gain_fine_multiplier: float = 1.0      # Kp multiplier when |error| < fine_threshold
     gain_startup_threshold_c: float = 2.0  # error threshold for startup (aggressive) zone
     gain_fine_threshold_c: float = 0.5     # error threshold for fine (gentle) zone
+
+    def tuning_attributes(self) -> dict[str, float | bool]:
+        """The tuning a room runs on, as state attributes of its climate entity.
+
+        Field evaluations read the recorder history, and only what is in the
+        state says there which values were active at a given minute.  The
+        values change with the options alone, so they add no state rows.
+        """
+        return {
+            "correction_kp": self.tuning.kp,
+            "correction_ki": self.tuning.ki,
+            "integral_deadband_c": self.integral_deadband_c,
+            "gain_scheduling_enabled": self.gain_scheduling_enabled,
+            "gain_fine_multiplier": self.gain_fine_multiplier,
+            "gain_startup_multiplier": self.gain_startup_multiplier,
+            "gain_fine_threshold_c": self.gain_fine_threshold_c,
+            "gain_startup_threshold_c": self.gain_startup_threshold_c,
+            "min_change_threshold_c": self.min_change_threshold_c,
+            "min_command_interval_s": self.min_command_interval_s,
+        }

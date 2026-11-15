@@ -4,8 +4,8 @@ from __future__ import annotations
 from homeassistant.components.climate import PRESET_AWAY, PRESET_COMFORT, PRESET_ECO
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import State
-from pytest_homeassistant_custom_component.common import mock_restore_cache
 
+from .harness import mock_restore_cache
 from .helpers import (
     CLIMATE,
     PRESENCE_AWAY_DELAY_S,

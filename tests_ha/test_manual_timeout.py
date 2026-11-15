@@ -7,8 +7,8 @@ import pytest
 from homeassistant.components.climate import PRESET_COMFORT, PRESET_ECO, PRESET_NONE, HVACMode
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import Context, State
-from pytest_homeassistant_custom_component.common import mock_restore_cache_with_extra_data
 
+from .harness import mock_restore_cache_with_extra_data
 from .helpers import CLIMATE, TRV, async_advance, async_set_state, async_setup_proxy
 
 TIMED = {"manual_mode_action": "timer", "manual_mode_duration_min": 1}
