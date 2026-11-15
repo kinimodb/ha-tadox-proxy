@@ -34,9 +34,9 @@ prüfen lässt, per AST-Guard absichern (siehe `tests/test_climate_hardening.py`
 
 - `parameters.py` – Defaults (RegulationConfig, PresetConfig, CorrectionTuning, BehaviourConfig, Fenster-/Präsenz-/Overlay-Zeiten, Braucht-Wärme-Schwellen)
 - `regulation.py` – Feedforward + PI Engine (HA-unabhängig)
-- `preset_layers.py` – `PresetLayers`: welches Preset der Raum fährt. Einziger Besitzer von Nutzerwahl, Fenster-, Niemand-da- und Boost-Ebene, Gastmodus, Rohzuständen der Sensoren und Ventil-Zustand der Fenster-Aktion „aus“; Start nach Neustart inkl. Migration von v1.4.x. Ereignisse rein, `Effects` (Timer starten/stoppen, Regelzyklus, Zustand geändert) raus; plant selbst keine Timer
-- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Follow-Tado-Erkennung, Sensor-Grace + Sensorausfall-Aktion (`ControlModeResolver`), Sende-/Rate-Limit-Entscheidung (`decide_send`), Preset→Ziel (`preset_target_c`), tolerantes Zahlen-Parsing (`safe_float`), Braucht-Wärme-Entscheidung für den Kessel (`NeedsHeat`, Hysterese auf `error_c`)
-- `climate.py` – HA ClimateEntity: Properties, Lifecycle (Start-Snapshot für PresetLayers), Config, Follow-Tado
+- `preset_layers.py` – `PresetLayers`: welches Preset der Raum fährt. Einziger Besitzer von Nutzerwahl, Fenster-, Niemand-da- und Boost-Ebene, Gastmodus, Rohzuständen der Sensoren und Ventil-Zustand der Fenster-Aktion „aus“; Start nach Neustart inkl. Migration von v1.4.x. Ereignisse rein, `Effects` (Timer starten/stoppen, Regelzyklus, Zustand geändert) raus; plant selbst keine Timer; sagt dem Regelzyklus, ob er der Start eines Boosts durch eine Person ist (`is_boost_start`, Trigger `CYCLE_BOOST_STARTED`)
+- `climate_controllers.py` – HA-unabhängige Entscheidungslogik: Follow-Tado-Erkennung, Sensor-Grace + Sensorausfall-Aktion (`ControlModeResolver`), Sende-/Rate-Limit-Entscheidung (`decide_send`; einzige Ausnahme nach oben: `urgent_increase`, höchstens eine je Sende-Intervall über `last_urgent_increase_ts`), Preset→Ziel (`preset_target_c`), tolerantes Zahlen-Parsing (`safe_float`), Braucht-Wärme-Entscheidung für den Kessel (`NeedsHeat`, Hysterese auf `error_c`)
+- `climate.py` – HA ClimateEntity: Properties, Lifecycle (Start-Snapshot für PresetLayers), Config, Follow-Tado; stellt Einheit, Raum- und Zieltemperatur unter den Namen bereit, die die laufende HA-Version liest (Schalter `_NATIVE_TEMPERATURE_NAMES`: ab 2026.11 `native_*`, davor die alten) – der ältere Zweig fällt weg, sobald das Minimum 2026.11 ist
 - `climate_regulation.py` – RegulationMixin: Regelzyklus, TRV-Kommandos, Rückmeldung der Fenster-Aktion an PresetLayers; lässt `NeedsHeat` vor jedem Schreiben der Sub-Entities entscheiden (`_write_linked_entities`)
 - `climate_presets.py` – PresetMixin: Adapter zu PresetLayers – leitet Sensor-/Service-Ereignisse weiter, Timer-Registry (id → cancel), wendet `Effects` an
 - `device.py` – `proxy_device_info()`: vollständige DeviceInfo für **alle** Entities (sonst fehlt der Gerätename im Entity-ID-Präfix)
@@ -58,9 +58,14 @@ python -m pytest tests_ha/ -v   # echter HA-Core, nur Linux/macOS/WSL
 ```
 
 - `tests/`: umgehen `__init__.py` via `importlib.util.spec_from_file_location` (HA-Abhängigkeit).
-- `tests_ha/`: Integrationstests gegen einen echten HA-Core mit
-  `pytest-homeassistant-custom-component` (phcc, Python 3.14; Version wie in
-  `.github/workflows/tests.yml`). Eigene `tests_ha/pytest.ini` (asyncio auto).
+- `tests_ha/`: Integrationstests gegen einen echten HA-Core (Python 3.14).
+  Das Test-Gerüst (Harness) kommt ab HA 2026.11 aus `pytest-homeassistant`
+  (gleiche Versionsnummer wie HA), davor aus
+  `pytest-homeassistant-custom-component` (phcc, eingestellt, letzter Stand
+  HA 2026.10); Versionen wie in `.github/workflows/tests.yml`. Helfer des
+  Gerüsts (`MockConfigEntry`, `mock_restore_cache`, …) immer aus
+  `tests_ha/harness.py` importieren, nie direkt aus einem der beiden Pakete.
+  Eigene `tests_ha/pytest.ini` (asyncio auto).
   Helfer in `tests_ha/helpers.py`: `async_setup_proxy`, `async_set_state`,
   `async_advance` (Zeit via `freezer`). TRV-Befehle über `proxy.trv_commands()`
   prüfen – `climate.*` nicht mit `async_mock_service` mocken, das trifft auch
@@ -69,8 +74,11 @@ python -m pytest tests_ha/ -v   # echter HA-Core, nur Linux/macOS/WSL
 - Unter Windows läuft `tests_ha/` nicht (HA-Harness braucht `fcntl`/`resource`) –
   dort ist der CI-Job `ha-integration` maßgeblich.
 - CI testet `tests_ha/` gegen das HA-Minimum aus `hacs.json` und eine neuere
-  Version. Wird `hacs.json` → `homeassistant` angehoben, die phcc-Pins der
-  Matrix mitziehen.
+  Version. Installiert wird nur das Matrix-Feld `harness` (Paket und Version
+  des Test-Gerüsts); `homeassistant` steht nur im Job-Namen. Wird
+  `hacs.json` → `homeassistant` angehoben, im Minimum-Eintrag der Matrix
+  beide Felder mitziehen; ab einem Minimum von 2026.11 entfällt phcc samt
+  dem Ausweich-Import in `tests_ha/harness.py`.
 - **Vor jedem Commit müssen alle Tests grün sein.**
 
 ## Commit-Konventionen
@@ -141,3 +149,13 @@ Lies `.claude/docs/brand-assets.md` bevor du an Logos/Icons arbeitest.
 
 - **iOS Companion App**: `ha-entity-picker` crasht im iOS WebView (HA-Bug, nicht unser Code). Workaround: Browser nutzen.
 - **Rate Limiting** (180s): Batterieschonung für Tado X TRVs – nicht verkürzen.
+  Nach unten darf ein großer Sprung sofort raus (`urgent_decrease`). Nach oben
+  gibt es genau eine Ausnahme: ein Boost, den eine Person startet und der
+  gleich heizt, wird sofort gesendet (`PresetLayers.is_boost_start` →
+  `decide_send(urgent_increase=…)`). Je Sende-Intervall geht höchstens ein
+  solcher Boost am Limit vorbei (Grund `urgent_increase`); ein Boost, der
+  keine Ausnahme brauchte (kein Befehl im Intervall davor, Grund
+  `normal_update`), zählt nicht mit. Ein Boost, der erst später anläuft
+  (Fenster offen, niemand da, Heizung aus), wartet wie jede andere Erhöhung.
+  Diese Ausnahme nicht auf andere Erhöhungen, Automationen oder Zeitpläne
+  ausweiten.
