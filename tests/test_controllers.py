@@ -314,12 +314,24 @@ class TestDecideSend:
     def test_second_urgent_increase_within_the_interval_waits(self):
         """Boost, another preset, Boost again within seconds: the decrease in
         between is urgent too, so without a bound every tap would send a
-        command.  One urgent increase per interval; the next boost waits."""
+        command.  One urgent increase per interval: a boost that follows one
+        sent past the limit waits."""
         result = self._decide(
             target_c=25.0,
             urgent_increase=True,
             last_command_ts=self.NOW - 5.0,
             last_urgent_increase_ts=self.NOW - 10.0,
+        )
+        assert result == (False, "rate_limited(175s)")
+
+    def test_second_urgent_increase_just_inside_the_interval_waits(self):
+        """The bound is the whole interval: one second before its end the
+        next urgent increase still waits."""
+        result = self._decide(
+            target_c=25.0,
+            urgent_increase=True,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 179.0,
         )
         assert result == (False, "rate_limited(175s)")
 
@@ -331,6 +343,40 @@ class TestDecideSend:
             last_urgent_increase_ts=self.NOW - 180.0,
         )
         assert result == (True, "urgent_increase")
+
+    def test_the_bound_follows_the_configured_interval(self):
+        """The interval is a setting (min_command_interval_s), not a fixed
+        180 s: a longer one keeps the next urgent increase waiting longer, a
+        shorter one frees it sooner."""
+        waits = self._decide(
+            target_c=25.0,
+            urgent_increase=True,
+            min_interval_s=600.0,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 300.0,
+        )
+        assert waits == (False, "rate_limited(595s)")
+
+        free = self._decide(
+            target_c=25.0,
+            urgent_increase=True,
+            min_interval_s=60.0,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 60.0,
+        )
+        assert free == (True, "urgent_increase")
+
+    def test_the_way_down_after_an_urgent_increase_is_still_urgent(self):
+        """The bound holds back increases only.  The boost that just went out
+        past the limit is the baseline; the lower preset tapped seconds later
+        is an urgent decrease, as it always was."""
+        result = self._decide(
+            target_c=21.0,
+            baseline_c=25.0,
+            last_command_ts=self.NOW - 5.0,
+            last_urgent_increase_ts=self.NOW - 5.0,
+        )
+        assert result == (True, "urgent_decrease")
 
     # --- TRV drifted away from our command (dial, Tado schedule) ---
 

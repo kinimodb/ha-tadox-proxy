@@ -1,7 +1,8 @@
 """Boost: counts down only while it heats the room, then the user choice comes back.
 
-A boost a person starts is sent to the TRV at once; one without a person
-waits for the send limit like every other increase.
+A boost a person starts is sent to the TRV at once, but only one per send
+interval goes out past the send limit; one without a person waits for the
+send limit like every other increase.
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from .helpers import (
     async_open_window,
     async_set_state,
     async_setup_proxy,
+    trv_rejects,
 )
 
 BOOST_DURATION_MIN = 10
@@ -50,6 +52,16 @@ async def _async_setup_with_a_command_just_sent(hass, freezer, **options) -> Pro
     holds back every further increase for the next three minutes."""
     proxy = await async_setup_proxy(hass, options=options, trv_adopts=True)
     await async_advance(hass, freezer, CONTROL_INTERVAL_S)
+    assert len(_setpoints(proxy)) == 1
+    return proxy
+
+
+async def _async_setup_with_no_recent_command(hass, freezer, **options) -> Proxy:
+    """A quiet room on Comfort: its only command is as old as the send limit,
+    so the next change goes out without any exception."""
+    proxy = await _async_setup_with_a_command_just_sent(hass, freezer, **options)
+    for _ in range(MIN_COMMAND_INTERVAL_S // CONTROL_INTERVAL_S):
+        await async_advance(hass, freezer, CONTROL_INTERVAL_S)
     assert len(_setpoints(proxy)) == 1
     return proxy
 
@@ -147,7 +159,8 @@ async def test_boost_and_another_preset_in_turns_send_one_boost_at_once(
 ):
     """Boost, Eco, Boost, Eco, Boost, seconds apart.  The way down is an
     urgent decrease, so without a bound every tap would be a command.  One
-    boost per send interval goes out at once; the next one waits for it."""
+    boost per send interval goes out past the send limit; the next one waits
+    for the limit."""
     proxy = await _async_setup_with_a_command_just_sent(hass, freezer)
     person = Context(user_id=hass_admin_user.id)
 
@@ -168,6 +181,85 @@ async def test_boost_and_another_preset_in_turns_send_one_boost_at_once(
 
     assert len(_setpoints(proxy)) == 4
     assert _setpoints(proxy)[3] == sent[1]
+
+
+async def test_a_boost_that_needed_no_exception_is_not_counted(hass, freezer, hass_admin_user):
+    """A quiet room: no command in the send interval before.  The first boost
+    needs no exception, goes out as a normal update and is not counted.  So
+    Boost, Eco, Boost, Eco, seconds apart, are four commands, the second
+    boost being the one past the send limit.  A further boost waits and is
+    sent once the interval after the last command has passed."""
+    proxy = await _async_setup_with_no_recent_command(hass, freezer)
+    person = Context(user_id=hass_admin_user.id)
+    reasons = []
+
+    for preset in (PRESET_BOOST, PRESET_ECO, PRESET_BOOST, PRESET_ECO):
+        await async_advance(hass, freezer, 5)
+        await proxy.call(
+            "climate", "set_preset_mode", proxy.climate, context=person, preset_mode=preset
+        )
+        reasons.append(proxy.state.attributes["regulation_reason"])
+
+    assert reasons == [
+        "sent(normal_update)",
+        "sent(urgent_decrease)",
+        "sent(urgent_increase)",
+        "sent(urgent_decrease)",
+    ]
+    # Comfort from the setup, then boost, Eco, boost, Eco.
+    sent = _setpoints(proxy)
+    assert len(sent) == 5
+    assert sent[1] == sent[3] > sent[0] > sent[2] == sent[4]
+
+    await async_advance(hass, freezer, 5)
+    await proxy.call(
+        "climate", "set_preset_mode", proxy.climate, context=person, preset_mode=PRESET_BOOST
+    )
+
+    assert proxy.preset == PRESET_BOOST
+    assert _setpoints(proxy) == sent
+    assert proxy.state.attributes["regulation_reason"].startswith("rate_limited(")
+
+    await async_advance(hass, freezer, MIN_COMMAND_INTERVAL_S)
+
+    assert len(_setpoints(proxy)) == 6
+    assert _setpoints(proxy)[5] == sent[1]
+
+
+async def test_a_failed_send_does_not_open_a_second_boost_past_the_limit(
+    hass, freezer, hass_admin_user
+):
+    """The TRV does not answer the boost that went past the send limit.  Eco,
+    then Boost again, seconds apart: the failed attempt was this interval's
+    boost past the limit, so the next one waits for the send limit."""
+    proxy = await _async_setup_with_a_command_just_sent(hass, freezer)
+    person = Context(user_id=hass_admin_user.id)
+    comfort_c = _setpoints(proxy)[0]
+
+    await async_advance(hass, freezer, 5)
+    with trv_rejects("set_temperature"):
+        await proxy.call(
+            "climate", "set_preset_mode", proxy.climate, context=person, preset_mode=PRESET_BOOST
+        )
+    assert proxy.state.attributes["regulation_reason"] == "send_failed(urgent_increase)"
+
+    for preset in (PRESET_ECO, PRESET_BOOST):
+        await async_advance(hass, freezer, 5)
+        await proxy.call(
+            "climate", "set_preset_mode", proxy.climate, context=person, preset_mode=preset
+        )
+
+    # Comfort from the setup and the way down to Eco: no boost has arrived.
+    sent = _setpoints(proxy)
+    assert len(sent) == 2
+    assert sent[1] < comfort_c
+    assert proxy.preset == PRESET_BOOST
+    assert proxy.state.attributes["regulation_reason"].startswith("rate_limited(")
+
+    await async_advance(hass, freezer, MIN_COMMAND_INTERVAL_S)
+
+    assert len(_setpoints(proxy)) == 3
+    assert _setpoints(proxy)[2] > comfort_c
 
 
 @pytest.mark.parametrize(

@@ -471,15 +471,40 @@ def _decide_send_keyword(name: str) -> list[str]:
     ]
 
 
-def _assignments_in_cycle(attribute: str) -> int:
-    """How often the regulation cycle assigns ``self.<attribute>``."""
-    return sum(
-        1
-        for node in ast.walk(_regulation_cycle())
-        if isinstance(node, ast.Assign)
-        for target in node.targets
-        if isinstance(target, ast.Attribute) and target.attr == attribute
+def _calls(node: ast.AST, method: str) -> bool:
+    """True if *node* contains a call of ``<object>.<method>()``."""
+    return any(
+        isinstance(sub, ast.Call)
+        and isinstance(sub.func, ast.Attribute)
+        and sub.func.attr == method
+        for sub in ast.walk(node)
     )
+
+
+def _assignments(attribute: str) -> list[tuple[str, str]]:
+    """(module, function) of every place in the component's modules that
+    assigns or deletes ``<object>.<attribute>``, one entry each.  The function
+    is the innermost one."""
+    found: list[tuple[str, str]] = []
+
+    def _collect(node: ast.AST, module: str, function: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            function = node.name
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == attribute
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        ):
+            found.append((module, function))
+        for child in ast.iter_child_nodes(node):
+            _collect(child, module, function)
+
+    for file_name in sorted(os.listdir(_COMP_DIR)):
+        if not file_name.endswith(".py"):
+            continue
+        with open(os.path.join(_COMP_DIR, file_name), encoding="utf-8") as fh:
+            _collect(ast.parse(fh.read(), filename=file_name), file_name, "<module>")
+    return sorted(found)
 
 
 class TestDecisionLogicRoutedThroughControllers:
@@ -509,26 +534,40 @@ class TestDecisionLogicRoutedThroughControllers:
         ]
 
     def test_the_cycle_tells_decide_send_when_the_last_urgent_increase_went_out(self):
-        """One urgent increase per send interval is decide_send's rule.  The
-        mixin only keeps the time: it notes it when decide_send answered with
-        that reason and hands it back the next time.  Noting it anywhere else,
-        or not handing it back, would let Boost and a lower preset in turns
-        send a command on every tap."""
+        """One urgent increase per send interval is decide_send's rule; the
+        mixin only keeps the time for it.  Pinned here:
+
+        - the cycle hands decide_send ``self._last_urgent_increase_ts``;
+        - ``if reason == 'urgent_increase': self._last_urgent_increase_ts = now``
+          is a direct statement of the cycle body and stands before the
+          statement that sends, so the time is noted however the send ends;
+        - that statement and one in ``__init__`` of climate.py are the only
+          places in the component's modules that assign the time.
+        """
         assert _decide_send_keyword("last_urgent_increase_ts") == [
             "self._last_urgent_increase_ts"
         ]
-        noted = [
-            (ast.unparse(branch.test), ast.unparse(statement))
-            for branch in ast.walk(_regulation_cycle())
-            if isinstance(branch, ast.If)
-            for statement in branch.body
-            if isinstance(statement, ast.Assign)
-            and "_last_urgent_increase_ts" in ast.unparse(statement.targets[0])
+
+        body = _regulation_cycle().body
+        note = "if reason == 'urgent_increase':\n    self._last_urgent_increase_ts = now"
+        notes = [
+            position
+            for position, statement in enumerate(body)
+            if ast.unparse(statement) == note
         ]
-        assert noted == [
-            ("reason == 'urgent_increase'", "self._last_urgent_increase_ts = now")
+        sends = [
+            position
+            for position, statement in enumerate(body)
+            if _calls(statement, "_async_send_to_tado")
         ]
-        assert _assignments_in_cycle("_last_urgent_increase_ts") == 1
+        assert len(notes) == 1, "the time is not noted in a direct statement of the cycle"
+        assert sends, "no direct statement of the cycle sends"
+        assert notes[0] < sends[0], "the time is noted after the send has started"
+
+        assert _assignments("_last_urgent_increase_ts") == [
+            ("climate.py", "__init__"),
+            ("climate_regulation.py", "_async_regulation_cycle_locked"),
+        ]
 
     def test_regulation_cycle_uses_control_mode_resolver(self):
         assert _method_calls(
