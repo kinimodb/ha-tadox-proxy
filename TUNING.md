@@ -304,8 +304,8 @@ A `regulation_reason` of `sent(urgent_increase)` means a person started a boost 
 its command went out without waiting for the rate-limit interval. It only shows when
 another command went out less than the rate-limit interval before. Otherwise the boost
 shows `sent(normal_update)` like any change. In that same situation a boost started
-by a schedule or an automation shows `rate_limited(...)` first, and so does a second
-boost within the interval.
+by a schedule or an automation shows `rate_limited(...)` first, and so does a boost
+that follows one sent this way within the interval.
 
 ---
 

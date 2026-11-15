@@ -106,9 +106,11 @@ The attribute `user_preset` on the climate entity shows your choice at any time.
 - Picking Boost heats at the boost temperature for the boost time (default 30
   minutes). Then your own choice is back – a boost started from Eco goes back to Eco.
 - A boost you start yourself is sent to the thermostat right away, even if another
-  command went out a moment before. This happens once per
-  [min command interval](#trv-communication): if you switch between Boost and another
-  preset several times in a row, the next boost waits. A boost that a schedule or an
+  command went out a moment before. Only one boost per
+  [min command interval](#trv-communication) skips the wait like this. A boost that
+  follows it within the interval waits. This happens when you switch between Boost
+  and another preset several times in a row. The waiting boost is sent once the min
+  command interval has passed since the last command. A boost that a schedule or an
   automation starts waits for the min command interval like every other increase.
   Home Assistant only tells whether a logged-in user is behind a command, so the two
   limits under [Presets](#presets) apply here too: a button that starts the boost

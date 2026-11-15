@@ -305,12 +305,13 @@ Two refinements soften the edges:
   uncomfortable and wastes energy, so *stopping* heat is allowed to be immediate even
   though *adding* it is not. The one exception is a boost you start yourself: it is a
   short burst with a fixed time, so its command goes out at once instead of spending
-  the first minutes of that time waiting. This happens once per interval, so tapping
-  Boost and another preset in turns does not send a command with every tap. A boost
-  that a schedule or an automation starts waits like every other increase, and so
-  does a boost that comes back after an open window or after nobody was home. Tools
-  that connect with an access token count as a person (see
-  [Boost](settings.md#boost)).
+  the first minutes of that time waiting. Only one boost per interval skips the wait
+  this way: a boost that follows it within the interval waits. So tapping Boost and
+  another preset in turns does not send a command with every tap. A boost that had
+  nothing to wait for is not counted. A boost that a schedule or an automation
+  starts waits like every other increase, and so does a boost that comes back after
+  an open window or after nobody was home. Tools that connect with an access token
+  count as a person (see [Boost](settings.md#boost)).
 
 ---
 
