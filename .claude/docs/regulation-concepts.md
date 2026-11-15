@@ -15,7 +15,7 @@ Das ist die Hauptstellgröße – der PI-Anteil korrigiert nur den Restfehler.
 - Die Vorabversionen von v1.6.0 liefen mit Ki=0.001 (Integralzeit 30 min). Das verlangsamte im Feldtest in einem klaren Fall das letzte Zehntel, und der Gewinn für Kessel auf Anforderung hielt in den echten Läufen des Testers nicht; v1.6.0 ist zurück bei 0.003 (`docs/adr/0003-ki-default-back-to-0003.md`). Heizt ein Ventil nach langsamer Annäherung weiter, folgt der Kessel dem Braucht-Wärme-Sensor, und der Raum bekommt bei Bedarf einen eigenen kleineren Ki (TUNING.md). Keinen Default für alle wegen eines Setups ändern, und ein Update ändert nie einen gespeicherten Wert (keine Migration, die Optionen löscht oder umschreibt).
 - Die PI-Korrektur ist nur für Restfehler zuständig, nicht für die Hauptregelung.
 - Größere Werte führen zu Overshoot wegen der Trägheit des Systems (Heizkörper → Raum).
-- Arbeitsmodell, kein bewiesenes Ventilgesetz: u = Befehl − eigene Messung des Thermostats = (1+Kp)·Fehler + Integral. Bei u > 0 verlangt der Befehl, sobald er gesendet ist, dass das Ventil öffnet (Sollwert über der eigenen Messung); gemessen ist die Ventilstellung nicht. Das Tado X meldet sein Ventil nicht (keine Ventilstellung, kein Heizbedarf, kein `hvac_action`); bestätigt ist das Gesetz also nicht.
+- Arbeitsmodell, kein bewiesenes Ventilgesetz: u = Befehl − eigene Messung des Thermostats = (1+Kp)·Fehler + Integral. Bei u > 0 verlangt der Befehl, sobald er gesendet ist, dass das Ventil öffnet (Sollwert über der eigenen Messung). Das Tado X meldet sein Ventil nicht (keine Ventilstellung, kein Heizbedarf, kein `hvac_action`); bestätigt ist das Gesetz also nicht.
 
 ## Integral Deadband (0.3°C)
 

@@ -150,9 +150,12 @@ Lies `.claude/docs/brand-assets.md` bevor du an Logos/Icons arbeitest.
 - **iOS Companion App**: `ha-entity-picker` crasht im iOS WebView (HA-Bug, nicht unser Code). Workaround: Browser nutzen.
 - **Rate Limiting** (180s): Batterieschonung für Tado X TRVs – nicht verkürzen.
   Nach unten darf ein großer Sprung sofort raus (`urgent_decrease`). Nach oben
-  gibt es genau eine Ausnahme: ein Boost, den eine Person startet, wird sofort
-  gesendet (`PresetLayers.is_boost_start` → `decide_send(urgent_increase=…)`).
-  Je Sende-Intervall geht höchstens ein solcher Boost am Limit vorbei (Grund
-  `urgent_increase`); ein Boost, der keine Ausnahme brauchte (kein Befehl im
-  Intervall davor, Grund `normal_update`), zählt nicht mit. Diese Ausnahme
-  nicht auf andere Erhöhungen, Automationen oder Zeitpläne ausweiten.
+  gibt es genau eine Ausnahme: ein Boost, den eine Person startet und der
+  gleich heizt, wird sofort gesendet (`PresetLayers.is_boost_start` →
+  `decide_send(urgent_increase=…)`). Je Sende-Intervall geht höchstens ein
+  solcher Boost am Limit vorbei (Grund `urgent_increase`); ein Boost, der
+  keine Ausnahme brauchte (kein Befehl im Intervall davor, Grund
+  `normal_update`), zählt nicht mit. Ein Boost, der erst später anläuft
+  (Fenster offen, niemand da, Heizung aus), wartet wie jede andere Erhöhung.
+  Diese Ausnahme nicht auf andere Erhöhungen, Automationen oder Zeitpläne
+  ausweiten.
