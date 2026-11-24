@@ -14,7 +14,7 @@ correction handles any remaining steady-state error.
                     + kp * error             (proportional correction)
                     + integral               (integral correction)
 
-Anti-windup (three mechanisms):
+Anti-windup (four mechanisms):
 1. The integral freezes whenever the output is saturated (clamped at max or
    min target) in the same direction as the error.
 2. The integral only accumulates when |error| < deadband (near target).

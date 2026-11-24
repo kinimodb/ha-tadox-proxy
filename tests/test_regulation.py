@@ -516,6 +516,25 @@ class TestLeak:
 
         assert result.push_c == pytest.approx(0.9)
 
+    def test_it_also_drains_while_the_command_is_held_at_its_limit(self):
+        """Saturated high with the room just below its target: integration
+        is blocked, the leak still acts."""
+        result = make_regulator().compute(
+            setpoint_c=21.0,
+            room_temp_c=20.9,
+            tado_internal_c=29.5,
+            time_delta_s=60.0,
+            state=RegulationState(integral_c=1.0),
+        )
+
+        assert result.is_saturated is True
+        # 1.0 - 1.0 * 60 / 900, no upward step
+        assert result.new_state.integral_c == pytest.approx(0.9333, abs=1e-4)
+
+    def test_the_dialog_unit_is_minutes(self):
+        assert RegulationConfig().integral_leak_min == pytest.approx(15.0)
+        assert RegulationConfig(integral_leak_time_s=1800.0).integral_leak_min == pytest.approx(30.0)
+
 
 # -----------------------------------------------------------------------
 # Safety clamping

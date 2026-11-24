@@ -445,9 +445,7 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                             ),
                             vol.Required(
                                 CONF_INTEGRAL_LEAK_MIN,
-                                default=opts.get(
-                                    CONF_INTEGRAL_LEAK_MIN, defaults.integral_leak_time_s / 60.0
-                                ),
+                                default=opts.get(CONF_INTEGRAL_LEAK_MIN, defaults.integral_leak_min),
                             ): selector.NumberSelector(
                                 selector.NumberSelectorConfig(
                                     min=0, max=240, step=1,

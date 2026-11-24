@@ -153,6 +153,11 @@ class RegulationConfig:
     gain_startup_threshold_c: float = 2.0  # error threshold for startup (aggressive) zone
     gain_fine_threshold_c: float = 0.5     # error threshold for fine (gentle) zone
 
+    @property
+    def integral_leak_min(self) -> float:
+        """The leak time in minutes, the unit the options dialog stores."""
+        return self.integral_leak_time_s / 60.0
+
     def tuning_attributes(self) -> dict[str, float | bool]:
         """The tuning a room runs on, as state attributes of its climate entity.
 
@@ -164,7 +169,7 @@ class RegulationConfig:
             "correction_kp": self.tuning.kp,
             "correction_ki": self.tuning.ki,
             "integral_deadband_c": self.integral_deadband_c,
-            "integral_leak_min": self.integral_leak_time_s / 60.0,
+            "integral_leak_min": self.integral_leak_min,
             "gain_scheduling_enabled": self.gain_scheduling_enabled,
             "gain_fine_multiplier": self.gain_fine_multiplier,
             "gain_startup_multiplier": self.gain_startup_multiplier,

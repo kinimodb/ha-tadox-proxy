@@ -267,7 +267,7 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
                 CONF_INTEGRAL_DEADBAND_C, config.integral_deadband_c
             )
             config.integral_leak_time_s = 60.0 * opts.get(
-                CONF_INTEGRAL_LEAK_MIN, config.integral_leak_time_s / 60.0
+                CONF_INTEGRAL_LEAK_MIN, config.integral_leak_min
             )
         return config
 

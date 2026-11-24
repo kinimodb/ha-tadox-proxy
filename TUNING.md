@@ -384,8 +384,8 @@ cases, and they need different answers.
 ### Heating Goes On After the Room Reached Its Target
 
 This matters most for a boiler that only runs on demand. After a slow final approach
-the long-term correction is still pushing when the room arrives, so the valve stays
-open for a while and `hvac_action` keeps showing `heating`
+the long-term correction can still be pushing when the room arrives, so the valve can
+stay open for a short while and `hvac_action` keeps showing `heating`
 ([why](docs/how-it-works.md#integral-windup)).
 
 1. Let the boiler follow the [needs heat sensor](docs/settings.md#needs-heat-for-a-boiler),
