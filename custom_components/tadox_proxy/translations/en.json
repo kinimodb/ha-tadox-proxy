@@ -102,12 +102,14 @@
             "data": {
               "correction_kp": "Proportional correction (Kp)",
               "correction_ki": "Integral correction (Ki)",
-              "integral_deadband_c": "Integral precision zone"
+              "integral_deadband_c": "Integral precision zone",
+              "integral_leak_min": "Integral leak time"
             },
             "data_description": {
               "correction_kp": "Proportional gain of the PI controller. Higher values react faster to temperature deviations.",
               "correction_ki": "Integral gain of the PI controller. Higher values correct persistent offsets more aggressively.",
-              "integral_deadband_c": "Integral only accumulates when the error is within this zone. Prevents overshoot during large transients."
+              "integral_deadband_c": "Integral only accumulates when the error is within this zone. Prevents overshoot during large transients.",
+              "integral_leak_min": "Near the target the integral drains back toward zero over this time, so a small lasting offset (for example a sensor that reads in 0.2 °C steps) cannot build up into a large push and overshoot. 0 turns the leak off (the behaviour before v1.7.0)."
             }
           },
           "gain_scheduling": {

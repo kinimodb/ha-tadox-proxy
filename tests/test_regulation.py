@@ -154,8 +154,9 @@ class TestPiCorrection:
 
     def test_integral_accumulates_near_target(self):
         """Integral should grow when error is within deadband (near target)."""
-        # The sum below is worked out for Ki 0.003, so the test sets it.
-        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
+        # The sum below is worked out for Ki 0.003 without the leak, so the
+        # test sets both.
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003), integral_leak_time_s=0)
         state = RegulationState()
 
         # Simulate 5 cycles of 60s each with 0.2°C persistent undershoot
@@ -194,8 +195,9 @@ class TestPiCorrection:
 
     def test_integral_decays_on_overshoot(self):
         """Integral should decrease when room overshoots."""
-        # The step below is worked out for Ki 0.003, so the test sets it.
-        reg = make_regulator(tuning=CorrectionTuning(ki=0.003))
+        # The step below is worked out for Ki 0.003 without the leak, so the
+        # test sets both.
+        reg = make_regulator(tuning=CorrectionTuning(ki=0.003), integral_leak_time_s=0)
         # Start with some integral built up
         state = RegulationState(integral_c=1.0)
 
@@ -380,21 +382,37 @@ class TestSlowApproach:
         assert result.target_for_tado_c <= room_c + TRV_OFFSET_C
 
     def test_the_default_leaves_three_times_as_much(self):
-        """The default Ki of 0.003 leaves about 1.2 °C at the crossing, three
+        """The default Ki of 0.003 leaves about 0.2 °C at the crossing, three
         times what the lower Ki leaves; the docs quote both figures."""
         default = _slow_approach(make_regulator()).integral_c
         low = _slow_approach(_low_ki_regulator()).integral_c
 
-        assert default == pytest.approx(1.2, abs=0.05)
+        assert default == pytest.approx(0.2, abs=0.02)
         assert default == pytest.approx(3 * low)
+
+    def test_without_the_leak_it_was_six_times_as_much(self):
+        """Before the leak (docs/adr/0004) the same approach left about 1.2 °C."""
+        state = _slow_approach(make_regulator(integral_leak_time_s=0))
+
+        assert state.integral_c == pytest.approx(1.2, abs=0.05)
 
 
 class TestWarmRoom:
     """A room that stays above its target winds the integral down."""
 
-    def test_integral_stops_at_minus_half_a_degree(self):
+    def test_integral_settles_where_the_leak_balances_the_error(self):
         _, integrals = _hold_room(
             make_regulator(), RegulationState(), SETPOINT_C + 0.1, minutes=8 * 60
+        )
+
+        # Ki * leak time * error = 0.003 * 900 * -0.1
+        assert integrals[-1] == pytest.approx(-0.27)
+        assert min(integrals) >= -0.27 - 1e-9
+
+    def test_without_the_leak_it_stops_at_minus_half_a_degree(self):
+        _, integrals = _hold_room(
+            make_regulator(integral_leak_time_s=0), RegulationState(),
+            SETPOINT_C + 0.1, minutes=8 * 60,
         )
 
         assert min(integrals) >= -0.5
@@ -415,17 +433,88 @@ class TestWarmRoom:
 
 
 class TestColdRoom:
-    """A room that stays a little below its target climbs to the ceiling, no further."""
+    """A room that stays a little below its target.
 
-    def test_integral_climbs_to_the_ceiling_and_stops_there(self):
+    A room sensor that reports in 0.2 °C steps cannot show a target that lies
+    between two steps: the bedroom's eco 17.5 °C reads 17.4 for hours, a
+    lasting error of 0.1 °C (docs/adr/0004).
+    """
+
+    def test_one_sensor_step_below_keeps_the_integral_small(self):
         _, integrals = _hold_room(
             make_regulator(), RegulationState(), SETPOINT_C - 0.1, minutes=10 * 60
+        )
+
+        # Ki * leak time * error = 0.003 * 900 * 0.1
+        assert integrals[-1] == pytest.approx(0.27)
+        assert max(integrals) <= 0.27 + 1e-9
+
+    def test_the_integral_is_there_within_half_an_hour(self):
+        _, integrals = _hold_room(
+            make_regulator(), RegulationState(), SETPOINT_C - 0.1, minutes=30
+        )
+
+        assert integrals[-1] > 0.2
+
+    def test_without_the_leak_it_climbs_to_the_ceiling_and_stops_there(self):
+        _, integrals = _hold_room(
+            make_regulator(integral_leak_time_s=0), RegulationState(),
+            SETPOINT_C - 0.1, minutes=10 * 60,
         )
 
         # 0.1 K for 10 h would add 10.8 K at the default Ki; the ceiling holds
         # it at +2.0, not lower (1.5) and not higher (3.0).
         assert integrals[-1] == pytest.approx(2.0)
         assert max(integrals) == pytest.approx(2.0)
+
+
+class TestLeak:
+    """Near the target the integral drains toward zero (docs/adr/0004)."""
+
+    def test_a_room_at_its_target_drains_the_integral(self):
+        _, integrals = _hold_room(
+            make_regulator(), RegulationState(integral_c=1.0), SETPOINT_C, minutes=60
+        )
+
+        # (1 - 60 / 900) ** 60, about exp(-60 / 15)
+        assert integrals[-1] == pytest.approx(0.016, abs=0.003)
+
+    def test_one_cycle_drains_by_the_share_of_the_leak_time(self):
+        state, _ = _hold_room(
+            make_regulator(), RegulationState(integral_c=0.9), SETPOINT_C, minutes=1
+        )
+
+        # 0.9 - 0.9 * 60 / 900
+        assert state.integral_c == pytest.approx(0.84)
+
+    def test_a_long_gap_drains_no_more_than_two_cycles(self):
+        result = _cycle(
+            make_regulator(), RegulationState(integral_c=0.9), SETPOINT_C,
+            time_delta_s=3600.0,
+        )
+
+        # dt is capped at max_integration_dt_s (120 s): 0.9 - 0.9 * 120 / 900
+        assert result.new_state.integral_c == pytest.approx(0.78)
+
+    def test_far_from_the_target_only_the_decay_acts(self):
+        result = _cycle(
+            make_regulator(), RegulationState(integral_c=1.0), SETPOINT_C - 1.0
+        )
+
+        assert result.new_state.integral_c == pytest.approx(0.95)
+
+    def test_zero_turns_the_leak_off(self):
+        state, _ = _hold_room(
+            make_regulator(integral_leak_time_s=0), RegulationState(integral_c=0.9),
+            SETPOINT_C, minutes=60,
+        )
+
+        assert state.integral_c == pytest.approx(0.9)
+
+    def test_the_command_still_carries_the_integral_from_before(self):
+        result = _cycle(make_regulator(), RegulationState(integral_c=0.9), SETPOINT_C)
+
+        assert result.push_c == pytest.approx(0.9)
 
 
 # -----------------------------------------------------------------------
@@ -1247,8 +1336,8 @@ class TestPush:
         """A minute has passed and the room is 0.2 K too cold: the integral
         grows from 0.50 to 0.54 in this cycle (Ki 0.003 * 0.2 * 60 s).  The
         command, and so the push, still carries the 0.50 from before:
-        1.8 * 0.2 + 0.50."""
-        result = make_regulator().compute(
+        1.8 * 0.2 + 0.50.  Worked out without the leak."""
+        result = make_regulator(integral_leak_time_s=0).compute(
             setpoint_c=21.0,
             room_temp_c=20.8,
             tado_internal_c=23.0,
@@ -1289,12 +1378,14 @@ class TestTuningAttributes:
             gain_startup_threshold_c=1.0,
             min_change_threshold_c=0.4,
             min_command_interval_s=240.0,
+            integral_leak_time_s=1800.0,
         )
 
         assert config.tuning_attributes() == {
             "correction_kp": 1.0,
             "correction_ki": 0.001,
             "integral_deadband_c": 0.4,
+            "integral_leak_min": 30.0,
             "gain_scheduling_enabled": False,
             "gain_fine_multiplier": 0.8,
             "gain_startup_multiplier": 2.5,

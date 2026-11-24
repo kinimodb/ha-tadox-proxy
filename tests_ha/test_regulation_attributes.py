@@ -37,6 +37,7 @@ OWN_TUNING = {
     "correction_kp": 1.0,
     "correction_ki": 0.001,
     "integral_deadband_c": 0.4,
+    "integral_leak_min": 30,
     "gain_scheduling_enabled": False,
     "gain_fine_multiplier": 0.8,
     "gain_startup_multiplier": 2.5,
