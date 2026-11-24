@@ -195,7 +195,7 @@ The room overshoots badly and takes an hour to come back down.
 This is called *windup*, and it is the classic way a PI controller ruins a heating
 system.
 
-Three defences are used here:
+Four defences are used here:
 
 1. **Only accumulate near the target.** The integral grows only when the error is
    inside a narrow band (default 0.3 °C). Outside that band it does not just stop —
@@ -222,14 +222,29 @@ Three defences are used here:
    all. Simulations with a ceiling of +0.5 or +1 °C left such thermostats too cold, so
    it stays at +2 °C.
 
-One case slips through the first defence. When a room creeps up the last 0.3 °C
+4. **A leak near the target.** Inside the band the integral also drains back toward
+   zero, by its own size divided by 15 minutes every minute (the *leak time*). A small
+   error that lasts then holds the integral at a matching small value, about 2.7 times
+   the error, instead of adding up without end. This is aimed at the room sensor's
+   steps. Many sensors report in 0.2 °C steps, so a target that lies between two
+   steps — 17.0 °C on a sensor that shows 16.9 and 17.1, or 17.5 °C on one that shows
+   17.4 and 17.6 — reads as 0.1 °C too cold for hours. Without the leak the integral
+   summed that tenth up to its ceiling, the valve opened wide, and the room ended up
+   half a degree or more above its target. With it the integral stops at about
+   0.27 °C. The price: a room that needs a lasting push to hold its target now
+   settles a little below it, by about a tenth in most rooms, more in a room that needs
+   a big push. The leak time can be set per room, and 0 turns the leak off
+   ([ADR 0004](adr/0004-integral-leak-near-target.md)).
+
+One case is only softened by these defences. When a room creeps up the last 0.3 °C
 slowly — a large room, a small radiator — it spends that whole time inside the band,
 and the integral builds up anyway. If those last 0.3 °C take 45 minutes, it reaches
-about 1.2 °C by the time the room arrives. Once the room arrives, it unwinds just as
-slowly: the 5 % decay only applies outside the band, and just above the target the
-error is small. So the valve stays open for a while, the room ends up a little above
-its target, and `hvac_action` keeps showing `heating`. The overshoot itself is usually
-small, but anything that reads `hvac_action` as "this room wants heat" keeps firing —
+about 0.2 °C by the time the room arrives (1.2 °C before the leak). Once the room
+arrives, it unwinds slowly: the 5 % decay only applies outside the band, and just
+above the target the error is small. So the valve can stay open for a while, the room
+ends up a little above its target, and `hvac_action` keeps showing `heating`. The
+overshoot itself is usually small, but anything that reads `hvac_action` as "this room
+wants heat" keeps firing —
 one reason a boiler should follow `error_c` instead (see
 [What "heating" means](settings.md#what-heating-means)).
 

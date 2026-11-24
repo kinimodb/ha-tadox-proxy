@@ -102,12 +102,14 @@
             "data": {
               "correction_kp": "Proportionale Korrektur (Kp)",
               "correction_ki": "Integrale Korrektur (Ki)",
-              "integral_deadband_c": "Integral-Präzisionszone"
+              "integral_deadband_c": "Integral-Präzisionszone",
+              "integral_leak_min": "Abbauzeit des Integrals"
             },
             "data_description": {
               "correction_kp": "Proportionalanteil des PI-Reglers. Höhere Werte reagieren schneller auf Temperaturabweichungen.",
               "correction_ki": "Integralanteil des PI-Reglers. Höhere Werte korrigieren anhaltende Abweichungen aggressiver.",
-              "integral_deadband_c": "Integral sammelt nur innerhalb dieser Zone. Verhindert Überschwingen bei großen Temperaturänderungen."
+              "integral_deadband_c": "Integral sammelt nur innerhalb dieser Zone. Verhindert Überschwingen bei großen Temperaturänderungen.",
+              "integral_leak_min": "Nahe am Ziel baut sich das Integral über diese Zeit wieder Richtung null ab. So kann eine kleine, anhaltende Abweichung (zum Beispiel bei einem Sensor, der in 0,2-°C-Schritten misst) nicht zu einem großen Schub anwachsen und den Raum überheizen. 0 schaltet den Abbau aus (Verhalten vor v1.7.0)."
             }
           },
           "gain_scheduling": {

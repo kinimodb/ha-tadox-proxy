@@ -65,6 +65,7 @@ from .const import (
     CONF_GAIN_STARTUP_MULTIPLIER,
     CONF_GAIN_STARTUP_THRESHOLD_C,
     CONF_INTEGRAL_DEADBAND_C,
+    CONF_INTEGRAL_LEAK_MIN,
     CONF_MIN_CHANGE_THRESHOLD_C,
     CONF_MIN_COMMAND_INTERVAL_S,
     CONF_NEEDS_HEAT_OFF_C,
@@ -264,6 +265,9 @@ class TadoXProxyClimate(RegulationMixin, PresetMixin, CoordinatorEntity, Climate
             )
             config.integral_deadband_c = opts.get(
                 CONF_INTEGRAL_DEADBAND_C, config.integral_deadband_c
+            )
+            config.integral_leak_time_s = 60.0 * opts.get(
+                CONF_INTEGRAL_LEAK_MIN, config.integral_leak_min
             )
         return config
 

@@ -102,12 +102,14 @@
             "data": {
               "correction_kp": "Proporcionální korekce (Kp)",
               "correction_ki": "Integrační korekce (Ki)",
-              "integral_deadband_c": "Pásmo přesnosti integrace"
+              "integral_deadband_c": "Pásmo přesnosti integrace",
+              "integral_leak_min": "Doba odbourání integrace"
             },
             "data_description": {
               "correction_kp": "Proporcionální zesílení PI regulátoru. Vyšší hodnoty reagují rychleji na teplotní odchylky.",
               "correction_ki": "Integrační zesílení PI regulátoru. Vyšší hodnoty agresivněji korigují trvalou teplotní odchylku.",
-              "integral_deadband_c": "Integrační korekce se načítá pouze tehdy, když je odchylka v rámci tohoto pásma. Zabraňuje přetopení při velkých přechodových dějích."
+              "integral_deadband_c": "Integrační korekce se načítá pouze tehdy, když je odchylka v rámci tohoto pásma. Zabraňuje přetopení při velkých přechodových dějích.",
+              "integral_leak_min": "V blízkosti cíle se integrační složka během této doby vrací k nule, takže malá trvalá odchylka (například u čidla, které měří po krocích 0,2 °C) nemůže narůst ve velký tlak a přetopení. 0 odbourávání vypne (chování před v1.7.0)."
             }
           },
           "gain_scheduling": {

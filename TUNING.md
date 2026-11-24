@@ -31,7 +31,8 @@ did what.
 |---|---|---|
 | Room sails past the target, then drifts back down | Correction too strong | [Strong overshoot](#strong-overshoot--1c) |
 | Temperature cycles up and down repeatedly | Correction too strong, or commands too frequent | [Oscillation](#temperature-oscillates-strongly) |
-| Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak; some thermostats need a lasting positive correction | Less than about 0.3°C below target: if you lowered [Ki](#ki-integral-correction), set it back to 0.003 (the default), otherwise raise it a little, to 0.004 or 0.005 (a bit more overshoot). From about 0.3°C below target Ki does not help: the correction only builds up inside the band `integral_deadband_c` (0.3°C by default) and decays outside it. Widening that band might help; this has not been tested |
+| Room sits a tenth below target for hours, then ends up half a degree or more above it | The long-term correction adds up a small offset, often the room sensor's 0.2°C steps | If you set the [integral leak time](#integral-leak-time) to 0 or a long time, set it back to 15 minutes (the default) |
+| Room creeps the last tenth slowly, or stays a little below target for hours | Long-term correction too weak; some thermostats need a lasting positive correction | Less than about 0.3°C below target: set a longer [integral leak time](#integral-leak-time), for example 30 or 60 minutes. If you lowered [Ki](#ki-integral-correction), set it back to 0.003 (the default), otherwise raise it a little, to 0.004 or 0.005 (a bit more overshoot). From about 0.3°C below target Ki does not help: the correction only builds up inside the band `integral_deadband_c` (0.3°C by default) and decays outside it. Widening that band might help; this has not been tested |
 | The boiler keeps firing, or the valve keeps heating, after the room has reached its target (a boiler that only runs on demand) | After a slow final approach the long-term correction keeps the valve open for a while, and a boiler that follows the valve or `hvac_action` keeps running with it | [Heating goes on after the target](#heating-goes-on-after-the-room-reached-its-target) |
 | A room at its target still takes some heat while another room keeps a shared boiler running | Mostly the shared boiler, not the settings. Tuning changes little here | [Still not right?](#still-not-right) |
 | Room takes very long to warm up | Often the radiator or the hot water supply, and then a setting rarely helps. Sometimes the radiator is still cool while the room is already close to its target | [Room takes long to warm up](#room-takes-long-to-warm-up) |
@@ -144,7 +145,7 @@ faster, so it is rarely the answer to a slow room: see
 | 0.0 | No long-term correction (P + feedforward only) |
 | **0.001** | A third of the default. Less push past the target after a slow approach, but the last tenth takes longer |
 | **0.002** | Two thirds of the default |
-| **0.003** | Default. While the room stays 0.2°C off, the correction grows by about 0.36°C every 10 minutes |
+| **0.003** | Default. While the room stays 0.2°C off, the correction grows by about 0.26°C in the first 10 minutes and settles near 0.54°C (with the default leak time of 15 minutes) |
 | **0.005** | Faster, higher overshoot risk |
 | 0.01+ | Aggressive – only for systematic offset |
 
@@ -153,16 +154,34 @@ correction: at half the gap, half the speed.
 
 **Rule of thumb:** Higher Ki = a lasting shortfall is closed sooner, but overshoot risk increases.
 
-**Room creeps the last tenth slowly, or stays a little below target for hours?** If you
-lowered Ki, set it back to 0.003, the default. Otherwise raise it a little, to 0.004 or
-0.005. This happens most with a thermostat that opens its valve in proportion to the
-gap: it needs a lasting positive correction to close the last tenth. The price of a
-higher Ki is a bit more overshoot after a slow approach.
+**Room creeps the last tenth slowly, or stays a little below target for hours?** First
+set a longer [integral leak time](#integral-leak-time). If you lowered Ki, set it back
+to 0.003, the default. Otherwise raise it a little, to 0.004 or 0.005. This happens
+most with a thermostat that opens its valve in proportion to the gap: it needs a
+lasting positive correction to close the last tenth. The price of a higher Ki or a
+longer leak time is a bit more overshoot after a slow approach.
 
 This works while the room is less than about 0.3°C below target. Further below, the
 correction does not build up at all, whatever Ki is: it decays, and the band
 `integral_deadband_c` is what matters. A wider band might help there; this has not
 been tested.
+
+### Integral Leak Time
+
+Near the target the long-term correction drains back toward zero over this time
+(Options → PI Controller, default 15 minutes). A small offset that lasts for hours
+then keeps the correction at Ki × leak time × offset — 2.7 times the offset at the
+defaults — instead of letting it climb to its limit of 2°C.
+
+| Value | Behavior |
+|-------|----------|
+| 0 | No leak: the correction adds up any lasting offset (the behaviour before v1.7.0). A room whose sensor cannot show the target exactly overshoots by half a degree or more every few hours |
+| **15 min** | Default. A lasting offset of 0.1°C holds the correction at about 0.27°C |
+| 30–60 min | More lasting correction: for a room that needs a lot of heat to hold its target and stays a little below it. A bit more overshoot after a long stay just below the target |
+
+**Rule of thumb:** If a room overshoots after sitting just below its target for a long
+time, shorten the leak time (or set it back to 15). If a room stays a tenth or two
+below its target for hours, lengthen it.
 
 **Heating goes on after the room has reached its target?** That is the other side of
 the same correction. Let the boiler follow the needs heat sensor; a lower Ki for that
@@ -199,6 +218,7 @@ These parameters can be adjusted in the options flow under "PI Controller":
 | `correction_kp` | 0.8 | 0.0–5.0 | Proportional gain of the PI controller |
 | `correction_ki` | 0.003 | 0.0–0.1 | Integral gain of the PI controller |
 | `integral_deadband_c` | 0.3°C | 0.1–1.0°C | Integral only accumulates when error is within this zone |
+| `integral_leak_min` | 15 min | 0–240 min | Inside that zone the integral also drains toward zero over this time; 0 = off |
 
 ### Configurable Parameters (Options → Gain Scheduling)
 
@@ -357,15 +377,15 @@ cases, and they need different answers.
 
 1. Reduce Kp (e.g., from 0.8 to 0.5).
 2. If gain scheduling is enabled, reduce the near-target strength (e.g., 0.7).
-3. Check `i_correction_c` when the room arrives: above 1.0 means the integral built up while the room crept up the last few tenths of a degree, and it unwinds only slowly ([why](docs/how-it-works.md#integral-windup)). Steps 4 and 5 keep it small.
+3. Check `i_correction_c` when the room arrives: above 1.0 means the integral built up while the room crept up the last few tenths of a degree, and it unwinds only slowly ([why](docs/how-it-works.md#integral-windup)). With the default leak time it rarely gets that high: if you set the [integral leak time](#integral-leak-time) to 0 or longer than 15 minutes, set it back first. Steps 4 and 5 keep it small.
 4. If you raised Ki above its default of 0.003, set it back. At the default, lower it for this room, for example to 0.001; the last tenth then takes longer.
 5. Reduce `integral_deadband_c` (Options → PI Controller) to tighten the precision zone.
 
 ### Heating Goes On After the Room Reached Its Target
 
 This matters most for a boiler that only runs on demand. After a slow final approach
-the long-term correction is still pushing when the room arrives, so the valve stays
-open for a while and `hvac_action` keeps showing `heating`
+the long-term correction can still be pushing when the room arrives, so the valve can
+stay open for a short while and `hvac_action` keeps showing `heating`
 ([why](docs/how-it-works.md#integral-windup)).
 
 1. Let the boiler follow the [needs heat sensor](docs/settings.md#needs-heat-for-a-boiler),

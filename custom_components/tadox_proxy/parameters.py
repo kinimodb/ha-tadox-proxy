@@ -126,6 +126,15 @@ class RegulationConfig:
     # 0.95 means ~5% reduction per 60s cycle → drains in ~15 min.
     integral_decay: float = 0.95
 
+    # Leak time constant of the integral inside the deadband (s); 0 = off.
+    # The integral drains toward zero at integral / leak time per second, so
+    # a lasting small error e settles it near ki * leak time * e (2.7 * e at
+    # the defaults) instead of the +2.0 ceiling.  Sensors that report in
+    # 0.2 °C steps show a target between two steps as a lasting 0.1 °C error;
+    # without the leak that wound the integral up for hours and the room
+    # overshot by 0.5-0.9 °C (docs/adr/0004).
+    integral_leak_time_s: float = 900.0
+
     # Upper bound for the time step used by the integral (s).  Cycles skipped
     # during a sensor/coordinator outage would otherwise make the next dt
     # cover the whole gap and push the integral to its clamp in one step.
@@ -144,6 +153,11 @@ class RegulationConfig:
     gain_startup_threshold_c: float = 2.0  # error threshold for startup (aggressive) zone
     gain_fine_threshold_c: float = 0.5     # error threshold for fine (gentle) zone
 
+    @property
+    def integral_leak_min(self) -> float:
+        """The leak time in minutes, the unit the options dialog stores."""
+        return self.integral_leak_time_s / 60.0
+
     def tuning_attributes(self) -> dict[str, float | bool]:
         """The tuning a room runs on, as state attributes of its climate entity.
 
@@ -155,6 +169,7 @@ class RegulationConfig:
             "correction_kp": self.tuning.kp,
             "correction_ki": self.tuning.ki,
             "integral_deadband_c": self.integral_deadband_c,
+            "integral_leak_min": self.integral_leak_min,
             "gain_scheduling_enabled": self.gain_scheduling_enabled,
             "gain_fine_multiplier": self.gain_fine_multiplier,
             "gain_startup_multiplier": self.gain_startup_multiplier,

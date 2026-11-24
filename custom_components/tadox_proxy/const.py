@@ -78,6 +78,8 @@ CONF_GAIN_FINE_THRESHOLD_C = "gain_fine_threshold_c"
 CONF_MIN_COMMAND_INTERVAL_S = "min_command_interval_s"
 CONF_MIN_CHANGE_THRESHOLD_C = "min_change_threshold_c"
 CONF_INTEGRAL_DEADBAND_C = "integral_deadband_c"
+# Leak time of the integral near the target, in minutes (0 = off)
+CONF_INTEGRAL_LEAK_MIN = "integral_leak_min"
 
 # Options the climate entity applies live via its update listener: those
 # written at runtime by the number/switch entities, and the needs-heat

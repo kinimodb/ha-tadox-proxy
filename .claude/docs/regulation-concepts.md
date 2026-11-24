@@ -24,10 +24,11 @@ Verhindert, dass bei großen Abweichungen (z.B. Kaltstart) ein riesiger Integral
 
 ## Anti-Windup
 
-Drei Maßnahmen:
+Vier Maßnahmen:
 1. **Sättigungs-Block**: Integral wird nicht weiter aufgebaut wenn Output am Limit.
 2. **Deadband-Gating mit Decay**: Außerhalb der Deadband wird der bestehende Integral-Term langsam abgebaut.
 3. **Asymmetrische Grenzen** (`integral_min_c = -0.5`, `integral_max_c = +2.0`): Ein geschlossenes Ventil lässt sich nicht weiter schließen. Unterhalb von etwa −0.5 verzögert das Integral nur die nächste Heizphase, denn nach dem Arbeitsmodell öffnet das Ventil erst wieder, wenn 1.8·e > −I (bei −2: ~1.1 K unter Ziel oder Stunden später; bei −0.5: etwa 0.3 K darunter – rechnerisch 0.28, doch der Befehl wird auf 0.1 gerundet und erst gesendet, wenn er sich um mindestens 0.3 ändert). Die Wartezeit sinkt, ist aber nicht weg: ein sehr gut gedämmter Raum kühlt so langsam aus, dass er auch dann noch Stunden braucht. Oben bleibt +2: Kappen bei +0.5/+1 ließen Thermostate mit proportionalem Band (Ventil öffnet proportional zur Abweichung) zu kalt.
+4. **Leck in der Deadband** (`integral_leak_time_s = 900`, Option „Integral leak time“ in Minuten, 0 = aus): Innerhalb der Deadband verliert das Integral je Zyklus `Integral × dt / Leckzeit`. Ein anhaltender Fehler e hält es bei Ki × Leckzeit × e (2.7·e) statt beim Deckel. Grund: Raumsensoren melden in 0.2-K-Schritten; ein Ziel zwischen zwei Schritten liest sich stundenlang als 0.1 K Fehler, das Integral lief bis +2 und der Raum schoss 0.5–0.9 K über (Gästezimmer 25×, WC 17× in knapp drei Wochen; Schlafzimmer 23.11.). Preis: Räume, die einen dauerhaften Schub brauchen, bleiben im Modell bis 0.15 K (bei 0.6 K Bedarf) bzw. 0.25 K (bei 1.4 K) unter Ziel. Verworfen: Totzone |e| < 0.15 (hilft nicht, wo die Sensorschritte das Ziel treffen, schaltet das Integral sonst ganz ab, unter L1 warm), Deckel P1/P2, längere Lecks. `docs/adr/0004-integral-leak-near-target.md`.
 
 Ventil-bewusste bedingte Integration (kein negatives Integrieren, solange u unter einer Grenze liegt) wurde getestet und verworfen: Räume laufen warm, weil Thermostate, die um u = 0 takten, das Integral nach oben schaukeln. Zahlen und die übrigen verworfenen Varianten: `docs/adr/0002-integral-windup-low-gain-and-tight-floor.md`; dessen Ki-Teil ersetzt `docs/adr/0003-ki-default-back-to-0003.md`, die Untergrenze −0.5 gilt weiter.
 

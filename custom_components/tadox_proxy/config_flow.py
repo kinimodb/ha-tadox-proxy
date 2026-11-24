@@ -31,6 +31,7 @@ from .const import (
     CONF_GAIN_STARTUP_MULTIPLIER,
     CONF_GAIN_STARTUP_THRESHOLD_C,
     CONF_INTEGRAL_DEADBAND_C,
+    CONF_INTEGRAL_LEAK_MIN,
     CONF_MANUAL_MODE_ACTION,
     CONF_MANUAL_MODE_DURATION_MIN,
     CONF_MIN_CHANGE_THRESHOLD_C,
@@ -440,6 +441,16 @@ class TadoxProxyOptionsFlow(config_entries.OptionsFlow):
                                     min=0.1, max=1.0, step=0.1,
                                     mode=selector.NumberSelectorMode.BOX,
                                     unit_of_measurement="°C",
+                                )
+                            ),
+                            vol.Required(
+                                CONF_INTEGRAL_LEAK_MIN,
+                                default=opts.get(CONF_INTEGRAL_LEAK_MIN, defaults.integral_leak_min),
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0, max=240, step=1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                    unit_of_measurement="min",
                                 )
                             ),
                         }

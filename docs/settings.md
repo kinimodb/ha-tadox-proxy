@@ -496,6 +496,16 @@ the temperature you have.
 | Kp (Proportional) | 0.8 | 0.0–5.0 | How hard it reacts to the current gap |
 | Ki (Integral) | 0.003 | 0.0–0.1 | How fast it corrects a long-standing offset |
 | Integral precision zone | 0.3 °C | 0.1–1.0 °C | Long-term correction only builds up inside this band |
+| Integral leak time | 15 min | 0–240 min | Inside the band, the long-term correction also drains back toward zero over this time. This stops a small offset that lasts for hours from building up into a big push. 0 turns it off (the behaviour before v1.7.0) |
+
+**Integral leak time.** Many room sensors report in 0.2 °C steps. If your target lies
+between two steps, the sensor shows the room 0.1 °C too cold for hours, even when it
+is fine. Without the leak, the long-term correction kept growing from that tenth, and
+the room ended up half a degree or more above its target. With the leak, the
+correction stays small. A room that needs a lot of heat to hold its target can now
+settle slightly below it, about a tenth of a degree in most rooms. If a room stays
+too cool, set a longer time, for example 30 or 60 minutes, or 0 for the old behaviour
+([details](how-it-works.md#integral-windup)).
 
 A value you set stays, also through updates. Saving this dialog stores every value it
 shows, so a later change of a default does not reach a room whose dialog was saved.
@@ -573,6 +583,7 @@ something is wrong or when you are curious what the integration is thinking.
 | `target_for_tado_c` | The setpoint the integration has computed for the Tado. It is sent once it differs by at least the minimum change (0.3 °C by default) from the setpoint the Tado holds and the command interval allows it. What the Tado really holds is the `temperature` of the Tado's own climate entity |
 | `correction_kp` / `correction_ki` | The configured gains, before gain scheduling scales Kp |
 | `integral_deadband_c` | The configured integral precision zone |
+| `integral_leak_min` | The configured integral leak time, in minutes |
 | `gain_scheduling_enabled`, `gain_fine_multiplier`, `gain_startup_multiplier`, `gain_fine_threshold_c`, `gain_startup_threshold_c` | The configured [gain scheduling](#gain-scheduling) |
 | `min_change_threshold_c` / `min_command_interval_s` | The configured minimum change and minimum time between commands |
 | `user_preset` | Your own choice – what comes back once nothing else holds the room. `none` means Manual |
@@ -598,12 +609,12 @@ integration is actually regulating. They disappear while the proxy is off, and w
 the room sensor has been gone for longer than the grace period — unless a backup room
 sensor has taken over.
 
-The configured values — the gains, the integral precision zone, gain scheduling,
+The configured values — the gains, the integral precision zone and leak time, gain scheduling,
 minimum change and minimum time between commands — are there whenever the proxy is
 available. They only change when you change the setting, so the history of the entity
 shows which values a room ran on, as far back as your history goes. Kp and Ki
 (`correction_kp`, `correction_ki`) have been recorded all along; the other values are
-recorded from v1.6.1 on.
+recorded from v1.6.1 on, the leak time from v1.7.0 on.
 
 ### What "heating" means
 
@@ -614,7 +625,7 @@ what the readings show, but the Tado X does not report its valve, so the proxy c
 know for sure. It does **not** mean that the room still needs heat: the correction
 keeps the valve slightly open to hold the room at its target, so a room only 0.05 °C
 below target can show Heating. After a slow final approach it can even stay on for a
-while once the room is slightly above its target (see
+short while once the room is slightly above its target (see
 [Integral windup](how-it-works.md#integral-windup)).
 
 To decide whether a boiler should run, use the

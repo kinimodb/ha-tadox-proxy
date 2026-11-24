@@ -14,7 +14,7 @@ correction handles any remaining steady-state error.
                     + kp * error             (proportional correction)
                     + integral               (integral correction)
 
-Anti-windup (three mechanisms):
+Anti-windup (four mechanisms):
 1. The integral freezes whenever the output is saturated (clamped at max or
    min target) in the same direction as the error.
 2. The integral only accumulates when |error| < deadband (near target).
@@ -23,6 +23,12 @@ Anti-windup (three mechanisms):
 3. The integral limits are asymmetric (integral_min_c -0.5, integral_max_c
    +2.0): a shut valve cannot be shut further, so a deeper negative integral
    would only delay the next heating (see parameters.py and docs/adr/0002).
+4. Near the target the integral also leaks toward zero (time constant
+   integral_leak_time_s, 15 min).  A room sensor that reads in 0.2 °C steps
+   shows a target between two steps as a lasting 0.1 °C error; without the
+   leak the integral summed it for hours to +2 °C and the room overshot
+   (docs/adr/0004).  With the leak a lasting error e holds the integral
+   near Ki * leak time * e (about 2.7 * e) instead.
 """
 from __future__ import annotations
 
@@ -219,17 +225,25 @@ class FeedforwardPiRegulator:
             # Mechanism B: only accumulate near target, decay otherwise
             near_target = abs(error) < self.cfg.integral_deadband_c
 
-            if may_integrate and near_target:
-                # Near target → accumulate integral for steady-state accuracy.
+            if near_target:
                 # Cap dt so a long gap (skipped cycles) cannot spike it.
                 dt = min(time_delta_s, self.cfg.max_integration_dt_s)
-                new_integral += error * self.cfg.tuning.ki * dt
+                if may_integrate:
+                    # Near target → accumulate integral for steady-state accuracy.
+                    new_integral += error * self.cfg.tuning.ki * dt
+                # Mechanism D: leak (docstring, point 4).  The integral
+                # drains toward zero with the leak time constant, so it
+                # follows the recent error instead of summing a one-step
+                # sensor offset for hours.
+                leak_s = self.cfg.integral_leak_time_s
+                if leak_s > 0:
+                    new_integral -= state.integral_c * min(1.0, dt / leak_s)
                 # Mechanism C: asymmetric limits (docstring, point 3)
                 new_integral = max(
                     self.cfg.integral_min_c,
                     min(self.cfg.integral_max_c, new_integral),
                 )
-            elif not near_target:
+            else:
                 # Far from target → decay integral to prevent overshoot
                 new_integral *= self.cfg.integral_decay
 
